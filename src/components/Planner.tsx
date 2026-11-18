@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   ALL_SLOTS, HOLIDAYS, HORIZON_END, HORIZON_START, RANGE_23NOV, SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL,
-  addDays, fmtDay, isWeekendOrHoliday, isoWeekNumber, slotsForDay, toDate, weekStart,
+  addDays, daysInRange, fmtDay, isWeekendOrHoliday, isoWeekNumber, monthKey, monthLabel, slotsForDay, toDate, weekStart,
 } from '../lib/calendar'
 import { autoFill, checkAssignment, existingViolations, personSlots, preferenceWarning, RULE_SHORT, type Violation } from '../lib/rules'
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
@@ -52,8 +52,19 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
   const covered = visibleSlots.filter((s) => byId[assignments[s.id]]).length
   const active = people.filter((p) => p.active)
 
-  const weeks: string[] = []
-  for (let w = weekStart(from); w <= HORIZON_END; w = addDays(w, 7)) weeks.push(w)
+  // Il calendario è diviso per mese: ogni mese ha la sua intestazione e le sue settimane;
+  // i giorni dell'altro mese nelle settimane a cavallo restano vuoti.
+  const months = [...new Set(daysInRange(from, HORIZON_END).map(monthKey))]
+  const weeksOf = (m: string) => {
+    const days = daysInRange(from, HORIZON_END).filter((d) => monthKey(d) === m)
+    const out: string[] = []
+    for (let w = weekStart(days[0]); w <= days[days.length - 1]; w = addDays(w, 7)) out.push(w)
+    return out
+  }
+  const monthStats = (m: string) => {
+    const ss = visibleSlots.filter((x) => monthKey(x.date) === m)
+    return { total: ss.length, covered: ss.filter((x) => byId[assignments[x.id]]).length, blocked: excludedDays.filter((d) => d >= from && monthKey(d) === m).length }
+  }
 
   const assign = (slotId: string, personId: string) => {
     const a = { ...assignments }
@@ -101,18 +112,29 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
+            {months.map((m, mi) => {
+              const st = monthStats(m)
+              return (
+            <section key={m} aria-label={monthLabel(m)} className={mi > 0 ? 'mt-8 border-t-2 border-slate-200 pt-6' : ''}>
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-blue-700 px-4 py-2.5 text-white">
+              <h3 className="text-lg font-semibold tracking-wide uppercase">{monthLabel(m)}</h3>
+              <span className="text-sm text-blue-100">{st.covered}/{st.total} slot coperti</span>
+              {st.blocked > 0 && <span className="text-sm text-blue-100">· {st.blocked} {st.blocked === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</span>}
+            </div>
             <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] gap-1 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <div />
               {WEEKDAYS.map((d) => <div key={d} className="px-1">{d}</div>)}
             </div>
-            {weeks.map((w) => (
+            {weeksOf(m).map((w) => (
               <div key={w} className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] gap-1 pb-1">
                 <div className="pt-2 text-xs text-slate-400" title={`Settimana ISO ${isoWeekNumber(w)}`}>W{isoWeekNumber(w)}</div>
                 {Array.from({ length: 7 }, (_, i) => addDays(w, i)).map((day) => {
-                  if (day < from || day > HORIZON_END) return <div key={day} className="rounded-lg bg-slate-50/60" />
+                  if (day < from || day > HORIZON_END || monthKey(day) !== m) {
+                    return <div key={day} className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50" aria-hidden />
+                  }
                   const festive = isWeekendOrHoliday(day)
                   const d = toDate(day)
-                  const dayNum = `${d.getUTCDate()}${d.getUTCDate() === 1 || day === from ? ` ${fmtDay(day).split(' ')[2]}` : ''}`
+                  const dayNum = String(d.getUTCDate())
                   if (excluded.has(day)) {
                     return (
                       <div key={day} className="flex flex-col rounded-lg border border-dashed border-slate-300 bg-slate-100 p-1.5 text-slate-500" style={{ backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 6px, rgb(226 232 240) 6px 7px)' }}>
@@ -185,6 +207,9 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
                 })}
               </div>
             ))}
+            </section>
+              )
+            })}
           </div>
         </div>
 
