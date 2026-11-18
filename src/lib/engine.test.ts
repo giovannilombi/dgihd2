@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_SLOTS, weekday } from './calendar'
 import { baseHourly, saturdayHours, slotEconomics, sundayHours } from './economics'
-import { autoFill, checkAssignment, compensationsFor, existingViolations, preferenceWarning } from './rules'
+import { autoFill, checkAssignment, compensationsFor, existingViolations, preferenceWarning, regenerate } from './rules'
 import { parseTeamText, TEMPLATE_CSV } from './team'
 import { normalizeWithReport } from './store'
 import { buildShiftsPdf, buildShiftsXlsx } from './shiftsExport'
@@ -210,6 +210,28 @@ describe('export turni PDF', () => {
     const buf = await buildShiftsPdf([mk('a', 30000)], { '2026-11-24|N': 'a' }, ['2026-11-25'])
     const head = new TextDecoder().decode(new Uint8Array(buf).slice(0, 5))
     expect(head).toBe('%PDF-')
+  })
+})
+
+describe('turni bloccati', () => {
+  it('la rigenerazione mantiene i bloccati e ricalcola gli altri', () => {
+    const team = Array.from({ length: 10 }, (_, i) => mk(`p${i}`, 26000 + i * 2500))
+    const first = autoFill(team, {}, P, '2026-11-01', '2026-12-31')
+    // l'utente cambia a mano un turno e lo blocca
+    const manual = { ...first, '2026-11-24|N': 'p9' }
+    const res = regenerate(team, manual, P, '2026-11-01', '2026-12-31', [], ['2026-11-24|N'])
+    expect(res['2026-11-24|N']).toBe('p9')
+    expect(existingViolations(team, res, P)).toEqual({})
+  })
+  it('i turni non bloccati vengono ricalcolati', () => {
+    const team = [mk('a', 30000), mk('b', 30000)]
+    const res = regenerate(team, { '2026-11-24|N': 'a', '2026-11-26|N': 'b' }, P, '2026-11-01', '2026-12-31', [], ['2026-11-26|N'])
+    expect(res['2026-11-26|N']).toBe('b')
+    expect(Object.keys(res).length).toBeGreaterThan(2)
+  })
+  it('import JSON scarta i blocchi senza assegnazione', () => {
+    const { data } = normalizeWithReport({ people: [{ id: 'a', name: 'X', level: 'B1', ral: 30000 }], assignments: { '2026-11-24|N': 'a' }, pinned: ['2026-11-24|N', '2026-11-25|N'] })
+    expect(data.pinned).toEqual(['2026-11-24|N'])
   })
 })
 

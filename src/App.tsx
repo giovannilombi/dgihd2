@@ -144,8 +144,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <Button onClick={exportShiftsXlsx} disabled={exporting}>Esporta turni (Excel)</Button>
           <Button onClick={exportShiftsPdf} disabled={exporting}>Esporta turni (PDF)</Button>
         </>}>
-        <Planner people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays}
-          onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay} />
+        <Planner people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
+          onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay}
+          onTogglePin={(sid) => setData((d) => ({ ...d, pinned: d.pinned.includes(sid) ? d.pinned.filter((x) => x !== sid) : [...d.pinned, sid] }))} />
       </Section>
     ),
     payroll: (

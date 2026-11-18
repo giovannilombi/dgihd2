@@ -10,6 +10,8 @@ export interface AppData {
   assignments: Assignments
   /** Giorni non richiesti dal cliente: esclusi da rotazione, copertura, ricavi ed export. */
   excludedDays: string[]
+  /** Turni bloccati a mano: l'auto-compilazione non li modifica. */
+  pinned: string[]
 }
 
 const STORAGE_KEY = 'reperibilita-q4-2026:data'
@@ -22,6 +24,7 @@ export const defaultData = (): AppData => ({
   people: structuredClone(DEFAULT_TEAM),
   assignments: {},
   excludedDays: [],
+  pinned: [],
 })
 
 /**
@@ -86,7 +89,9 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
   const excludedDays = Array.isArray(d.excludedDays) ? [...new Set((d.excludedDays as unknown[]).filter((x): x is string => typeof x === 'string' && days.has(x)))].sort() : []
   for (const sid of Object.keys(assignments)) if (excludedDays.includes(SLOT_BY_ID[sid].date)) delete assignments[sid]
 
-  return { data: { version: 1, params, people, assignments, excludedDays }, warnings }
+  const pinned = Array.isArray(d.pinned) ? [...new Set((d.pinned as unknown[]).filter((x): x is string => typeof x === 'string' && !!assignments[x]))] : []
+
+  return { data: { version: 1, params, people, assignments, excludedDays, pinned }, warnings }
 }
 
 export const normalize = (raw: unknown) => normalizeWithReport(raw).data
@@ -106,5 +111,12 @@ export function useAppData() {
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch { /* quota o storage bloccato */ }
   }, [data])
-  return { data, setData, storageOk }
+  /** Setter che mantiene coerenti i blocchi: un turno bloccato esiste solo se lo slot è assegnato. */
+  const update = (fn: AppData | ((d: AppData) => AppData)) =>
+    setData((prev) => {
+      const next = typeof fn === 'function' ? fn(prev) : fn
+      const pinned = (next.pinned ?? []).filter((id) => next.assignments[id])
+      return pinned.length === (next.pinned ?? []).length && next.pinned ? next : { ...next, pinned }
+    })
+  return { data, setData: update, storageOk }
 }

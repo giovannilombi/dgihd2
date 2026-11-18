@@ -244,3 +244,16 @@ export function autoFill(people: Person[], a: Assignments, p: Params, from: stri
   }
   return result
 }
+
+/**
+ * Rigenera il periodo [from, to]: mantiene i turni bloccati (e quelli fuori periodo),
+ * scarta gli altri e riassegna tutto il resto rispettando vincoli e disponibilità.
+ */
+export function regenerate(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[], pinned: string[]): Assignments {
+  const keep = new Set(pinned)
+  const base = Object.fromEntries(Object.entries(a).filter(([sid]) => {
+    const d = SLOT_BY_ID[sid]?.date
+    return !d || d < from || d > to || keep.has(sid)
+  }))
+  return autoFill(people, base, p, from, to, excludedDays)
+}

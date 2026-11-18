@@ -3,7 +3,7 @@ import {
   ALL_SLOTS, HOLIDAYS, HORIZON_END, HORIZON_START, RANGE_23NOV, SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL,
   addDays, daysInRange, fmtDay, isWeekendOrHoliday, isoWeekNumber, monthKey, monthLabel, slotsForDay, toDate, weekStart,
 } from '../lib/calendar'
-import { autoFill, checkAssignment, existingViolations, personSlots, preferenceWarning, RULE_SHORT, type Violation } from '../lib/rules'
+import { regenerate, checkAssignment, existingViolations, personSlots, preferenceWarning, RULE_SHORT, type Violation } from '../lib/rules'
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 
@@ -12,8 +12,19 @@ interface Props {
   assignments: Assignments
   params: Params
   excludedDays: string[]
+  pinned: string[]
   onChange: (a: Assignments) => void
   onToggleDay: (day: string) => void
+  onTogglePin: (slotId: string) => void
+}
+
+function PinIcon({ filled, className = 'h-3.5 w-3.5' }: { filled?: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden>
+      <path d="M7 2.5h6l-.8 5 3 3v1.5H4.8V10.5l3-3L7 2.5Z" />
+      <path d="M10 12v5.5" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 function LockIcon({ open, className = 'h-4 w-4' }: { open?: boolean; className?: string }) {
@@ -28,7 +39,8 @@ function LockIcon({ open, className = 'h-4 w-4' }: { open?: boolean; className?:
 export type RangeMode = 'all' | 'from23'
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 
-export function Planner({ people, assignments, params, excludedDays, onChange, onToggleDay }: Props) {
+export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin }: Props) {
+  const pinnedSet = new Set(pinned)
   const [range, setRange] = useState<RangeMode>('all')
   const [focus, setFocus] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -74,17 +86,24 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
     setNotice(null)
   }
 
+  // Turni del periodo visibile che l'auto-compilazione può ricalcolare (non bloccati)
+  const inRange = (sid: string) => SLOT_BY_ID[sid]?.date >= from
+  const keepOnly = () => Object.fromEntries(Object.entries(assignments).filter(([sid]) => !inRange(sid) || pinnedSet.has(sid)))
+  const pinnedInRange = pinned.filter(inRange).length
+
   const runAutofill = () => {
-    const res = autoFill(people, assignments, params, from, HORIZON_END, excludedDays)
-    const added = Object.keys(res).length - Object.keys(assignments).length
+    const recalculated = Object.keys(assignments).filter((sid) => inRange(sid) && !pinnedSet.has(sid)).length
+    if (recalculated && !confirm(`L'auto-compilazione ricalcola ${recalculated} turni non bloccati del periodo${pinnedInRange ? ` e mantiene i ${pinnedInRange} turni bloccati` : ''}. Per conservare una scelta fatta a mano, bloccala con la puntina. Continuare?`)) return
+    const res = regenerate(people, assignments, params, from, HORIZON_END, excludedDays, pinned)
+    const assigned = Object.keys(res).filter(inRange).length - pinnedInRange
     const missing = visibleSlots.filter((s) => !res[s.id]).length
     onChange(res)
-    setNotice(`Auto-compilazione: ${added} turni aggiunti. ${missing ? `${missing} slot restano scoperti: nessuna risorsa attiva può coprirli senza violare i vincoli (aggiungi persone al team).` : 'Tutti gli slot del periodo sono coperti.'}`)
+    setNotice(`Auto-compilazione: ${assigned} turni assegnati${pinnedInRange ? `, ${pinnedInRange} ${pinnedInRange === 1 ? 'bloccato mantenuto' : 'bloccati mantenuti'}` : ''}. ${missing ? `${missing} slot restano scoperti: nessuna risorsa attiva può coprirli senza violare i vincoli (aggiungi persone al team).` : 'Tutti gli slot del periodo sono coperti.'}`)
   }
 
   const clearRange = () => {
-    if (!confirm(`Rimuovere tutte le assegnazioni ${range === 'all' ? 'di Nov–Dic 2026' : 'dal 23 Nov al 31 Dic'}?`)) return
-    onChange(Object.fromEntries(Object.entries(assignments).filter(([sid]) => SLOT_BY_ID[sid]?.date < from)))
+    if (!confirm(`Rimuovere le assegnazioni non bloccate ${range === 'all' ? 'di Nov–Dic 2026' : 'dal 23 Nov al 31 Dic'}?${pinnedInRange ? ` I ${pinnedInRange} turni bloccati restano (sbloccali per rimuoverli).` : ''}`)) return
+    onChange(keepOnly())
     setNotice(null)
   }
 
@@ -99,9 +118,10 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
             <button key={k} role="tab" aria-selected={range === k} onClick={() => setRange(k)} className={`rounded-md px-3 py-1.5 font-medium ${range === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
           ))}
         </div>
-        <Button variant="primary" onClick={runAutofill} disabled={!active.length}>Auto-compila turni validi</Button>
+        <Button variant="primary" onClick={runAutofill} disabled={!active.length}>Auto-compila (mantiene i bloccati)</Button>
         <Button variant="danger" onClick={clearRange}>Svuota periodo</Button>
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
+          {pinnedInRange > 0 && <Badge tone="blue"><PinIcon filled className="h-3 w-3" /> {pinnedInRange} {pinnedInRange === 1 ? 'turno bloccato' : 'turni bloccati'}</Badge>}
           {blockedInRange > 0 && <Badge tone="slate"><LockIcon className="h-3 w-3" /> {blockedInRange} {blockedInRange === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</Badge>}
           <Badge tone={covered === visibleSlots.length ? 'green' : covered ? 'amber' : 'red'}>{covered}/{visibleSlots.length} slot coperti</Badge>
           {Object.keys(conflicts).length > 0 && <Badge tone="red">{Object.keys(conflicts).length} conflitti</Badge>}
@@ -170,20 +190,34 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
                           const person = byId[pid]
                           const conflict = conflicts[s.id]
                           const overPref = !conflict && person ? preferenceWarning(person, s.id, assignments) : undefined
+                          const isPinned = !!person && pinnedSet.has(s.id)
                           return (
                             <div key={s.id} onMouseEnter={() => setFocus(s.id)} className={`rounded-md ${conflict ? 'ring-2 ring-red-500' : overPref ? 'ring-2 ring-amber-400' : ''}`}>
                               <div className="flex items-center justify-between px-0.5 text-[10px] text-slate-500">
                                 <span>{SLOT_LABEL[s.kind]} <span className="text-slate-400">{SLOT_HOURS[s.kind]}</span></span>
-                                {conflict && <span className="font-semibold text-red-600" title={conflict.map((c) => c.message).join('\n')}>⚠</span>}
-                                {overPref && <span className="font-semibold text-amber-600" title={overPref}>⚠</span>}
+                                <span className="flex items-center gap-1">
+                                  {conflict && <span className="font-semibold text-red-600" title={conflict.map((c) => c.message).join('\n')}>⚠</span>}
+                                  {overPref && <span className="font-semibold text-amber-600" title={overPref}>⚠</span>}
+                                  {person && (
+                                    <button type="button" onClick={() => onTogglePin(s.id)} aria-pressed={isPinned}
+                                      aria-label={`${isPinned ? 'Sblocca' : 'Blocca'} turno ${fmtDay(day)} ${SLOT_LABEL[s.kind]}`}
+                                      title={isPinned ? 'Turno bloccato: l\'auto-compilazione non lo modifica. Clicca per sbloccare' : 'Blocca questo turno: l\'auto-compilazione lo manterrà'}
+                                      className={`no-print rounded p-0.5 ${isPinned ? 'bg-blue-700 text-white' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-700'}`}>
+                                      <PinIcon filled={isPinned} className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </span>
                               </div>
-                              <div className="flex items-center gap-1 rounded-md bg-white ring-1 ring-inset ring-slate-200" style={person ? { boxShadow: `inset 3px 0 0 ${person.color}` } : undefined}>
+                              <div className={`flex items-center gap-1 rounded-md ${isPinned ? 'bg-blue-50' : 'bg-white'}`}
+                                style={{ boxShadow: [person ? `inset 3px 0 0 ${person.color}` : '', isPinned ? '0 0 0 2px #1d4ed8' : 'inset 0 0 0 1px #e2e8f0'].filter(Boolean).join(', ') }}>
                                 <select
                                   aria-label={`${fmtDay(day)} slot ${SLOT_LABEL[s.kind]}`}
                                   value={person ? pid : ''}
                                   onFocus={() => setFocus(s.id)}
                                   onChange={(e) => assign(s.id, e.target.value)}
-                                  className={`w-full min-w-0 truncate rounded-md bg-transparent py-1 pl-2 pr-1 text-xs outline-none ${person ? 'font-medium text-slate-900' : 'text-slate-400'}`}
+                                  disabled={isPinned}
+                                  title={isPinned ? 'Turno bloccato: sbloccalo con la puntina per modificarlo' : undefined}
+                                  className={`w-full disabled:cursor-not-allowed min-w-0 truncate rounded-md bg-transparent py-1 pl-2 pr-1 text-xs outline-none ${person ? 'font-medium text-slate-900' : 'text-slate-400'}`}
                                 >
                                   <option value="">— scoperto —</option>
                                   {people.filter((p) => p.active || p.id === pid).map((p) => {
@@ -262,6 +296,7 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
               <li>Ogni settimana deve avere una domenica libera per le ore (anche la successiva o la precedente)</li>
             </ol>
             <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-amber-700">⚠ Oltre disponibilità</span>: assegnabile a mano, ma supera il massimo mensile indicato dalla persona. L'auto-compilazione non lo fa mai.</p>
+            <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><PinIcon filled className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" /> Con la puntina blocchi un turno assegnato: non è modificabile e l'auto-compilazione ricalcola tutti gli altri tenendolo fisso.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
           </div>
         </aside>
