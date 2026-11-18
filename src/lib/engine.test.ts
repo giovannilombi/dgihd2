@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALL_SLOTS, weekday } from './calendar'
+import { ALL_SLOTS, daysInRange, toRanges, weekday } from './calendar'
 import { baseHourly, saturdayHours, slotEconomics, sundayHours } from './economics'
 import { autoFill, checkAssignment, compensationsFor, existingViolations, preferenceWarning, regenerate } from './rules'
 import { parseTeamText, TEMPLATE_CSV } from './team'
@@ -232,6 +232,31 @@ describe('turni bloccati', () => {
   it('import JSON scarta i blocchi senza assegnazione', () => {
     const { data } = normalizeWithReport({ people: [{ id: 'a', name: 'X', level: 'B1', ral: 30000 }], assignments: { '2026-11-24|N': 'a' }, pinned: ['2026-11-24|N', '2026-11-25|N'] })
     expect(data.pinned).toEqual(['2026-11-24|N'])
+  })
+})
+
+describe('ferie e giorni di disponibilità', () => {
+  it('in ferie la persona non è mai assegnabile (R7), nemmeno dall\'auto-compilazione', () => {
+    const ferie = { ...mk('f', 30000), unavailable: daysInRange('2026-11-09', '2026-11-22') }
+    expect(checkAssignment(ferie, '2026-11-10|N', {}, P).map((v) => v.rule)).toContain('R7')
+    const res = autoFill([ferie, mk('g', 30000)], {}, P, '2026-11-01', '2026-12-31')
+    expect(Object.entries(res).some(([sid, pid]) => pid === 'f' && sid >= '2026-11-09' && sid <= '2026-11-22|Z')).toBe(false)
+  })
+  it('nei giorni indicati come disponibili la persona viene scelta per prima', () => {
+    const vol = { ...mk('v', 30000), availability: 'volontario' as const }
+    const pref = { ...mk('p', 30000), preferredDays: ['2026-11-24'] }
+    const res = autoFill([vol, pref], {}, P, '2026-11-24', '2026-11-24')
+    expect(res['2026-11-24|N']).toBe('p')
+  })
+  it('import JSON: la data in ferie prevale sulla disponibilità', () => {
+    const { data } = normalizeWithReport({ people: [{ id: 'a', name: 'X', level: 'B1', ral: 30000, unavailable: ['2026-11-10', 'x'], preferredDays: ['2026-11-10', '2026-11-11'] }] })
+    expect(data.people[0].unavailable).toEqual(['2026-11-10'])
+    expect(data.people[0].preferredDays).toEqual(['2026-11-11'])
+  })
+  it('raggruppa le date in periodi', () => {
+    expect(toRanges(['2026-11-03', '2026-11-01', '2026-11-02', '2026-11-10'])).toEqual([
+      { from: '2026-11-01', to: '2026-11-03', days: 3 }, { from: '2026-11-10', to: '2026-11-10', days: 1 },
+    ])
   })
 })
 

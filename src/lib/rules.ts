@@ -2,7 +2,7 @@ import { ALL_SLOTS, SLOT_BY_ID, addDays, monthKey, weekSaturday, weekStart, week
 import { saturdayHours, slotEconomics, sundayHours } from './economics'
 import { availabilityOf, preferredMax, type Assignments, type Params, type Person, type Slot } from './types'
 
-export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R3cap' | 'R4' | 'R5' | 'R6'
+export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R3cap' | 'R4' | 'R5' | 'R6' | 'R7'
 
 export interface Violation {
   rule: RuleId
@@ -17,11 +17,12 @@ export const RULE_MESSAGES: Record<RuleId, string> = {
   R3cap: 'Bloccato: le ore di compensazione della settimana supererebbero il cap giornaliero',
   R4: 'Bloccato: raggiunto il tetto massimo di 4 giornate nel mese',
   R5: 'Bloccato: recupero festivo obbligatorio avendo già coperto un turno weekend/festivo la settimana precedente',
+  R7: 'Bloccato: la persona non è disponibile in questa data (ferie o assenza)',
   R6: 'Bloccato: nessuna domenica libera per imputare le ore di compensazione (sabato e lunedì successivo già impegnati, domenica successiva e precedente non disponibili)',
 }
 
 export const RULE_SHORT: Record<RuleId, string> = {
-  R0: 'Esclusa', R1: '1 slot/giorno', R2: 'Adiacenza', R3: 'Max 2/sett.', R3cap: 'Cap ore', R4: 'Max 4/mese', R5: 'Recupero weekend', R6: 'Nessuna domenica di recupero',
+  R0: 'Esclusa', R1: '1 slot/giorno', R2: 'Adiacenza', R3: 'Max 2/sett.', R3cap: 'Cap ore', R4: 'Max 4/mese', R5: 'Recupero weekend', R6: 'Nessuna domenica di recupero', R7: 'Non disponibile',
 }
 
 const isFestive = (s: Slot) => s.kind !== 'FN'
@@ -153,6 +154,9 @@ export function checkAssignment(person: Person, slotId: string, a: Assignments, 
 
   if (!person.active) add('R0')
 
+  // R7 – ferie/assenze: la persona non è mai reperibile in quei giorni
+  if (person.unavailable?.includes(slot.date)) add('R7')
+
   // R1 – un solo slot nello stesso giorno
   if (mine.some((s) => s.date === slot.date)) add('R1')
 
@@ -233,13 +237,15 @@ export function autoFill(people: Person[], a: Assignments, p: Params, from: stri
         const ss = personSlots(result, x.id)
         return {
           x,
+          preferred: x.preferredDays?.includes(slot.date) ? 0 : 1,
           tier: TIER[availabilityOf(x)],
           inMonth: ss.filter((s) => monthKey(s.date) === month).length,
           total: ss.length,
           cost: slotEconomics(x, slot, p).cost,
         }
       })
-      .sort((m, n) => m.tier - n.tier || m.inMonth - n.inMonth || m.total - n.total || m.cost - n.cost)
+      // prima chi ha indicato disponibilità per quel giorno, poi volontari → limitati → senza preferenza
+      .sort((m, n) => m.preferred - n.preferred || m.tier - n.tier || m.inMonth - n.inMonth || m.total - n.total || m.cost - n.cost)
     if (ranked.length) result[slot.id] = ranked[0].x.id
   }
   return result

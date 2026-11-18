@@ -19,6 +19,10 @@ export interface Person {
   color: string
   availability?: Availability // default 'nessuna'
   maxPerMonth?: number // solo per 'limitato'
+  /** Date (YYYY-MM-DD) in cui la persona NON è disponibile (ferie, assenze): blocco assoluto. */
+  unavailable?: string[]
+  /** Date in cui la persona ha indicato di essere disponibile: preferenza per l'auto-compilazione. */
+  preferredDays?: string[]
 }
 
 export const availabilityOf = (p: Pick<Person, 'availability'>): Availability => p.availability ?? 'nessuna'

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { fmtEur } from '../lib/economics'
 import { personSlots } from '../lib/rules'
-import { download } from '../lib/reports'
+import { rangeLabel, toRanges } from '../lib/calendar'
+import { download, slotTag } from '../lib/reports'
+import { AvailabilityDialog } from './AvailabilityDialog'
 import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
 import { availabilityLabel, availabilityOf, LEVELS, preferredMax, type Assignments, type Level, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
@@ -23,6 +25,21 @@ const Masked = ({ w = 'w-20' }: { w?: string }) => (
 
 export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
   const [importOpen, setImportOpen] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+  const editingPerson = people.find((x) => x.id === editing)
+
+  /** Salva ferie e disponibilità; i turni già assegnati nei giorni di ferie vengono liberati (con conferma). */
+  const saveAvailability = (id: string, unavailable: string[], preferred: string[]) => {
+    const off = new Set(unavailable)
+    const clash = Object.entries(assignments).filter(([sid, pid]) => pid === id && off.has(sid.slice(0, 10)))
+    if (clash.length && !confirm(`${clash.length} ${clash.length === 1 ? 'turno assegnato cade' : 'turni assegnati cadono'} nei giorni di non disponibilità e ${clash.length === 1 ? 'verrà liberato' : 'verranno liberati'}:\n${clash.map(([sid]) => '• ' + slotTag(sid)).join('\n')}\n\nContinuare?`)) return
+    const nextPeople = people.map((x) => (x.id === id ? { ...x, unavailable: unavailable.length ? unavailable : undefined, preferredDays: preferred.length ? preferred : undefined } : x))
+    if (clash.length) {
+      const drop = new Set(clash.map(([sid]) => sid))
+      onChange(nextPeople, Object.fromEntries(Object.entries(assignments).filter(([sid]) => !drop.has(sid))))
+    } else onChange(nextPeople)
+    setEditing(null)
+  }
   const update = (id: string, patch: Partial<Person>) => onChange(people.map((x) => (x.id === id ? { ...x, ...patch } : x)))
 
   const add = () => onChange([...people, { id: newId(), name: `Risorsa ${people.length + 1}`, level: 'B1', ral: 30_000, active: true, color: nextColor(people), availability: 'nessuna' }])
@@ -59,6 +76,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
               <th className="py-2 pr-3 font-medium">RAL (€)</th>
               <th className="py-2 pr-3 font-medium">Rotazione</th>
               <th className="py-2 pr-3 font-medium" title="Usata dall'auto-compilazione: prima i volontari, poi chi ha un limite (rispettato), infine chi non ha espresso preferenze">Disponibilità</th>
+              <th className="py-2 pr-3 font-medium" title="Ferie/assenze (blocco assoluto) e giorni di disponibilità (preferenza)">Calendario personale</th>
               <th className="py-2 pr-3 text-right font-medium" title="Calcolato automaticamente dal calendario (Sezione C): non modificabile">Turni assegnati</th>
               <th className="py-2" />
             </tr>
@@ -113,6 +131,16 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
                       <option value="nessuna">Nessuna preferenza</option>
                     </select>
                   </td>
+                  <td className="py-2 pr-3">
+                    <button type="button" onClick={() => setEditing(p.id)} className="group/cal flex flex-col items-start gap-1 rounded-md px-2 py-1 text-left ring-1 ring-inset ring-slate-200 hover:bg-slate-50" aria-label={`Gestisci disponibilità di ${p.name}`}>
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-blue-700">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-3.5 w-3.5" aria-hidden><rect x="3" y="4.5" width="14" height="12.5" rx="2" /><path d="M3 8.5h14M7 2.5v4M13 2.5v4" strokeLinecap="round" /></svg>
+                        Gestisci
+                      </span>
+                      {(p.unavailable?.length ?? 0) > 0 && <Badge tone="red" title={toRanges(p.unavailable!).map(rangeLabel).join('\n')}>Non disp. {toRanges(p.unavailable!).length === 1 ? rangeLabel(toRanges(p.unavailable!)[0]) : `${p.unavailable!.length} gg`}</Badge>}
+                      {(p.preferredDays?.length ?? 0) > 0 && <Badge tone="green" title={toRanges(p.preferredDays!).map(rangeLabel).join('\n')}>Disponibile {p.preferredDays!.length} gg</Badge>}
+                    </button>
+                  </td>
                   <td className="num py-2 pr-3 text-right" title="Conteggio automatico dei turni assegnati nel calendario (max 4 al mese)">
                     <div className="font-medium text-slate-800">{n}</div>
                     <div className={`text-xs whitespace-nowrap ${max !== undefined && (nov > max || n - nov > max) ? 'font-medium text-amber-700' : 'text-slate-400'}`}>
@@ -125,7 +153,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
                 </tr>
               )
             })}
-            {!people.length && <tr><td colSpan={8} className="py-6 text-center text-slate-500">Nessuna risorsa. Aggiungine una o importa la lista.</td></tr>}
+            {!people.length && <tr><td colSpan={9} className="py-6 text-center text-slate-500">Nessuna risorsa. Aggiungine una o importa la lista.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -133,6 +161,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
         <Button variant="primary" onClick={add}>+ Aggiungi risorsa</Button>
         <Button onClick={() => setImportOpen(true)}>Importa CSV / Incolla da Excel</Button>
       </div>
+      {editingPerson && <AvailabilityDialog person={editingPerson} onClose={() => setEditing(null)} onSave={(u, pr) => saveAvailability(editingPerson.id, u, pr)} />}
       {importOpen && <ImportDialog revealed={revealed} existing={people} onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
         const base = replace ? [] : people
         const added: Person[] = []

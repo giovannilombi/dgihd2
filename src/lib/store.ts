@@ -31,6 +31,15 @@ export const defaultData = (): AppData => ({
  * Valida e ripulisce dati importati o salvati: scarta persone e assegnazioni non valide,
  * accetta solo parametri numerici. Lancia un errore se il file non è una configurazione del tool.
  */
+const HORIZON_DAYS = new Set(ALL_SLOTS.map((x) => x.date))
+const dateList = (v: unknown) => Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && HORIZON_DAYS.has(x)))].sort() : []
+/** Ferie e disponibilità valide; se una data è in entrambe vince l'indisponibilità. */
+function cleanDays(unavailable: unknown, preferred: unknown): Pick<Person, 'unavailable' | 'preferredDays'> {
+  const u = dateList(unavailable)
+  const pr = dateList(preferred).filter((d) => !u.includes(d))
+  return { ...(u.length ? { unavailable: u } : {}), ...(pr.length ? { preferredDays: pr } : {}) }
+}
+
 export function normalizeWithReport(raw: unknown): { data: AppData; warnings: string[] } {
   const d = raw as Record<string, unknown>
   if (!d || typeof d !== 'object' || Array.isArray(d) || !Array.isArray(d.people)) {
@@ -54,6 +63,7 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
       color: typeof r.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : nextColor(people),
       availability: r.availability === 'volontario' || r.availability === 'limitato' ? r.availability : 'nessuna',
       ...(r.availability === 'limitato' ? { maxPerMonth: [1, 2, 3].includes(r.maxPerMonth as number) ? (r.maxPerMonth as number) : 1 } : {}),
+      ...cleanDays(r.unavailable, r.preferredDays),
     })
   }
   const dropped = (d.people as unknown[]).length - people.length

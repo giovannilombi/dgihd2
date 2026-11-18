@@ -70,3 +70,15 @@ export function slotsForDay(iso: string): Slot[] {
 
 export const ALL_SLOTS: Slot[] = daysInRange().flatMap(slotsForDay)
 export const SLOT_BY_ID: Record<string, Slot> = Object.fromEntries(ALL_SLOTS.map((s) => [s.id, s]))
+
+/** Raggruppa date ordinate in intervalli consecutivi. */
+export function toRanges(dates: string[]) {
+  const out: { from: string; to: string; days: number }[] = []
+  for (const d of [...dates].sort()) {
+    const last = out[out.length - 1]
+    if (last && addDays(last.to, 1) === d) { last.to = d; last.days++ } else out.push({ from: d, to: d, days: 1 })
+  }
+  return out
+}
+export const rangeLabel = (r: { from: string; to: string }) => (r.from === r.to ? fmtDay(r.from) : `${fmtDay(r.from)} → ${fmtDay(r.to)}`)
+
