@@ -1,4 +1,4 @@
-import { HORIZON_END, HORIZON_START, daysInRange, fmtDay, monthKey, monthLabel } from './calendar'
+import { HORIZON_END, HORIZON_START, daysInRange, fmtDayYear, monthKey, monthLabel } from './calendar'
 
 /** Periodo da esportare (date incluse, formato YYYY-MM-DD). */
 export interface ExportRange {
@@ -26,12 +26,12 @@ const todayCompact = (now: Date) =>
 export const exportFileName = (ext: string, r: ExportRange, now = new Date()) =>
   `${todayCompact(now)}-ARM-HD2-da${compact(r.from)}_a${compact(r.to)}.${ext}`
 
-export const rangeText = (r: ExportRange) => `dal ${fmtDay(r.from)} al ${fmtDay(r.to)} 2026`
+export const rangeText = (r: ExportRange) => `dal ${fmtDayYear(r.from)} al ${fmtDayYear(r.to)}`
 
 /** Controllo dei campi Dal/Al: restituisce un messaggio d'errore oppure undefined. */
 export function validateRange(r: ExportRange): string | undefined {
   if (!r.from || !r.to) return 'Indica la data di inizio e di fine.'
   if (r.to < r.from) return 'La data di fine è precedente a quella di inizio.'
-  if (r.from < HORIZON_START || r.to > HORIZON_END) return `Le date devono essere comprese nel periodo pianificato (${fmtDay(HORIZON_START)} – ${fmtDay(HORIZON_END)} 2026).`
+  if (r.from < HORIZON_START || r.to > HORIZON_END) return `Le date devono essere comprese nel periodo pianificato (${fmtDayYear(HORIZON_START)} – ${fmtDayYear(HORIZON_END)}).`
   return undefined
 }

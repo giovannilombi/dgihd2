@@ -1,5 +1,6 @@
 import katex from 'katex'
 import { useState, type ReactNode } from 'react'
+import { HORIZON_LABEL } from '../lib/calendar'
 import { baseHourly, fmtEur, kNetto, fmtNum, fmtPct, saturdayHours, slotEconomics, sundayHours } from '../lib/economics'
 import { GROUP_LABEL, type Params, type Person } from '../lib/types'
 import { Collapsible } from './ui'
@@ -35,7 +36,7 @@ export function Approach({ params: p, people }: { params: Params; people: Person
       <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-5">
         <h3 className="font-semibold text-blue-950">1. In sintesi</h3>
         <p className="mt-2 text-sm leading-relaxed text-slate-700">
-          La reperibilità di <strong>Novembre – Dicembre 2026</strong> copre le notti feriali (<strong>18:00–09:00</strong>) e l'intera giornata di <strong>sabati, domeniche e festivi</strong>, suddivisa in due turni: Diurno <code>09:00–18:00</code> e Notturno <code>18:00–09:00</code>.
+          La reperibilità del periodo <strong>{HORIZON_LABEL}</strong> (solo nelle giornate richieste dal cliente) copre le notti feriali (<strong>18:00–09:00</strong>) e l'intera giornata di <strong>sabati, domeniche e festivi</strong>, suddivisa in due turni: Diurno <code>09:00–18:00</code> e Notturno <code>18:00–09:00</code>.
           L'approccio parte da un principio semplice: <strong>chi dà la propria disponibilità deve sapere in anticipo quanto riceve, avere i riposi garantiti e partecipare a una rotazione equa</strong>, con un modello economicamente sostenibile.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">

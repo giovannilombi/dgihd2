@@ -1,8 +1,7 @@
 import type { Slot, SlotKind } from './types'
 
 export const HORIZON_START = '2026-11-01'
-export const HORIZON_END = '2026-12-31'
-export const RANGE_23NOV = '2026-11-23'
+export const HORIZON_END = '2027-02-28'
 
 export const HOLIDAYS: Record<string, string> = {
   '2026-11-01': 'Ognissanti',
@@ -10,6 +9,8 @@ export const HOLIDAYS: Record<string, string> = {
   '2026-12-08': 'Immacolata Concezione',
   '2026-12-25': 'Natale',
   '2026-12-26': 'Santo Stefano',
+  '2027-01-01': 'Capodanno',
+  '2027-01-06': 'Epifania',
 }
 
 const DAY_MS = 86_400_000
@@ -82,3 +83,16 @@ export function toRanges(dates: string[]) {
 }
 export const rangeLabel = (r: { from: string; to: string }) => (r.from === r.to ? fmtDay(r.from) : `${fmtDay(r.from)} → ${fmtDay(r.to)}`)
 
+
+/** Data con anno, per i periodi che attraversano il cambio d'anno (es. "Mar 5 Gen 2027"). */
+export const fmtDayYear = (iso: string) => `${fmtDay(iso)} ${iso.slice(0, 4)}`
+
+/** Mesi del periodo pianificato, in ordine. */
+export const HORIZON_MONTHS = [...new Set(daysInRange().map(monthKey))]
+
+/** Etichetta del periodo pianificato, es. "Novembre 2026 – Febbraio 2027". */
+export const HORIZON_LABEL = `${monthLabel(HORIZON_MONTHS[0])} – ${monthLabel(HORIZON_MONTHS[HORIZON_MONTHS.length - 1])}`
+
+const MONTH_ABBR = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
+/** Etichetta breve di un mese, es. "Nov 26". */
+export const monthShort = (key: string) => `${MONTH_ABBR[Number(key.slice(5, 7)) - 1]} ${key.slice(2, 4)}`

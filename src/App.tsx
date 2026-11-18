@@ -20,6 +20,7 @@ import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import type { ExportRange } from './lib/exportRange'
 import { ExportDialog, type ExportFormat } from './components/ExportDialog'
 import { normalizeWithReport } from './lib/store'
+import { HORIZON_LABEL } from './lib/calendar'
 import type { Assignments, Person } from './lib/types'
 
 const NAV = [
@@ -149,6 +150,22 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       assignments: Object.fromEntries(Object.entries(d.assignments).filter(([sid]) => !sid.startsWith(day + '|'))),
     }))
   }
+  /** Blocca/sblocca in blocco i giorni di un periodo; bloccando si liberano i turni già assegnati in quei giorni. */
+  const setDaysExcluded = (days: string[], excluded: boolean) => {
+    const set = new Set(days)
+    if (!excluded) {
+      setData((d) => ({ ...d, excludedDays: d.excludedDays.filter((x) => !set.has(x)) }))
+      return
+    }
+    const assigned = Object.keys(data.assignments).filter((sid) => set.has(sid.slice(0, 10)))
+    if (!confirm(`Segnare come non richiesti ${days.length} giorni?${assigned.length ? ` ${assigned.length} ${assigned.length === 1 ? 'turno assegnato verrà liberato' : 'turni assegnati verranno liberati'}.` : ''}`)) return
+    setData((d) => ({
+      ...d,
+      excludedDays: [...new Set([...d.excludedDays, ...days])].sort(),
+      assignments: Object.fromEntries(Object.entries(d.assignments).filter(([sid]) => !set.has(sid.slice(0, 10)))),
+    }))
+  }
+
   function openImport() { fileRef.current?.click() }
 
   const sections: Record<PageId, React.ReactNode> = {
@@ -167,13 +184,14 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
     ),
     planner: (
-      <Section id="planner" letter="C" title="Pianificatore calendario Nov – Dic 2026" subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto."
+      <Section id="planner" letter="C" title={`Pianificatore calendario ${HORIZON_LABEL}`} subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto."
         actions={<>
           <Button onClick={() => setExportFormat('xlsx')}>Esporta turni (Excel)</Button>
           <Button onClick={() => setExportFormat('pdf')}>Esporta turni (PDF)</Button>
         </>}>
         <Planner readOnly={!editable} simple={role === 'viewer'} people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
           onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay}
+          onSetDaysExcluded={setDaysExcluded}
           onTogglePin={(sid) => setData((d) => ({ ...d, pinned: d.pinned.includes(sid) ? d.pinned.filter((x) => x !== sid) : [...d.pinned, sid] }))} />
       </Section>
     ),

@@ -160,7 +160,9 @@ describe('export turni Excel', () => {
     const values = ws.getSheetValues().flat().filter(Boolean).map(String)
     expect(values).toContain('a')
     expect(values.some((v) => /€|RAL|costo/i.test(v))).toBe(false)
-    expect(wb.getWorksheet('Turni per persona')!.getRow(2).getCell(4).value).toBe(1)
+    const ws2 = wb.getWorksheet('Turni per persona')!
+    const totCol = (ws2.getRow(1).values as unknown[]).indexOf('Totale')
+    expect(ws2.getRow(2).getCell(totCol).value).toBe(1)
   })
 })
 
@@ -293,7 +295,7 @@ describe('export per periodo', () => {
     expect(exportFileName('csv', { from: '2026-11-01', to: '2026-11-30' }, new Date(2026, 10, 18))).toBe('20261118-ARM-HD2-da20261101_a20261130.csv')
   })
   it('mesi scaricabili e validazione intervallo', () => {
-    expect(exportableMonths().map((m) => [m.from, m.to])).toEqual([['2026-11-01', '2026-11-30'], ['2026-12-01', '2026-12-31']])
+    expect(exportableMonths().map((m) => [m.from, m.to])).toEqual([['2026-11-01', '2026-11-30'], ['2026-12-01', '2026-12-31'], ['2027-01-01', '2027-01-31'], ['2027-02-01', '2027-02-28']])
     expect(validateRange({ from: '2026-12-10', to: '2026-12-01' })).toMatch(/precedente/)
     expect(validateRange({ from: '2026-10-01', to: '2026-12-01' })).toMatch(/periodo pianificato/)
     expect(validateRange({ from: '2026-11-05', to: '2026-11-20' })).toBeUndefined()
@@ -333,6 +335,37 @@ describe('riserve', () => {
   it('numerazione delle riserve 1..n', () => {
     const ps = renumberReserves([{ ...mk('a', 1), reserve: true, reserveOrder: 5 }, mk('b', 1), { ...mk('c', 1), reserve: true }, { ...mk('d', 1), reserve: true, reserveOrder: 2 }])
     expect(ps.map((p) => [p.id, p.reserveOrder])).toEqual([['a', 2], ['b', undefined], ['c', 3], ['d', 1]])
+  })
+})
+
+describe('conto economico', () => {
+  it('ricavo = giornate richieste × tariffa, anche senza turni coperti; costo solo dei turni assegnati', () => {
+    const blocked = ['2026-11-24', '2026-11-29'] // un feriale e una domenica non richiesti
+    const novDic = { from: '2026-11-01', to: '2026-12-31' }
+    const empty = pnl([mk('a', 30000)], {}, P, blocked, novDic)
+    // Nov–Dic 2026: 61 giorni, di cui 20 tra sabati/domeniche/festivi → 41 feriali
+    expect(empty.total.ferialiRichiesti).toBe(41 - 1)
+    expect(empty.total.festiviRichiesti).toBe(20 - 1)
+    expect(empty.total.revenue).toBe(40 * P.revenueFeriale + 19 * P.revenueFestivo)
+    expect(empty.total.cost).toBe(0)
+    const one = pnl([mk('a', 30000)], { '2026-11-25|N': 'a' }, P, blocked, novDic)
+    expect(one.total.revenue).toBe(empty.total.revenue)
+    expect(one.total.cost).toBeCloseTo(125, 2)
+    expect(one.total.marginPct).toBeCloseTo((one.total.revenue - 125) / one.total.revenue * 100, 6)
+  })
+})
+
+describe('periodo esteso a gennaio–febbraio 2027', () => {
+  it('festività di gennaio e calendario fino al 28 febbraio', () => {
+    expect(ALL_SLOTS.filter((x) => x.date === '2027-01-06')).toHaveLength(2) // Epifania (mercoledì) → diurno + notte
+    expect(ALL_SLOTS.filter((x) => x.date === '2027-01-07')).toHaveLength(1)
+    expect(ALL_SLOTS.at(-1)!.date).toBe('2027-02-28')
+  })
+  it('vincoli a cavallo dell\'anno: max 4 turni nel mese di gennaio', () => {
+    const a = mk('a', 38000)
+    const asg = { '2027-01-04|N': 'a', '2027-01-11|N': 'a', '2027-01-18|N': 'a', '2027-01-25|N': 'a' }
+    expect(checkAssignment(a, '2027-01-27|N', asg, P).map((v) => v.rule)).toContain('R4')
+    expect(checkAssignment(a, '2027-02-01|N', asg, P).map((v) => v.rule)).not.toContain('R4')
   })
 })
 

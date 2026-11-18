@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { HOLIDAYS, HORIZON_END, HORIZON_START, daysInRange, fmtDay, isWeekendOrHoliday, monthKey, monthLabel, rangeLabel, toDate, toRanges } from '../lib/calendar'
+import { HOLIDAYS, HORIZON_END, HORIZON_START, daysInRange, fmtDay, fmtDayYear, isWeekendOrHoliday, monthKey, monthLabel, rangeLabel, toDate, toRanges } from '../lib/calendar'
 import type { Person } from '../lib/types'
 import { Badge, Button } from './ui'
 
@@ -42,7 +42,7 @@ export function AvailabilityDialog({ person, onClose, onSave }: {
   const applyRange = () => {
     if (!from || !to) return setError('Indica data di inizio e di fine.')
     if (to < from) return setError('La data di fine è precedente a quella di inizio.')
-    if (from < HORIZON_START || to > HORIZON_END) return setError('Le date devono essere comprese nel periodo pianificato (1 Nov – 31 Dic 2026).')
+    if (from < HORIZON_START || to > HORIZON_END) return setError(`Le date devono essere comprese nel periodo pianificato (${fmtDayYear(HORIZON_START)} – ${fmtDayYear(HORIZON_END)}).`)
     setError('')
     setDays(daysInRange(from, to), mode === 'clear' ? undefined : mode)
   }

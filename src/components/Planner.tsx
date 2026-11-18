@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
-  ALL_SLOTS, HOLIDAYS, HORIZON_END, HORIZON_START, RANGE_23NOV, SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL,
-  addDays, daysInRange, fmtDay, isWeekendOrHoliday, isoWeekNumber, monthKey, monthLabel, slotsForDay, toDate, weekStart,
+  ALL_SLOTS, HOLIDAYS, HORIZON_END, HORIZON_MONTHS, HORIZON_START, SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL,
+  HORIZON_LABEL, addDays, daysInRange, fmtDay, fmtDayYear, isWeekendOrHoliday, isoWeekNumber, monthKey, monthLabel, slotsForDay, toDate, weekStart,
 } from '../lib/calendar'
 import { regenerate, checkAssignment, existingViolations, personSlots, preferenceWarning, RULE_SHORT, type Violation } from '../lib/rules'
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
@@ -16,6 +16,8 @@ interface Props {
   onChange: (a: Assignments) => void
   onToggleDay: (day: string) => void
   onTogglePin: (slotId: string) => void
+  /** Blocca o sblocca in blocco i giorni indicati (giorni non richiesti dal cliente). */
+  onSetDaysExcluded: (days: string[], excluded: boolean) => void
   /** Sola lettura (viewer e viewer esteso): nessuna modifica possibile. */
   readOnly?: boolean
   /** Vista essenziale (viewer): solo turni, senza pannello vincoli, ferie o disponibilità. */
@@ -40,15 +42,24 @@ function LockIcon({ open, className = 'h-4 w-4' }: { open?: boolean; className?:
   )
 }
 
-export type RangeMode = 'all' | 'from23'
+/** 'all' = tutto il periodo, 'custom' = intervallo Da–A, altrimenti la chiave del mese (YYYY-MM). */
+export type RangeMode = string
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 
-export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, readOnly = false, simple = false }: Props) {
+export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, onSetDaysExcluded, readOnly = false, simple = false }: Props) {
   const pinnedSet = new Set(pinned)
   const [range, setRange] = useState<RangeMode>('all')
+  const [customFrom, setCustomFrom] = useState(HORIZON_START)
+  const [customTo, setCustomTo] = useState(HORIZON_END)
   const [focus, setFocus] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const from = range === 'all' ? HORIZON_START : RANGE_23NOV
+  // Periodo mostrato e su cui agiscono auto-compilazione e "Svuota": tutto, un mese o un intervallo Da–A
+  const customOk = customFrom && customTo && customFrom <= customTo
+  const [from, to] =
+    range === 'all' ? [HORIZON_START, HORIZON_END]
+    : range === 'custom' ? (customOk ? [customFrom < HORIZON_START ? HORIZON_START : customFrom, customTo > HORIZON_END ? HORIZON_END : customTo] : [HORIZON_START, HORIZON_END])
+    : (() => { const ds = daysInRange().filter((d) => monthKey(d) === range); return [ds[0], ds[ds.length - 1]] })()
+  const periodLabel = range === 'all' ? `di tutto il periodo (${HORIZON_LABEL})` : `dal ${fmtDayYear(from)} al ${fmtDayYear(to)}`
   const byId = useMemo(() => Object.fromEntries(people.map((x) => [x.id, x])), [people])
 
   // Esito della validazione per ogni slot × persona attiva (motore vincoli in tempo reale)
@@ -63,16 +74,16 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   const conflicts = useMemo(() => existingViolations(people, assignments, params), [people, assignments, params])
 
   const excluded = new Set(excludedDays)
-  const visibleSlots = ALL_SLOTS.filter((s) => s.date >= from && !excluded.has(s.date))
-  const blockedInRange = excludedDays.filter((d) => d >= from).length
+  const visibleSlots = ALL_SLOTS.filter((s) => s.date >= from && s.date <= to && !excluded.has(s.date))
+  const blockedInRange = excludedDays.filter((d) => d >= from && d <= to).length
   const covered = visibleSlots.filter((s) => byId[assignments[s.id]]).length
   const active = people.filter((p) => p.active)
 
   // Il calendario è diviso per mese: ogni mese ha la sua intestazione e le sue settimane;
   // i giorni dell'altro mese nelle settimane a cavallo restano vuoti.
-  const months = [...new Set(daysInRange(from, HORIZON_END).map(monthKey))]
+  const months = [...new Set(daysInRange(from, to).map(monthKey))]
   const weeksOf = (m: string) => {
-    const days = daysInRange(from, HORIZON_END).filter((d) => monthKey(d) === m)
+    const days = daysInRange(from, to).filter((d) => monthKey(d) === m)
     const out: string[] = []
     for (let w = weekStart(days[0]); w <= days[days.length - 1]; w = addDays(w, 7)) out.push(w)
     return out
@@ -91,14 +102,14 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   }
 
   // Turni del periodo visibile che l'auto-compilazione può ricalcolare (non bloccati)
-  const inRange = (sid: string) => SLOT_BY_ID[sid]?.date >= from
+  const inRange = (sid: string) => { const d = SLOT_BY_ID[sid]?.date; return !!d && d >= from && d <= to }
   const keepOnly = () => Object.fromEntries(Object.entries(assignments).filter(([sid]) => !inRange(sid) || pinnedSet.has(sid)))
   const pinnedInRange = pinned.filter(inRange).length
 
   const runAutofill = () => {
     const recalculated = Object.keys(assignments).filter((sid) => inRange(sid) && !pinnedSet.has(sid)).length
     if (recalculated && !confirm(`L'auto-compilazione ricalcola ${recalculated} turni non bloccati del periodo${pinnedInRange ? ` e mantiene i ${pinnedInRange} turni bloccati` : ''}. Per conservare una scelta fatta a mano, bloccala con la puntina. Continuare?`)) return
-    const res = regenerate(people, assignments, params, from, HORIZON_END, excludedDays, pinned)
+    const res = regenerate(people, assignments, params, from, to, excludedDays, pinned)
     const assigned = Object.keys(res).filter(inRange).length - pinnedInRange
     const missing = visibleSlots.filter((s) => !res[s.id]).length
     onChange(res)
@@ -106,7 +117,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   }
 
   const clearRange = () => {
-    if (!confirm(`Rimuovere le assegnazioni non bloccate ${range === 'all' ? 'di Nov–Dic 2026' : 'dal 23 Nov al 31 Dic'}?${pinnedInRange ? ` I ${pinnedInRange} turni bloccati restano (sbloccali per rimuoverli).` : ''}`)) return
+    if (!confirm(`Rimuovere le assegnazioni non bloccate ${periodLabel}?${pinnedInRange ? ` I ${pinnedInRange} turni bloccati restano (sbloccali per rimuoverli).` : ''}`)) return
     onChange(keepOnly())
     setNotice(null)
   }
@@ -117,18 +128,33 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   return (
     <div>
       <div className="no-print flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-sm" role="tablist" aria-label="Periodo">
-          {([['all', 'Tutto Nov–Dic 2026'], ['from23', 'Solo dal 23 Nov al 31 Dic']] as const).map(([k, l]) => (
+        <div className="inline-flex flex-wrap rounded-lg bg-slate-100 p-0.5 text-sm" role="tablist" aria-label="Periodo">
+          {([['all', 'Tutto'], ...HORIZON_MONTHS.map((m) => [m, monthLabel(m)]), ['custom', 'Da – A']] as [string, string][]).map(([k, l]) => (
             <button key={k} role="tab" aria-selected={range === k} onClick={() => setRange(k)} className={`rounded-md px-3 py-1.5 font-medium ${range === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
           ))}
         </div>
+        {range === 'custom' && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <label className="flex items-center gap-1.5 text-slate-600">Da
+              <input type="date" value={customFrom} min={HORIZON_START} max={HORIZON_END} onChange={(e) => setCustomFrom(e.target.value)} className="rounded-lg bg-white px-2 py-1 ring-1 ring-inset ring-slate-300" />
+            </label>
+            <label className="flex items-center gap-1.5 text-slate-600">A
+              <input type="date" value={customTo} min={customFrom || HORIZON_START} max={HORIZON_END} onChange={(e) => setCustomTo(e.target.value)} className="rounded-lg bg-white px-2 py-1 ring-1 ring-inset ring-slate-300" />
+            </label>
+            {!customOk && <span className="text-xs text-red-700">La data di fine è precedente a quella di inizio: mostro tutto il periodo.</span>}
+          </div>
+        )}
         {!readOnly && <Button variant="primary" onClick={runAutofill} disabled={!active.length}>Auto-compila (mantiene i bloccati)</Button>}
         {!readOnly && <Button variant="danger" onClick={clearRange}>Svuota periodo</Button>}
+        {!readOnly && blockedInRange > 0 && <Button onClick={() => onSetDaysExcluded(daysInRange(from, to), false)} title="Rende richiesti tutti i giorni del periodo selezionato">Sblocca giorni del periodo</Button>}
+        {!readOnly && blockedInRange < daysInRange(from, to).length && <Button onClick={() => onSetDaysExcluded(daysInRange(from, to), true)} title="Segna come non richiesti tutti i giorni del periodo selezionato">Blocca giorni del periodo</Button>}
         {readOnly && <Badge tone="slate">Sola lettura</Badge>}
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
           {pinnedInRange > 0 && <Badge tone="blue"><PinIcon filled className="h-3 w-3" /> {pinnedInRange} {pinnedInRange === 1 ? 'turno bloccato' : 'turni bloccati'}</Badge>}
           {blockedInRange > 0 && <Badge tone="slate"><LockIcon className="h-3 w-3" /> {blockedInRange} {blockedInRange === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</Badge>}
-          <Badge tone={covered === visibleSlots.length ? 'green' : covered ? 'amber' : 'red'}>{covered}/{visibleSlots.length} slot coperti</Badge>
+          {visibleSlots.length === 0
+            ? <Badge tone="slate">Nessun turno richiesto</Badge>
+            : <Badge tone={covered === visibleSlots.length ? 'green' : covered ? 'amber' : 'red'}>{covered}/{visibleSlots.length} slot coperti</Badge>}
           {Object.keys(conflicts).length > 0 && <Badge tone="red">{Object.keys(conflicts).length} conflitti</Badge>}
         </div>
       </div>
@@ -154,7 +180,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
               <div key={w} className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] gap-1 pb-1">
                 <div className="pt-2 text-xs text-slate-400" title={`Settimana ISO ${isoWeekNumber(w)}`}>W{isoWeekNumber(w)}</div>
                 {Array.from({ length: 7 }, (_, i) => addDays(w, i)).map((day) => {
-                  if (day < from || day > HORIZON_END || monthKey(day) !== m) {
+                  if (day < from || day > to || monthKey(day) !== m) {
                     return <div key={day} className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50" aria-hidden />
                   }
                   const festive = isWeekendOrHoliday(day)

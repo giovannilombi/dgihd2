@@ -1,4 +1,4 @@
-import { ALL_SLOTS, SLOT_BY_ID, daysInRange, fmtDay, isWeekendOrHoliday, monthKey, monthLabel, weekStart, SLOT_LABEL } from './calendar'
+import { ALL_SLOTS, HORIZON_LABEL, SLOT_BY_ID, daysInRange, fmtDay, isWeekendOrHoliday, monthKey, monthLabel, weekStart, SLOT_LABEL } from './calendar'
 import { compensationsFor, type WeekComp } from './rules'
 import { fmtNum, slotEconomics } from './economics'
 import { FULL_RANGE, inRange, rangeText, type ExportRange } from './exportRange'
@@ -7,9 +7,9 @@ import type { Assignments, Params, Person } from './types'
 export interface PeriodPnl {
   key: string
   label: string
-  ferialiCoperti: number
-  festiviCoperti: number
-  festiviParziali: number
+  /** Giornate richieste dal cliente nel periodo (escluse quelle bloccate come "non richieste"). */
+  ferialiRichiesti: number
+  festiviRichiesti: number
   revenue: number
   cost: number
   margin: number
@@ -19,16 +19,22 @@ export interface PeriodPnl {
 }
 
 function emptyPeriod(key: string, label: string): PeriodPnl {
-  return { key, label, ferialiCoperti: 0, festiviCoperti: 0, festiviParziali: 0, revenue: 0, cost: 0, margin: 0, marginPct: 0, slotsTotal: 0, slotsCovered: 0 }
+  return { key, label, ferialiRichiesti: 0, festiviRichiesti: 0, revenue: 0, cost: 0, margin: 0, marginPct: 0, slotsTotal: 0, slotsCovered: 0 }
 }
 
-/** Conto economico per mese e per settimana (ricavi per giorno coperto, costi per slot assegnato). */
+/**
+ * Conto economico per mese e per settimana.
+ * - Ricavo: giornate richieste × tariffa (notte feriale, oppure giornata di sabato/domenica/festivo),
+ *   indipendentemente dalla copertura dei turni.
+ * - Costo: costo aziendale di quanto riconosciuto alle persone di turno (lordo × moltiplicatore).
+ * - Margine = ricavo − costo; marginalità = margine / ricavo.
+ */
 export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: string[] = [], range?: ExportRange) {
   const excluded = new Set(excludedDays)
   const byId = Object.fromEntries(people.map((x) => [x.id, x]))
   const months = new Map<string, PeriodPnl>()
   const weeks = new Map<string, PeriodPnl>()
-  const total = emptyPeriod('tot', 'Totale Nov–Dic 2026')
+  const total = emptyPeriod('tot', `Totale ${HORIZON_LABEL}`)
   const get = (m: Map<string, PeriodPnl>, k: string, l: string) => {
     if (!m.has(k)) m.set(k, emptyPeriod(k, l))
     return m.get(k)!
@@ -38,15 +44,10 @@ export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: s
     const buckets = [get(months, monthKey(day), monthLabel(monthKey(day))), get(weeks, weekStart(day), `Sett. ${fmtDay(weekStart(day))}`), total]
     const slots = ALL_SLOTS.filter((s) => s.date === day)
     const covered = slots.filter((s) => byId[a[s.id]])
-    let revenue = 0
     for (const b of buckets) { b.slotsTotal += slots.length; b.slotsCovered += covered.length }
-    if (isWeekendOrHoliday(day)) {
-      if (covered.length === 2) { revenue = p.revenueFestivo; buckets.forEach((b) => b.festiviCoperti++) }
-      else if (covered.length === 1) buckets.forEach((b) => b.festiviParziali++)
-    } else if (covered.length === 1) {
-      revenue = p.revenueFeriale
-      buckets.forEach((b) => b.ferialiCoperti++)
-    }
+    const festive = isWeekendOrHoliday(day)
+    const revenue = festive ? p.revenueFestivo : p.revenueFeriale
+    buckets.forEach((b) => { if (festive) b.festiviRichiesti++; else b.ferialiRichiesti++ })
     const cost = covered.reduce((acc, s) => acc + slotEconomics(byId[a[s.id]], s, p).cost, 0)
     for (const b of buckets) { b.revenue += revenue; b.cost += cost }
   }
@@ -120,9 +121,9 @@ export function fullReportCsv(people: Person[], a: Assignments, p: Params, exclu
     }
   }
   const pl = pnl(people, a, p, excludedDays, range)
-  rows.push([], ['CONTO ECONOMICO'], ['Periodo', 'Feriali coperti', 'Weekend/festivi coperti', 'Weekend/festivi parziali (non fatturati)', 'Ricavo', 'Costo aziendale', 'Margine', 'Marginalità %'])
+  rows.push([], ['CONTO ECONOMICO'], ['Periodo', 'Notti feriali richieste', 'Giornate weekend/festive richieste', 'Slot coperti', 'Slot totali', 'Ricavo', 'Costo aziendale', 'Margine', 'Marginalità %'])
   for (const b of [...pl.months, ...pl.weeks, pl.total]) {
-    rows.push([b.label, b.ferialiCoperti, b.festiviCoperti, b.festiviParziali, b.revenue, b.cost, b.margin, b.marginPct])
+    rows.push([b.label, b.ferialiRichiesti, b.festiviRichiesti, b.slotsCovered, b.slotsTotal, b.revenue, b.cost, b.margin, b.marginPct])
   }
   return toCsv(rows)
 }

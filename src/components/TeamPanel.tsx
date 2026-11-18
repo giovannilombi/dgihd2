@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { fmtEur } from '../lib/economics'
 import { personSlots, unavailabilityReason } from '../lib/rules'
-import { rangeLabel, SLOT_BY_ID, toRanges } from '../lib/calendar'
+import { HORIZON_MONTHS, monthKey, monthShort, rangeLabel, SLOT_BY_ID, toRanges } from '../lib/calendar'
 import { download, slotTag } from '../lib/reports'
 import { AvailabilityDialog } from './AvailabilityDialog'
 import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
@@ -61,11 +61,11 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
   const renderRow = (p: Person) => {
               const ps = personSlots(assignments, p.id)
               const n = ps.length
-              const nov = ps.filter((x) => x.date.startsWith('2026-11')).length
+              const perMonth = HORIZON_MONTHS.map((m) => ({ m, n: ps.filter((x) => monthKey(x.date) === m).length })).filter((x) => x.n > 0)
               const max = p.active ? preferredMax(p) : undefined
               return (
-                <tr key={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'}`} style={p.active && p.reserve ? { boxShadow: 'inset 3px 0 0 #7c3aed' } : undefined}>
-                  <td className="py-2 pr-3">
+                <tr key={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'}`}>
+                  <td className="py-2 pr-3 pl-3" style={p.active && p.reserve ? { boxShadow: 'inset 3px 0 0 #7c3aed' } : undefined}>
                     <label className="relative block h-7 w-7 cursor-pointer rounded-full ring-2 ring-white shadow" style={{ background: p.color }} title="Cambia colore">
                       <input type="color" value={p.color} onChange={(e) => update(p.id, { color: e.target.value })} className="absolute inset-0 opacity-0" />
                     </label>
@@ -123,8 +123,10 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
                   </td>
                   <td className="num py-2 pr-3 text-right" title="Conteggio automatico dei turni assegnati nel calendario (max 4 al mese)">
                     <div className="font-medium text-slate-800">{n}</div>
-                    <div className={`text-xs whitespace-nowrap ${max !== undefined && (nov > max || n - nov > max) ? 'font-medium text-amber-700' : 'text-slate-400'}`}>
-                      Nov {nov}{max !== undefined ? `/${max}` : ''} · Dic {n - nov}{max !== undefined ? `/${max}` : ''}
+                    <div className="text-xs whitespace-nowrap text-slate-400">
+                      {perMonth.length ? perMonth.map(({ m, n: k }, i) => (
+                        <span key={m} className={max !== undefined && k > max ? 'font-medium text-amber-700' : ''}>{i > 0 && ' · '}{monthShort(m)} {k}{max !== undefined ? `/${max}` : ''}</span>
+                      )) : '—'}
                     </div>
                   </td>
                   <td className="py-2 text-right">
@@ -170,7 +172,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="py-2 pr-3 font-medium">Badge</th>
+              <th className="py-2 pr-3 pl-3 font-medium">Badge</th>
               <th className="py-2 pr-3 font-medium">Nome e cognome</th>
               <th className="py-2 pr-3 font-medium">Livello CCNL</th>
               <th className="py-2 pr-3 font-medium">RAL (€)</th>
