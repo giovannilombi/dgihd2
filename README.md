@@ -4,11 +4,11 @@ Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilit�
 
 - **Documento HR**: abstract sempre visibile e approfondimenti (modello matematico, analisi giuridica, tabella rapida B1) in sezioni espandibili, con valori ricalcolati sui parametri correnti.
 - **A · Parametri**: ricavi, gettoni netti target, cap ore di compensazione, moltiplicatore costo aziendale, coefficienti netto/lordo, maggiorazioni e indennità CCNL.
-- **B · Team**: anagrafica (aggiungi, modifica, elimina), stato di adesione alla rotazione, import da CSV o da Excel incollato con template scaricabile, anteprima e segnalazione degli errori riga per riga.
+- **B · Team**: anagrafica (aggiungi, modifica, elimina), stato di rotazione (KO), disponibilità dichiarata (volontario, max 1–3 turni/mese, nessuna preferenza) usata dall'auto-compilazione, import da CSV o da Excel incollato con template scaricabile, anteprima e segnalazione degli errori riga per riga.
 - **C · Calendario**: slot feriali e festivi (festività di Milano incluse), motore vincoli in tempo reale con il motivo di ogni blocco, auto-compilazione, blocco dei giorni non richiesti dal cliente (lucchetto).
 - **D · Consuntivo / E · Conto economico**: gettone di disponibilità lordo per settimana (modalità preferibile) e, in alternativa, ore di straordinario su Domenica o Sabato (cap 8h); netto, costo aziendale, KPI e grafico di marginalità.
 
-Salvataggio automatico in LocalStorage, export/import della configurazione JSON (validata), report CSV HR & Finance, export dei soli turni in Excel formattato (senza dati economici).
+Salvataggio automatico in LocalStorage, export/import della configurazione JSON (validata), report CSV HR & Finance, export dei soli turni in Excel formattato o in PDF (senza dati economici).
 
 ## Accesso
 

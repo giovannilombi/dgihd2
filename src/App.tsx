@@ -11,7 +11,7 @@ import { TeamPanel } from './components/TeamPanel'
 import { Button, Section } from './components/ui'
 import { isAuthenticated, setAuthenticated } from './lib/auth'
 import { download, fullReportCsv } from './lib/reports'
-import { buildShiftsXlsx } from './lib/shiftsExport'
+import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import { defaultData, normalizeWithReport, useAppData } from './lib/store'
 
 const NAV = [
@@ -56,6 +56,17 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const exportCsv = () => download('reperibilita-q4-2026-report-hr-finance.csv', fullReportCsv(data.people, data.assignments, data.params, data.excludedDays), 'text/csv;charset=utf-8')
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null)
   const [exporting, setExporting] = useState(false)
+  const exportShiftsPdf = async () => {
+    setExporting(true)
+    try {
+      const buf = await buildShiftsPdf(data.people, data.assignments, data.excludedDays)
+      download('turni-reperibilita-nov-dic-2026.pdf', buf, 'application/pdf')
+    } catch (e) {
+      setNotice({ tone: 'error', text: `Export PDF non riuscito: ${(e as Error).message}` })
+    } finally {
+      setExporting(false)
+    }
+  }
   const exportShiftsXlsx = async () => {
     setExporting(true)
     try {
@@ -121,7 +132,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
     team: (
       <TeamGate>
         {(lock) => (
-          <Section id="team" letter="B" title="Anagrafica team" subtitle="Le risorse escluse non compaiono nel calendario ma conservano i dati anagrafici."
+          <Section id="team" letter="B" title="Anagrafica team" subtitle="Chi ha dato KO resta in anagrafica ma non compare nel calendario. La disponibilità guida l'auto-compilazione."
             actions={<Button variant="ghost" onClick={lock}>Blocca anagrafica</Button>}>
             <TeamPanel people={data.people} assignments={data.assignments} onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
           </Section>
@@ -130,7 +141,10 @@ function Main({ onLogout }: { onLogout: () => void }) {
     ),
     planner: (
       <Section id="planner" letter="C" title="Pianificatore calendario Nov – Dic 2026" subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto."
-        actions={<Button onClick={exportShiftsXlsx} disabled={exporting}>{exporting ? 'Preparazione…' : 'Esporta turni (Excel)'}</Button>}>
+        actions={<>
+          <Button onClick={exportShiftsXlsx} disabled={exporting}>Esporta turni (Excel)</Button>
+          <Button onClick={exportShiftsPdf} disabled={exporting}>Esporta turni (PDF)</Button>
+        </>}>
         <Planner people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays}
           onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay} />
       </Section>

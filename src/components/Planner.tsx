@@ -3,8 +3,8 @@ import {
   ALL_SLOTS, HOLIDAYS, HORIZON_END, HORIZON_START, RANGE_23NOV, SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL,
   addDays, fmtDay, isWeekendOrHoliday, isoWeekNumber, slotsForDay, toDate, weekStart,
 } from '../lib/calendar'
-import { autoFill, checkAssignment, existingViolations, RULE_SHORT, type Violation } from '../lib/rules'
-import type { Assignments, Params, Person } from '../lib/types'
+import { autoFill, checkAssignment, existingViolations, personSlots, preferenceWarning, RULE_SHORT, type Violation } from '../lib/rules'
+import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 
 interface Props {
@@ -78,6 +78,7 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
   }
 
   const focusSlot = focus ? SLOT_BY_ID[focus] : null
+  const monthCount = (pid: string, date: string) => personSlots(assignments, pid).filter((x) => x.date.slice(0, 7) === date.slice(0, 7)).length
 
   return (
     <div>
@@ -146,11 +147,13 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
                           const pid = assignments[s.id]
                           const person = byId[pid]
                           const conflict = conflicts[s.id]
+                          const overPref = !conflict && person ? preferenceWarning(person, s.id, assignments) : undefined
                           return (
-                            <div key={s.id} onMouseEnter={() => setFocus(s.id)} className={`rounded-md ${conflict ? 'ring-2 ring-red-500' : ''}`}>
+                            <div key={s.id} onMouseEnter={() => setFocus(s.id)} className={`rounded-md ${conflict ? 'ring-2 ring-red-500' : overPref ? 'ring-2 ring-amber-400' : ''}`}>
                               <div className="flex items-center justify-between px-0.5 text-[10px] text-slate-500">
                                 <span>{SLOT_LABEL[s.kind]} <span className="text-slate-400">{SLOT_HOURS[s.kind]}</span></span>
                                 {conflict && <span className="font-semibold text-red-600" title={conflict.map((c) => c.message).join('\n')}>⚠</span>}
+                                {overPref && <span className="font-semibold text-amber-600" title={overPref}>⚠</span>}
                               </div>
                               <div className="flex items-center gap-1 rounded-md bg-white ring-1 ring-inset ring-slate-200" style={person ? { boxShadow: `inset 3px 0 0 ${person.color}` } : undefined}>
                                 <select
@@ -164,9 +167,10 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
                                   {people.filter((p) => p.active || p.id === pid).map((p) => {
                                     const v = matrix[s.id][p.id]
                                     const blocked = v.length > 0 && p.id !== pid
+                                    const pref = !v.length && p.id !== pid ? preferenceWarning(p, s.id, assignments) : undefined
                                     return (
-                                      <option key={p.id} value={p.id} disabled={blocked} title={v.map((x) => x.message).join('\n')}>
-                                        {p.name}{v.length ? ` — ⛔ ${[...new Set(v.map((x) => RULE_SHORT[x.rule]))].join(', ')}` : ''}
+                                      <option key={p.id} value={p.id} disabled={blocked} title={[...v.map((x) => x.message), pref ?? ''].filter(Boolean).join('\n')}>
+                                        {p.name}{v.length ? ` — ⛔ ${[...new Set(v.map((x) => RULE_SHORT[x.rule]))].join(', ')}` : pref ? ' — ⚠ oltre disponibilità' : ''}
                                       </option>
                                     )
                                   })}
@@ -201,13 +205,16 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
                   {active.map((p) => {
                     const v = matrix[focusSlot.id][p.id]
                     const isAssigned = assignments[focusSlot.id] === p.id
+                    const pref = !v.length ? preferenceWarning(p, focusSlot.id, assignments) : undefined
                     return (
                       <li key={p.id} className="text-xs">
                         <div className="flex items-center gap-2">
                           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: p.color }} />
-                          <span className="font-medium text-slate-800">{p.name}</span>
-                          <span className="ml-auto">{isAssigned ? <Badge tone="blue">Assegnato</Badge> : v.length ? <Badge tone="red">Bloccato</Badge> : <Badge tone="green">Disponibile</Badge>}</span>
+                          <span className="min-w-0 truncate font-medium text-slate-800">{p.name}</span>
+                          <span className="ml-auto shrink-0">{isAssigned ? <Badge tone="blue">Assegnato</Badge> : v.length ? <Badge tone="red">Bloccato</Badge> : pref ? <Badge tone="amber">Oltre disponibilità</Badge> : <Badge tone="green">Disponibile</Badge>}</span>
                         </div>
+                        <div className="pl-4.5 text-[11px] text-slate-500">{availabilityLabel(p)}{preferredMax(p) !== undefined ? ` · ${monthCount(p.id, focusSlot.date)} assegnati nel mese` : ''}</div>
+                        {pref && !isAssigned && <div className="pl-4.5 text-amber-800">{pref}</div>}
                         {v.length > 0 && !isAssigned && <ul className="mt-1 space-y-0.5 pl-4.5 text-slate-600">{v.map((x) => <li key={x.rule}>{x.message}</li>)}</ul>}
                       </li>
                     )
@@ -229,6 +236,7 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
               <li>Weekend/festivo in W ⇒ niente weekend/festivi in W+1</li>
               <li>Ogni settimana deve avere una domenica libera per le ore (anche la successiva o la precedente)</li>
             </ol>
+            <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-amber-700">⚠ Oltre disponibilità</span>: assegnabile a mano, ma supera il massimo mensile indicato dalla persona. L'auto-compilazione non lo fa mai.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
           </div>
         </aside>

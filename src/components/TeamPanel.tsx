@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { fmtEur } from '../lib/economics'
 import { personSlots } from '../lib/rules'
 import { download } from '../lib/reports'
-import { newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
-import { LEVELS, type Assignments, type Level, type Person } from '../lib/types'
+import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
+import { availabilityLabel, availabilityOf, LEVELS, preferredMax, type Assignments, type Level, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 
 interface Props {
@@ -16,7 +16,7 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
   const [importOpen, setImportOpen] = useState(false)
   const update = (id: string, patch: Partial<Person>) => onChange(people.map((x) => (x.id === id ? { ...x, ...patch } : x)))
 
-  const add = () => onChange([...people, { id: newId(), name: `Risorsa ${people.length + 1}`, level: 'B1', ral: 30_000, active: true, color: nextColor(people) }])
+  const add = () => onChange([...people, { id: newId(), name: `Risorsa ${people.length + 1}`, level: 'B1', ral: 30_000, active: true, color: nextColor(people), availability: 'nessuna' }])
 
   const remove = (p: Person) => {
     const n = personSlots(assignments, p.id).length
@@ -25,8 +25,21 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
     onChange(people.filter((x) => x.id !== p.id), a)
   }
 
+  const counts = {
+    volontario: people.filter((x) => x.active && availabilityOf(x) === 'volontario').length,
+    limitato: people.filter((x) => x.active && availabilityOf(x) === 'limitato').length,
+    nessuna: people.filter((x) => x.active && availabilityOf(x) === 'nessuna').length,
+    ko: people.filter((x) => !x.active).length,
+  }
   return (
     <div>
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <Badge tone="blue">{counts.volontario} {counts.volontario === 1 ? 'volontario' : 'volontari'}</Badge>
+        <Badge tone="slate">{counts.limitato} con limite</Badge>
+        <Badge tone="slate">{counts.nessuna} senza preferenza</Badge>
+        <Badge tone="red">{counts.ko} KO</Badge>
+        <span className="text-xs text-slate-500">L'auto-compilazione impiega prima i volontari, poi chi ha un limite (senza superarlo), infine chi non ha espresso preferenze.</span>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
           <thead>
@@ -35,7 +48,8 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
               <th className="py-2 pr-3 font-medium">Nome e cognome</th>
               <th className="py-2 pr-3 font-medium">Livello CCNL</th>
               <th className="py-2 pr-3 font-medium">RAL (€)</th>
-              <th className="py-2 pr-3 font-medium">Stato adesione</th>
+              <th className="py-2 pr-3 font-medium">Rotazione</th>
+              <th className="py-2 pr-3 font-medium" title="Usata dall'auto-compilazione: prima i volontari, poi chi ha un limite (rispettato), infine chi non ha espresso preferenze">Disponibilità</th>
               <th className="py-2 pr-3 text-right font-medium" title="Calcolato automaticamente dal calendario (Sezione C): non modificabile">Turni assegnati</th>
               <th className="py-2" />
             </tr>
@@ -45,6 +59,7 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
               const ps = personSlots(assignments, p.id)
               const n = ps.length
               const nov = ps.filter((x) => x.date.startsWith('2026-11')).length
+              const max = p.active ? preferredMax(p) : undefined
               return (
                 <tr key={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'}`}>
                   <td className="py-2 pr-3">
@@ -69,12 +84,25 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
                       <span className={`relative h-5 w-9 rounded-full transition-colors ${p.active ? 'bg-emerald-600' : 'bg-slate-300'}`}>
                         <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${p.active ? 'left-[18px]' : 'left-0.5'}`} />
                       </span>
-                      {p.active ? <Badge tone="green">Attivo in rotazione</Badge> : <Badge tone="amber">Escluso su richiesta</Badge>}
+                      {p.active ? <Badge tone="green">In rotazione</Badge> : <Badge tone="red">KO · non in rotazione</Badge>}
                     </button>
+                  </td>
+                  <td className="py-2 pr-3">
+                    <select aria-label={`Disponibilità di ${p.name}`} disabled={!p.active} value={availValue(p)}
+                      onChange={(e) => update(p.id, parseAvailValue(e.target.value))}
+                      className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
+                      <option value="volontario">Volontario (senza limite)</option>
+                      <option value="max1">Max 1 turno/mese</option>
+                      <option value="max2">Max 2 turni/mese</option>
+                      <option value="max3">Max 3 turni/mese</option>
+                      <option value="nessuna">Nessuna preferenza</option>
+                    </select>
                   </td>
                   <td className="num py-2 pr-3 text-right" title="Conteggio automatico dei turni assegnati nel calendario (max 4 al mese)">
                     <div className="font-medium text-slate-800">{n}</div>
-                    <div className="text-xs whitespace-nowrap text-slate-400">Nov {nov} · Dic {n - nov}</div>
+                    <div className={`text-xs whitespace-nowrap ${max !== undefined && (nov > max || n - nov > max) ? 'font-medium text-amber-700' : 'text-slate-400'}`}>
+                      Nov {nov}{max !== undefined ? `/${max}` : ''} · Dic {n - nov}{max !== undefined ? `/${max}` : ''}
+                    </div>
                   </td>
                   <td className="py-2 text-right">
                     <Button variant="ghost" className="no-print text-red-700" onClick={() => remove(p)} aria-label={`Elimina ${p.name}`}>Elimina</Button>
@@ -82,7 +110,7 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
                 </tr>
               )
             })}
-            {!people.length && <tr><td colSpan={7} className="py-6 text-center text-slate-500">Nessuna risorsa. Aggiungine una o importa la lista.</td></tr>}
+            {!people.length && <tr><td colSpan={8} className="py-6 text-center text-slate-500">Nessuna risorsa. Aggiungine una o importa la lista.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -134,7 +162,8 @@ function ImportDialog({ existing, onClose, onImport }: { existing: Person[]; onC
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h3 id="imp-title" className="text-lg font-semibold">Importa team</h3>
-            <p className="mt-1 text-sm text-slate-500">Colonne richieste: <strong>Nome, Livello, RAL</strong>. Livelli ammessi: {LEVELS.join(', ')}.</p>
+            <p className="mt-1 text-sm text-slate-500">Colonne richieste: <strong>Nome, Livello, RAL</strong>; facoltativa <strong>Disponibilità</strong>. Livelli ammessi: {LEVELS.join(', ')}.</p>
+            <p className="mt-0.5 text-xs text-slate-500">Disponibilità: {AVAILABILITY_HELP}.</p>
           </div>
           <Button onClick={() => download('template-team-reperibilita.csv', TEMPLATE_CSV, 'text/csv;charset=utf-8')}>↓ Scarica template CSV</Button>
         </div>
@@ -163,8 +192,8 @@ function ImportDialog({ existing, onClose, onImport }: { existing: Person[]; onC
             {parsed.people.length > 0 && (
               <div className="max-h-40 overflow-auto rounded-lg ring-1 ring-slate-200">
                 <table className="num w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-1.5 font-medium">Nome</th><th className="py-1.5 font-medium">Livello</th><th className="px-3 py-1.5 text-right font-medium">RAL</th></tr></thead>
-                  <tbody>{parsed.people.map((x, i) => <tr key={i} className="border-t border-slate-100"><td className="px-3 py-1">{x.name}</td><td className="py-1">{x.level}</td><td className="px-3 py-1 text-right">{fmtEur(x.ral)}</td></tr>)}</tbody>
+                  <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-1.5 font-medium">Nome</th><th className="py-1.5 font-medium">Livello</th><th className="px-3 py-1.5 text-right font-medium">RAL</th><th className="pr-3 py-1.5 font-medium">Disponibilità</th></tr></thead>
+                  <tbody>{parsed.people.map((x, i) => <tr key={i} className="border-t border-slate-100"><td className="px-3 py-1">{x.name}</td><td className="py-1">{x.level}</td><td className="px-3 py-1 text-right">{fmtEur(x.ral)}</td><td className="pr-3 py-1">{availabilityLabel(x)}</td></tr>)}</tbody>
                 </table>
               </div>
             )}
@@ -188,3 +217,7 @@ function ImportDialog({ existing, onClose, onImport }: { existing: Person[]; onC
     </div>
   )
 }
+
+const availValue = (p: Person) => availabilityOf(p) === 'limitato' ? `max${preferredMax(p)}` : availabilityOf(p)
+const parseAvailValue = (v: string): Partial<Person> =>
+  v.startsWith('max') ? { availability: 'limitato', maxPerMonth: Number(v.slice(3)) } : { availability: v as Person['availability'], maxPerMonth: undefined }

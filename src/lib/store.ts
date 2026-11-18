@@ -49,6 +49,8 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
       ral: r.ral as number,
       active: typeof r.active === 'boolean' ? r.active : true,
       color: typeof r.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : nextColor(people),
+      availability: r.availability === 'volontario' || r.availability === 'limitato' ? r.availability : 'nessuna',
+      ...(r.availability === 'limitato' ? { maxPerMonth: [1, 2, 3].includes(r.maxPerMonth as number) ? (r.maxPerMonth as number) : 1 } : {}),
     })
   }
   const dropped = (d.people as unknown[]).length - people.length

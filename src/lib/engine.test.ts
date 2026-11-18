@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_SLOTS, weekday } from './calendar'
 import { baseHourly, saturdayHours, slotEconomics, sundayHours } from './economics'
-import { autoFill, checkAssignment, compensationsFor, existingViolations } from './rules'
+import { autoFill, checkAssignment, compensationsFor, existingViolations, preferenceWarning } from './rules'
 import { parseTeamText, TEMPLATE_CSV } from './team'
 import { normalizeWithReport } from './store'
-import { buildShiftsXlsx } from './shiftsExport'
+import { buildShiftsPdf, buildShiftsXlsx } from './shiftsExport'
 import { pnl } from './reports'
 import { DEFAULT_PARAMS as P, type Person } from './types'
 
@@ -109,7 +109,7 @@ describe('motore vincoli', () => {
 describe('import team – robustezza', () => {
   it('colonne in ordine diverso riconosciute dall\'intestazione', () => {
     const r = parseTeamText('RAL;Nome e cognome;Livello\n"32.000,00";Mario Rossi;Liv. B1')
-    expect(r.people).toEqual([{ name: 'Mario Rossi', level: 'B1', ral: 32000, active: true }])
+    expect(r.people).toMatchObject([{ name: 'Mario Rossi', level: 'B1', ral: 32000, active: true }])
   })
   it('intestazione senza colonna RAL → errore bloccante', () => {
     expect(parseTeamText('Nome;Livello;Email\nMario;B1;m@x.it').fatal).toMatch(/RAL/)
@@ -129,7 +129,7 @@ describe('import team – robustezza', () => {
     expect(r.warnings).toHaveLength(1)
   })
   it('template scaricabile è importabile', () => {
-    expect(parseTeamText(TEMPLATE_CSV).people).toHaveLength(2)
+    expect(parseTeamText(TEMPLATE_CSV).people).toHaveLength(4)
   })
 })
 
@@ -179,10 +179,44 @@ describe('giorni non richiesti', () => {
   })
 })
 
+describe('disponibilità', () => {
+  const vol = { ...mk('v', 30000), availability: 'volontario' as const }
+  const lim = { ...mk('l', 30000), availability: 'limitato' as const, maxPerMonth: 1 }
+  const non = mk('n', 30000)
+  it('auto-compila: volontari prima, limite rispettato', () => {
+    const res = autoFill([non, lim, vol], {}, P, '2026-11-01', '2026-12-31')
+    const count = (id: string, m: string) => Object.entries(res).filter(([sid, pid]) => pid === id && sid.startsWith(m)).length
+    expect(count('v', '2026-11')).toBe(4)
+    expect(count('l', '2026-11')).toBeLessThanOrEqual(1)
+    expect(count('l', '2026-12')).toBeLessThanOrEqual(1)
+  })
+  it('avviso oltre disponibilità, non bloccante', () => {
+    const asg = { '2026-11-03|N': 'l' }
+    expect(preferenceWarning(lim, '2026-11-10|N', asg)).toMatch(/max 1/)
+    expect(checkAssignment(lim, '2026-11-10|N', asg, P)).toEqual([])
+    expect(preferenceWarning(vol, '2026-11-10|N', asg)).toBeUndefined()
+  })
+  it('import colonna Disponibilità', () => {
+    const r = parseTeamText(TEMPLATE_CSV)
+    expect(r.people.map((x) => [x.availability, x.maxPerMonth, x.active])).toEqual([
+      ['volontario', undefined, true], ['limitato', 2, true], ['nessuna', undefined, true], ['nessuna', undefined, false],
+    ])
+    expect(parseTeamText('Nome;Livello;RAL;Disponibilità\nA;B1;30000;forse').warnings[0]).toMatch(/non riconosciuta/)
+  })
+})
+
+describe('export turni PDF', () => {
+  it('genera un PDF valido', async () => {
+    const buf = await buildShiftsPdf([mk('a', 30000)], { '2026-11-24|N': 'a' }, ['2026-11-25'])
+    const head = new TextDecoder().decode(new Uint8Array(buf).slice(0, 5))
+    expect(head).toBe('%PDF-')
+  })
+})
+
 describe('import team', () => {
   it('Excel/CSV con intestazione e RAL italiana', () => {
     const r = parseTeamText('Nome\tLivello\tRAL\nMario Rossi\tb1\t26.000\nAnna Bianchi\tC2\t31.500,00\nX\tZZ\t1')
-    expect(r.people).toEqual([
+    expect(r.people).toMatchObject([
       { name: 'Mario Rossi', level: 'B1', ral: 26000, active: true },
       { name: 'Anna Bianchi', level: 'C2', ral: 31500, active: true },
     ])

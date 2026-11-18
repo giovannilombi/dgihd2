@@ -1,4 +1,4 @@
-import { LEVELS, type Level, type Person } from './types'
+import { LEVELS, type Availability, type Level, type Person } from './types'
 
 export const PALETTE = ['#2563eb', '#0d9488', '#9333ea', '#ea580c', '#db2777', '#4d7c0f', '#0891b2', '#b45309', '#4f46e5', '#be123c', '#15803d', '#7c3aed']
 
@@ -16,6 +16,7 @@ export const DEFAULT_TEAM: Person[] = [26_000, 30_000, 34_000, 38_000].map((ral,
   ral,
   active: true,
   color: PALETTE[i],
+  availability: 'nessuna',
 }))
 
 /** Interpreta numeri in formato italiano o inglese: "26.000", "26000", "26.000,50", "26,000". */
@@ -40,7 +41,27 @@ export const MAX_IMPORT_ROWS = 500
 export const RAL_MIN = 10_000
 export const RAL_MAX = 250_000
 
-export const TEMPLATE_CSV = '﻿' + ['Nome;Livello;RAL', 'Mario Rossi;B1;32.000', 'Anna Bianchi;C2;28.500'].join('\r\n') + '\r\n'
+export const TEMPLATE_CSV = '﻿' + [
+  'Nome;Livello;RAL;Disponibilità',
+  'Mario Rossi;B1;32.000;volontario',
+  'Anna Bianchi;C2;28.500;2',
+  'Luca Verdi;B2;35.000;',
+  'Sara Neri;C3;30.000;ko',
+].join('\r\n') + '\r\n'
+
+/** Valori ammessi nella colonna Disponibilità (facoltativa). */
+export const AVAILABILITY_HELP = 'volontario · 1, 2 o 3 (max turni/mese) · vuoto = nessuna preferenza · ko = non in rotazione'
+
+/** Interpreta la colonna Disponibilità. `null` = valore non riconosciuto. */
+export function parseAvailability(raw: string): { availability: Availability; maxPerMonth?: number; active: boolean } | null {
+  const v = raw.trim().toLowerCase()
+  if (!v || /^(nessuna|nessuna preferenza|n\.?d\.?|-)$/.test(v)) return { availability: 'nessuna', active: true }
+  if (/^(ko|no|non disponibile|non in rotazione|0)$/.test(v)) return { availability: 'nessuna', active: false }
+  if (/^(volontari[oa]|si|sì|senza limite|illimitat[oa]|4)$/.test(v)) return { availability: 'volontario', active: true }
+  const m = v.match(/^(?:max\s*)?([123])(?:\s*(?:turni|turno)?(?:\s*\/?\s*mese)?)?$/)
+  if (m) return { availability: 'limitato', maxPerMonth: Number(m[1]), active: true }
+  return null
+}
 
 /** Divide una riga CSV rispettando i campi tra virgolette ("26.000,00"). */
 function splitCsvLine(line: string, sep: string) {
@@ -67,6 +88,7 @@ const HEADER_ALIASES = {
   name: ['nome', 'nomecognome', 'nomeecognome', 'cognomenome', 'cognomeenome', 'name', 'risorsa', 'dipendente'],
   level: ['livello', 'livelloccnl', 'level', 'inquadramento', 'liv'],
   ral: ['ral', 'ralannua', 'retribuzioneannualorda', 'ralanno', 'ralannualorda'],
+  availability: ['disponibilita', 'preferenza', 'adesione', 'disponibilitamax', 'maxturni'],
 } as const
 
 /** Riconosce un livello anche se scritto "b1", "Liv. B1", "livello B1". */
@@ -95,11 +117,11 @@ export function parseTeamText(text: string): ParseResult {
   const sep = detectSeparator(lines[0].l)
   const first = splitCsvLine(lines[0].l, sep).map(norm)
   const find = (aliases: readonly string[]) => first.findIndex((c) => aliases.includes(c))
-  let cols = { name: 0, level: 1, ral: 2 }
+  let cols = { name: 0, level: 1, ral: 2, availability: 3 }
   let body = lines
   const looksLikeHeader = first.some((c) => Object.values(HEADER_ALIASES).some((a) => (a as readonly string[]).includes(c)))
   if (looksLikeHeader) {
-    const idx = { name: find(HEADER_ALIASES.name), level: find(HEADER_ALIASES.level), ral: find(HEADER_ALIASES.ral) }
+    const idx = { name: find(HEADER_ALIASES.name), level: find(HEADER_ALIASES.level), ral: find(HEADER_ALIASES.ral), availability: find(HEADER_ALIASES.availability) }
     const missing = [idx.name < 0 && 'Nome', idx.level < 0 && 'Livello', idx.ral < 0 && 'RAL'].filter(Boolean)
     if (missing.length) {
       out.fatal = `Intestazione riconosciuta ma mancano le colonne: ${missing.join(', ')}. Usa il template (colonne Nome, Livello, RAL).`
@@ -111,9 +133,9 @@ export function parseTeamText(text: string): ParseResult {
   const seen = new Map<string, number>()
   for (const { l, n } of body) {
     let cells = splitCsvLine(l, sep)
-    if (!looksLikeHeader && sep === ',' && cells.length > 3) {
-      // CSV con virgola e RAL non tra virgolette ("26,000"): ricompatta le celle finali
-      cells = [cells[0], cells[1], cells.slice(2).join('')]
+    if (!looksLikeHeader && sep === ',' && cells.length > 3 && /^\d{3}$/.test(cells[3] ?? '')) {
+      // CSV con virgola e RAL non tra virgolette ("26,000"): ricompatta la RAL
+      cells = [cells[0], cells[1], cells[2] + cells[3], ...cells.slice(4)]
     }
     const name = (cells[cols.name] ?? '').replace(/\s+/g, ' ').trim()
     const lvlRaw = cells[cols.level] ?? ''
@@ -128,7 +150,13 @@ export function parseTeamText(text: string): ParseResult {
     const key = name.toLowerCase()
     if (seen.has(key)) out.warnings.push(`Riga ${n}: "${name}" compare anche alla riga ${seen.get(key)}`)
     else seen.set(key, n)
-    out.people.push({ name, level, ral, active: true })
+    const availRaw = cols.availability >= 0 ? cells[cols.availability] ?? '' : ''
+    let avail = parseAvailability(availRaw)
+    if (!avail) {
+      out.warnings.push(`Riga ${n} (${name}): disponibilità "${availRaw}" non riconosciuta, impostata "Nessuna preferenza"`)
+      avail = { availability: 'nessuna', active: true }
+    }
+    out.people.push({ name, level, ral, ...avail })
   }
   if (!out.people.length && out.errors.length && !looksLikeHeader) {
     out.fatal = 'Nessuna riga riconosciuta. Il file deve avere le colonne Nome, Livello, RAL: scarica il template e compilalo.'

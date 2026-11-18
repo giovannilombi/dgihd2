@@ -1,6 +1,6 @@
 import { ALL_SLOTS, SLOT_BY_ID, addDays, monthKey, weekSaturday, weekStart, weekSunday } from './calendar'
 import { saturdayHours, slotEconomics, sundayHours } from './economics'
-import type { Assignments, Params, Person, Slot } from './types'
+import { availabilityOf, preferredMax, type Assignments, type Params, type Person, type Slot } from './types'
 
 export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R3cap' | 'R4' | 'R5' | 'R6'
 
@@ -205,6 +205,20 @@ export function existingViolations(people: Person[], a: Assignments, p: Params):
  * Priorità ai weekend/festivi (fatturati a giornata intera), poi alle notti feriali.
  * Tra i candidati validi preferisce chi ha meno turni nel mese, poi in totale, poi il costo minore.
  */
+/** Avviso (non bloccante) se l'assegnazione supera il tetto mensile preferito dalla persona. */
+export function preferenceWarning(person: Person, slotId: string, a: Assignments): string | undefined {
+  const max = preferredMax(person)
+  if (max === undefined) return undefined
+  const slot = SLOT_BY_ID[slotId]
+  const others: Assignments = { ...a }
+  delete others[slotId]
+  const n = personSlots(others, person.id).filter((s) => monthKey(s.date) === monthKey(slot.date)).length
+  return n + 1 > max ? `Oltre la disponibilità dichiarata: max ${max} ${max === 1 ? 'turno' : 'turni'}/mese (sarebbe il ${n + 1}°)` : undefined
+}
+
+/** Ordine di impiego nell'auto-compilazione: prima i volontari, poi chi ha dato una disponibilità limitata, infine chi non ha espresso preferenze. */
+const TIER = { volontario: 0, limitato: 1, nessuna: 2 } as const
+
 export function autoFill(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[] = []): Assignments {
   const result: Assignments = { ...a }
   const active = people.filter((x) => x.active)
@@ -214,17 +228,18 @@ export function autoFill(people: Person[], a: Assignments, p: Params, from: stri
   for (const slot of ordered) {
     const month = monthKey(slot.date)
     const ranked = active
-      .filter((x) => checkAssignment(x, slot.id, result, p).length === 0)
+      .filter((x) => checkAssignment(x, slot.id, result, p).length === 0 && !preferenceWarning(x, slot.id, result))
       .map((x) => {
         const ss = personSlots(result, x.id)
         return {
           x,
+          tier: TIER[availabilityOf(x)],
           inMonth: ss.filter((s) => monthKey(s.date) === month).length,
           total: ss.length,
           cost: slotEconomics(x, slot, p).cost,
         }
       })
-      .sort((m, n) => m.inMonth - n.inMonth || m.total - n.total || m.cost - n.cost)
+      .sort((m, n) => m.tier - n.tier || m.inMonth - n.inMonth || m.total - n.total || m.cost - n.cost)
     if (ranked.length) result[slot.id] = ranked[0].x.id
   }
   return result

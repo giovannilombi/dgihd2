@@ -157,3 +157,85 @@ export async function buildShiftsXlsx(people: Person[], a: Assignments, excluded
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>
 }
+
+const rgb = (hex: string, f = 0): [number, number, number] => {
+  const n = parseInt(hex.slice(1), 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v + (255 - v) * f)) as [number, number, number]
+}
+
+/** Genera un PDF A4 con i soli turni (calendario per mese + riepilogo per persona), senza dati economici. */
+export async function buildShiftsPdf(people: Person[], a: Assignments, excludedDays: string[] = []): Promise<ArrayBuffer> {
+  const { jsPDF } = await import('jspdf')
+  const { autoTable } = await import('jspdf-autotable')
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const BLUE: [number, number, number] = [29, 78, 216]
+  const SLATE: [number, number, number] = [100, 116, 139]
+  const generated = new Date().toLocaleDateString('it-IT')
+
+  const header = (title: string) => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(15, 23, 42)
+    doc.text('Piano Reperibilità Nov – Dic 2026', 14, 16)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...SLATE)
+    doc.text(`${title} · generato il ${generated}`, 14, 22)
+  }
+
+  shiftCalendar(people, a, excludedDays).forEach((m, i) => {
+    if (i > 0) doc.addPage()
+    header(`Calendario turni · ${m.label}`)
+    autoTable(doc, {
+      startY: 27,
+      head: [['Data', 'Giorno', 'Tipo', `Diurno ${SLOT_HOURS.WD}`, `Notte ${SLOT_HOURS.FN}`]],
+      body: m.rows.map((r) => r.excluded
+        ? [r.dateLabel, r.weekday, r.note || r.type, { content: 'Non richiesto dal cliente', colSpan: 2 }]
+        : [r.dateLabel, r.weekday, r.note ? `${r.type} · ${r.note}` : r.type, r.day === undefined ? '' : r.day?.name ?? UNCOVERED, r.night?.name ?? UNCOVERED]),
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 1.6, lineColor: [203, 213, 225], lineWidth: 0.15, textColor: [15, 23, 42] },
+      headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 22 }, 2: { cellWidth: 40 } },
+      margin: { left: 14, right: 14 },
+      didParseCell: (d) => {
+        if (d.section !== 'body') return
+        const r = m.rows[d.row.index]
+        if (r.excluded) {
+          d.cell.styles.fillColor = [226, 232, 240]
+          d.cell.styles.textColor = SLATE
+          d.cell.styles.fontStyle = 'italic'
+          return
+        }
+        if (r.type !== 'Feriale' && d.column.index <= 2) d.cell.styles.fillColor = [238, 242, 255]
+        if (r.type === 'Festivo' && d.column.index === 2) { d.cell.styles.textColor = [67, 56, 202]; d.cell.styles.fontStyle = 'bold' }
+        if (d.column.index >= 3) {
+          const p = d.column.index === 3 ? r.day : r.night
+          if (p === undefined) d.cell.styles.fillColor = [241, 245, 249]
+          else if (p === null) { d.cell.styles.textColor = [185, 28, 28]; d.cell.styles.fontStyle = 'italic' }
+          else d.cell.styles.fillColor = rgb(p.color, 0.82)
+        }
+      },
+    })
+  })
+
+  doc.addPage()
+  header('Turni per persona')
+  autoTable(doc, {
+    startY: 27,
+    head: [['Nome', 'Nov', 'Dic', 'Tot.', 'Date e fasce']],
+    body: shiftsByPerson(people, a).map((r) => [r.person.name + (r.person.active ? '' : ' (KO)'), r.nov, r.dec, r.nov + r.dec, r.list || '—']),
+    theme: 'grid',
+    styles: { fontSize: 8.5, cellPadding: 1.8, lineColor: [203, 213, 225], lineWidth: 0.15, textColor: [15, 23, 42], valign: 'top' },
+    headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' }, 1: { cellWidth: 12, halign: 'center' }, 2: { cellWidth: 12, halign: 'center' }, 3: { cellWidth: 12, halign: 'center' } },
+    margin: { left: 14, right: 14 },
+    didParseCell: (d) => {
+      if (d.section === 'body' && d.column.index === 0) d.cell.styles.fillColor = rgb(shiftsByPerson(people, a)[d.row.index].person.color, 0.82)
+    },
+  })
+
+  const pages = doc.getNumberOfPages()
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i)
+    doc.setFontSize(8); doc.setTextColor(...SLATE)
+    doc.text('Piano Reperibilità Q4 2026 · solo turni, nessun dato economico', 14, 290)
+    doc.text(`Pagina ${i} di ${pages}`, 196, 290, { align: 'right' })
+  }
+  return doc.output('arraybuffer')
+}

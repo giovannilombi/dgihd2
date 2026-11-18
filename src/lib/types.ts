@@ -1,6 +1,15 @@
 export const LEVELS = ['D1', 'D2', 'C1', 'C2', 'C3', 'B1', 'B2', 'B3', 'A1'] as const
 export type Level = (typeof LEVELS)[number]
 
+/**
+ * Disponibilità dichiarata (le regole di legge valgono per tutti):
+ * - volontario: nessun limite oltre ai vincoli standard (2/settimana, 4/mese)
+ * - limitato: disponibile fino a `maxPerMonth` turni al mese (1–3)
+ * - nessuna: non ha espresso preferenze
+ * Chi ha dato KO è semplicemente `active: false` (non in rotazione).
+ */
+export type Availability = 'volontario' | 'limitato' | 'nessuna'
+
 export interface Person {
   id: string
   name: string
@@ -8,7 +17,19 @@ export interface Person {
   ral: number
   active: boolean
   color: string
+  availability?: Availability // default 'nessuna'
+  maxPerMonth?: number // solo per 'limitato'
 }
+
+export const availabilityOf = (p: Pick<Person, 'availability'>): Availability => p.availability ?? 'nessuna'
+/** Tetto mensile preferito, se espresso. */
+export const preferredMax = (p: Pick<Person, 'availability' | 'maxPerMonth'>) =>
+  availabilityOf(p) === 'limitato' ? Math.min(3, Math.max(1, p.maxPerMonth ?? 1)) : undefined
+export const availabilityLabel = (p: Pick<Person, 'availability' | 'maxPerMonth' | 'active'>) =>
+  !p.active ? 'KO · non in rotazione'
+    : availabilityOf(p) === 'volontario' ? 'Volontario'
+    : availabilityOf(p) === 'limitato' ? `Max ${preferredMax(p)}/mese`
+    : 'Nessuna preferenza'
 
 /** FN = Notte feriale, WD = Weekend/Festivo diurno, WN = Weekend/Festivo notturno */
 export type SlotKind = 'FN' | 'WD' | 'WN'
