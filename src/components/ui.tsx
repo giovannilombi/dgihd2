@@ -57,7 +57,7 @@ export function NumberField({ label, value, onChange, step = 0.01, min, max, suf
             if (Number.isFinite(n)) onChange(min !== undefined && n < min ? min : max !== undefined && n > max ? max : n)
           }}
         />
-        {suffix && <span className="pr-2.5 text-sm text-slate-500">{suffix}</span>}
+        {suffix && <span className="shrink-0 whitespace-nowrap pr-2.5 text-sm text-slate-500">{suffix}</span>}
       </div>
       {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
     </label>

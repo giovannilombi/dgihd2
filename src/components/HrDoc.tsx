@@ -1,6 +1,6 @@
 import katex from 'katex'
-import type { ReactNode } from 'react'
-import { baseHourly, fmtEur, fmtNum, fmtPct, saturdayHours, slotEconomics, sundayHours } from '../lib/economics'
+import { useState, type ReactNode } from 'react'
+import { baseHourly, fmtEur, kNetto, fmtNum, fmtPct, saturdayHours, slotEconomics, sundayHours } from '../lib/economics'
 import { GROUP_LABEL, type Params, type Person } from '../lib/types'
 import { Collapsible } from './ui'
 
@@ -22,8 +22,6 @@ export function HrDoc({ params: p, people }: { params: Params; people: Person[] 
   const festIncid = ref.map((x) => (slotEconomics(x, { date: '2026-11-29', kind: 'WD' }, p).cost + slotEconomics(x, { date: '2026-11-29', kind: 'WN' }, p).cost) / p.revenueFestivo * 100)
   const range = (a: number[]) => a.length ? (Math.min(...a).toFixed(1) === Math.max(...a).toFixed(1) ? fmtPct(Math.min(...a)) : `${fmtPct(Math.min(...a))}–${fmtPct(Math.max(...a))}`) : '–'
 
-  const refRals = [26_000, 30_000, 34_000, 38_000]
-  const b1 = (ral: number): Pick<Person, 'level' | 'ral'> => ({ level: 'B1', ral })
 
   return (
     <div className="space-y-3">
@@ -117,39 +115,91 @@ export function HrDoc({ params: p, people }: { params: Params; people: Person[] 
 
       {/* 4. Tabella rapida – calcolata dal motore con i parametri correnti */}
       <Collapsible title="4. Tabella Riferimento Rapido per RAL (Livello B1 – CCNL Metalmeccanici)">
-        <P>Valori calcolati in tempo reale con i parametri correnti per un dipendente <strong>Livello B1</strong> (indennità feriale {fmtEur(p.indemnity.g3.feriale)}, festiva {fmtEur(p.indemnity.g3.domenica)} lordi). Ore del sabato calcolate a scaglioni esatti.</P>
-        <div className="mt-3 overflow-x-auto">
-          <table className="num w-full min-w-[820px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-2 pr-3">RAL</th><th className="py-2 pr-3 text-right">Paga base</th>
-                <th className="py-2 pr-3">Notte feriale ({eur(p.netFN)} netti)</th>
-                <th className="py-2 pr-3">Festivo diurno ({eur(p.netWD)} netti)</th>
-                <th className="py-2 pr-3">Festivo notte ({eur(p.netWN)} netti)</th>
-                <th className="py-2 text-right">Costo az. feriale / fest. notte</th>
-              </tr>
-            </thead>
-            <tbody>
-              {refRals.map((ral) => {
-                const cells = (['FN', 'WD', 'WN'] as const).map((kind) => {
-                  const e = slotEconomics(b1(ral), { date: kind === 'FN' ? '2026-11-24' : '2026-11-29', kind }, p)
-                  return { e, dom: sundayHours(e.lcomp, ral, p), sab: saturdayHours(e.lcomp, ral, p) }
-                })
-                return (
-                  <tr key={ral} className="border-b border-slate-100 align-top">
-                    <td className="py-2 pr-3 font-semibold">{fmtEur(ral).replace(',00', '')}</td>
-                    <td className="py-2 pr-3 text-right">{fmtEur(baseHourly(ral))}</td>
-                    {cells.map((c, i) => (
-                      <td key={i} className="py-2 pr-3">{fmtEur(c.e.ltot)} lordi · <strong>{fmtNum(c.dom)} h</strong> Dom · {fmtNum(c.sab)} h Sab</td>
-                    ))}
-                    <td className="py-2 text-right">{fmtEur(cells[0].e.cost)} / {fmtEur(cells[2].e.cost)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <RefTable p={p} />
       </Collapsible>
+    </div>
+  )
+}
+
+// ---------- Tabella di riferimento rapido (B1) ----------
+const REF_RALS = Array.from({ length: 9 }, (_, i) => 24_000 + i * 2_000) // 24k → 40k, passo 2k
+const ROW_H = 40
+const HEAD_H = 36
+const KINDS = ['FN', 'WD', 'WN'] as const
+
+function refRow(ral: number, p: Params) {
+  const cells = KINDS.map((kind) => {
+    const e = slotEconomics({ level: 'B1', ral }, { date: kind === 'FN' ? '2026-11-24' : '2026-11-29', kind }, p)
+    return { kind, e, dom: sundayHours(e.lcomp, ral, p), sab: saturdayHours(e.lcomp, ral, p) }
+  })
+  return { ral, base: baseHourly(ral), k: kNetto(ral, p), cells }
+}
+
+const KIND_LABEL = { FN: 'Notte feriale', WD: 'Festivo diurno', WN: 'Festivo notte' } as const
+
+function RefTable({ p }: { p: Params }) {
+  const [custom, setCustom] = useState(32_000)
+  const valid = Number.isFinite(custom) && custom > 0
+  const live = valid ? refRow(custom, p) : null
+  const net = { FN: p.netFN, WD: p.netWD, WN: p.netWN }
+
+  return (
+    <div>
+      <P>Valori calcolati in tempo reale con i parametri correnti per un dipendente <strong>Livello B1</strong> (indennità feriale {fmtEur(p.indemnity.g3.feriale)}, festiva {fmtEur(p.indemnity.g3.domenica)} lordi). Ore del sabato calcolate a scaglioni esatti.</P>
+
+      {/* Calcolo al volo per una RAL qualsiasi */}
+      <div className="mt-4 flex flex-col gap-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4 lg:flex-row lg:items-start">
+        <label className="block shrink-0 lg:w-56">
+          <span className="text-xs font-semibold text-slate-700">Calcola per una RAL</span>
+          <div className="mt-1 flex items-center rounded-lg bg-white ring-1 ring-inset ring-slate-300 focus-within:ring-2 focus-within:ring-blue-600">
+            <input type="number" min={0} step={500} value={Number.isFinite(custom) ? custom : ''} onChange={(e) => setCustom(e.target.valueAsNumber)}
+              className="num w-full min-w-0 rounded-lg bg-transparent px-3 py-2 text-base font-semibold outline-none" aria-label="RAL da calcolare" />
+            <span className="pr-3 text-sm text-slate-500">€</span>
+          </div>
+          {live && <span className="mt-1 block text-xs text-slate-500">Paga base {fmtEur(live.base)}/h · K netto {fmtNum(live.k)}</span>}
+        </label>
+        {live ? (
+          <div className="grid flex-1 gap-3 sm:grid-cols-3">
+            {live.cells.map((c) => (
+              <div key={c.kind} className="rounded-lg bg-white p-3 ring-1 ring-slate-200">
+                <div className="text-xs font-medium text-slate-500">{KIND_LABEL[c.kind]} · {eur(net[c.kind])} netti</div>
+                <div className="num mt-1 text-lg font-semibold text-slate-900">{fmtNum(c.dom)} h <span className="text-sm font-normal text-slate-500">Dom</span></div>
+                <div className="num text-sm text-slate-700">{fmtNum(c.sab)} h Sab · {fmtEur(c.e.ltot)} lordi</div>
+                <div className="num mt-1 text-xs text-slate-500">Costo aziendale {fmtEur(c.e.cost)}</div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-sm text-slate-500">Inserisci una RAL valida.</p>}
+      </div>
+
+      {/* Tabella 24k–40k: 5 righe visibili, scorrimento verticale */}
+      <div className="mt-4 overflow-auto rounded-lg border border-slate-200 print:max-h-none print:overflow-visible" style={{ maxHeight: HEAD_H + ROW_H * 5 + 2 }}>
+        <table className="num w-full min-w-[900px] text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-50">
+            <tr className="text-left text-xs uppercase tracking-wide text-slate-500" style={{ height: HEAD_H }}>
+              <th className="px-3 whitespace-nowrap">RAL</th><th className="pr-3 text-right whitespace-nowrap">Paga base</th>
+              {KINDS.map((k) => <th key={k} className="pr-3 whitespace-nowrap">{KIND_LABEL[k]} ({eur(net[k])} netti)</th>)}
+              <th className="pr-3 text-right whitespace-nowrap">Costo az. feriale / fest. notte</th>
+            </tr>
+          </thead>
+          <tbody>
+            {REF_RALS.map((ral) => {
+              const r = refRow(ral, p)
+              return (
+                <tr key={ral} className="border-t border-slate-100" style={{ height: ROW_H }}>
+                  <td className="px-3 font-semibold whitespace-nowrap">{fmtEur(ral).replace(',00', '')}</td>
+                  <td className="pr-3 text-right whitespace-nowrap">{fmtEur(r.base)}</td>
+                  {r.cells.map((c) => (
+                    <td key={c.kind} className="pr-3 whitespace-nowrap">{fmtEur(c.e.ltot)} · <strong>{fmtNum(c.dom)} h</strong> Dom · {fmtNum(c.sab)} h Sab</td>
+                  ))}
+                  <td className="pr-3 text-right whitespace-nowrap">{fmtEur(r.cells[0].e.cost)} / {fmtEur(r.cells[2].e.cost)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-1.5 text-xs text-slate-500">RAL da 24.000 € a 40.000 € con passo di 2.000 € · scorri la tabella per vedere tutte le righe. Gli importi sono lordi.</p>
     </div>
   )
 }
