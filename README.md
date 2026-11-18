@@ -1,8 +1,10 @@
-# Piano Reperibilità Q4 2026
+# Piano reperibilità - ARM
+
+Primo periodo pianificato: Novembre – Dicembre 2026.
 
 Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilità Novembre–Dicembre 2026:
 
-- **Documento HR**: abstract sempre visibile e approfondimenti (modello matematico, analisi giuridica, tabella rapida B1) in sezioni espandibili, con valori ricalcolati sui parametri correnti.
+- **Approccio**: presentazione del modello (sintesi sempre visibile; calcolo del gettone, tutele e riferimenti normativi, valori per RAL in sezioni espandibili), con valori ricalcolati sui parametri correnti.
 - **A · Parametri**: ricavi, gettoni netti target, cap ore di compensazione, moltiplicatore costo aziendale, coefficienti netto/lordo, maggiorazioni e indennità CCNL.
 - **B · Team**: anagrafica (aggiungi, modifica, elimina), stato di rotazione (KO), disponibilità dichiarata (volontario, max 1–3 turni/mese, nessuna preferenza) usata dall'auto-compilazione, import da CSV o da Excel incollato con template scaricabile, anteprima e segnalazione degli errori riga per riga.
 - **C · Calendario**: slot feriali e festivi (festività di Milano incluse), motore vincoli in tempo reale con il motivo di ogni blocco, auto-compilazione, blocco dei giorni non richiesti dal cliente (lucchetto).
@@ -12,7 +14,7 @@ Salvataggio automatico in LocalStorage, export/import della configurazione JSON 
 
 ## Accesso
 
-L'app è divisa in pagine (Documento HR, A–E) e chiede utente e password. L'accesso alla pagina Anagrafica è riservato ai soli autorizzati (seconda password). Il controllo è solo nel browser: nel bundle c'è l'hash SHA-256 delle credenziali, non le credenziali in chiaro. Basta a tenere fuori un accesso occasionale, ma non è una protezione lato server.
+L'app è divisa in pagine (Approccio, A–E) e chiede utente e password. L'accesso alla pagina Anagrafica è riservato ai soli autorizzati (seconda password). Il controllo è solo nel browser: nel bundle c'è l'hash SHA-256 delle credenziali, non le credenziali in chiaro. Basta a tenere fuori un accesso occasionale, ma non è una protezione lato server.
 
 ## Dati personali
 

@@ -70,7 +70,7 @@ const tint = (hex: string, f = 0.82) => {
 export async function buildShiftsXlsx(people: Person[], a: Assignments, excludedDays: string[] = []): Promise<ArrayBuffer> {
   const { default: ExcelJS } = await import('exceljs')
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Piano Reperibilità Q4 2026'
+  wb.creator = 'Piano reperibilità - ARM'
   wb.created = new Date()
 
   const thin = { style: 'thin' as const, color: { argb: 'FFCBD5E1' } }
@@ -81,14 +81,14 @@ export async function buildShiftsXlsx(people: Person[], a: Assignments, excluded
   const ws = wb.addWorksheet('Calendario turni', {
     views: [{ state: 'frozen', ySplit: 3 }],
     pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } },
-    headerFooter: { oddFooter: '&LPiano Reperibilità Q4 2026&RPagina &P di &N' },
+    headerFooter: { oddFooter: '&LPiano reperibilità - ARM&RPagina &P di &N' },
   })
   ws.columns = [
     { key: 'date', width: 12 }, { key: 'wd', width: 12 }, { key: 'type', width: 26 },
     { key: 'day', width: 30 }, { key: 'night', width: 30 },
   ]
   ws.mergeCells('A1:E1')
-  ws.getCell('A1').value = 'Piano Reperibilità Nov – Dic 2026 · Calendario turni'
+  ws.getCell('A1').value = 'Piano reperibilità - ARM · Calendario turni Nov – Dic 2026'
   ws.getCell('A1').font = { bold: true, size: 14, color: { argb: 'FF0F172A' } }
   ws.mergeCells('A2:E2')
   ws.getCell('A2').value = `Generato il ${new Date().toLocaleDateString('it-IT')} · Diurno ${SLOT_HOURS.WD} solo weekend e festivi · Notte ${SLOT_HOURS.FN}`
@@ -174,7 +174,7 @@ export async function buildShiftsPdf(people: Person[], a: Assignments, excludedD
 
   const header = (title: string) => {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(15, 23, 42)
-    doc.text('Piano Reperibilità Nov – Dic 2026', 14, 16)
+    doc.text('Piano reperibilità - ARM', 14, 16)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...SLATE)
     doc.text(`${title} · generato il ${generated}`, 14, 22)
   }
@@ -234,7 +234,7 @@ export async function buildShiftsPdf(people: Person[], a: Assignments, excludedD
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i)
     doc.setFontSize(8); doc.setTextColor(...SLATE)
-    doc.text('Piano Reperibilità Q4 2026 · solo turni, nessun dato economico', 14, 290)
+    doc.text('Piano reperibilità - ARM · solo turni, nessun dato economico', 14, 290)
     doc.text(`Pagina ${i} di ${pages}`, 196, 290, { align: 'right' })
   }
   return doc.output('arraybuffer')

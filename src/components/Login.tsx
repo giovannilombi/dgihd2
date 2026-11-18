@@ -25,7 +25,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
       <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-5">
           <div className="text-xs font-semibold uppercase tracking-wider text-blue-700">Accesso riservato</div>
-          <h1 className="mt-1 text-xl font-semibold text-slate-900">Piano Reperibilità Q4 2026</h1>
+          <h1 className="mt-1 text-xl font-semibold text-slate-900">Piano reperibilità - ARM</h1>
           <p className="mt-1 text-sm text-slate-500">Inserisci le credenziali per accedere al simulatore.</p>
         </div>
         <label className="block">

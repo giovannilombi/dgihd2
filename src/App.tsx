@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Dashboard } from './components/Dashboard'
-import { HrDoc } from './components/HrDoc'
+import { Approach } from './components/Approach'
 import { Login } from './components/Login'
 import { ParamsPanel } from './components/ParamsPanel'
 import { Payroll } from './components/Payroll'
@@ -15,7 +15,7 @@ import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import { defaultData, normalizeWithReport, useAppData } from './lib/store'
 
 const NAV = [
-  ['doc', 'Documento HR'],
+  ['doc', 'Approccio'],
   ['params', 'A · Parametri'],
   ['team', 'B · Team'],
   ['planner', 'C · Calendario'],
@@ -120,8 +120,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
 
   const sections: Record<PageId, React.ReactNode> = {
     doc: (
-      <Section id="doc" title="Documentazione formale per Risorse Umane" subtitle="Abstract sempre visibile; approfondimenti normativi, matematici e legali espandibili.">
-        <HrDoc params={data.params} people={data.people} />
+      <Section id="doc" title="L'approccio" subtitle="Principi, funzionamento e sostenibilità del modello proposto.">
+        <Approach params={data.params} people={data.people} />
       </Section>
     ),
     params: (
@@ -166,7 +166,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
-          <a href="#/doc" className="font-semibold text-slate-900">Piano Reperibilità <span className="text-blue-700">Q4 2026</span></a>
+          <a href="#/doc" className="font-semibold text-slate-900">Piano reperibilità <span className="text-blue-700">- ARM</span></a>
           <nav className="flex flex-wrap gap-1 text-sm" aria-label="Sezioni">
             {NAV.map(([id, label]) => (
               <a key={id} href={`#/${id}`} aria-current={page === id ? 'page' : undefined}

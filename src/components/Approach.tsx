@@ -13,9 +13,15 @@ const H = ({ children }: { children: ReactNode }) => <h4 className="mt-5 mb-2 fo
 const UL = ({ children }: { children: ReactNode }) => <ul className="ml-5 list-disc space-y-1.5 text-sm leading-relaxed text-slate-700">{children}</ul>
 const P = ({ children }: { children: ReactNode }) => <p className="text-sm leading-relaxed text-slate-700">{children}</p>
 const eur = (n: number) => fmtNum(n) + ' €'
+const Pillar = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="rounded-lg bg-white p-4 ring-1 ring-blue-100">
+    <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+    <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{children}</p>
+  </div>
+)
 
-export function HrDoc({ params: p, people }: { params: Params; people: Person[] }) {
-  // Incidenza del costo sul ricavo calcolata sul team attivo (riferimento dinamico per l'abstract).
+export function Approach({ params: p, people }: { params: Params; people: Person[] }) {
+  // Incidenza del costo sul ricavo calcolata sul team attivo (riferimento dinamico per la sintesi).
   const active = people.filter((x) => x.active)
   const ref = active.length ? active : people
   const ferIncid = ref.map((x) => slotEconomics(x, { date: '2026-11-24', kind: 'FN' }, p).cost / p.revenueFeriale * 100)
@@ -25,34 +31,34 @@ export function HrDoc({ params: p, people }: { params: Params; people: Person[] 
 
   return (
     <div className="space-y-3">
-      {/* 1. Abstract – sempre visibile */}
+      {/* 1. Sintesi dell'approccio – sempre visibile */}
       <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-5">
-        <h3 className="font-semibold text-blue-950">1. Abstract Esecutivo</h3>
+        <h3 className="font-semibold text-blue-950">1. In sintesi</h3>
         <p className="mt-2 text-sm leading-relaxed text-slate-700">
-          Per garantire la copertura del servizio di reperibilità nel periodo <strong>Novembre – Dicembre 2026</strong> (fascia notturna feriale <strong>18:00–09:00</strong> e copertura h24 nei giorni di <strong>sabato, domenica e festivi</strong> suddivisa su 2 slot: Diurno <code>09:00–18:00</code> e Notturno <code>18:00–09:00</code>), si propone un modello operativo ed economico basato su <strong>adesione volontaria, equità retributiva, tutela rigorosa dei riposi legali e sostenibilità finanziaria</strong>.
+          La reperibilità di <strong>Novembre – Dicembre 2026</strong> copre le notti feriali (<strong>18:00–09:00</strong>) e l'intera giornata di <strong>sabati, domeniche e festivi</strong>, suddivisa in due turni: Diurno <code>09:00–18:00</code> e Notturno <code>18:00–09:00</code>.
+          L'approccio parte da un principio semplice: <strong>chi dà la propria disponibilità deve sapere in anticipo quanto riceve, avere i riposi garantiti e partecipare a una rotazione equa</strong>, con un modello economicamente sostenibile.
         </p>
-        <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
-          <div>
-            <strong className="text-slate-900">Obiettivo Retributivo (Gettone Netto Garantito).</strong> Riconoscere al personale aderente un beneficio netto certo per ogni turno di sola disponibilità passiva (esclusi eventuali interventi effettivi, retribuiti a parte secondo CCNL):
-            <UL>
-              <li><strong>{eur(p.netFN)} netti</strong> per ogni slot notturno feriale (<code>18:00–09:00</code>) e <strong>{eur(p.netWD)} netti</strong> per ogni slot diurno weekend/festivo (<code>09:00–18:00</code>).</li>
-              <li><strong>{eur(p.netWN)} netti</strong> per ogni slot notturno weekend/festivo (<code>18:00–09:00</code>, maggiorazione equitativa di {eur(p.netWN - p.netWD)} netti per il maggiore disagio e la durata di 15 ore).</li>
-            </UL>
-          </div>
-          <P>
-            <strong className="text-slate-900">Meccanismo di Liquidazione (Gettone di Disponibilità a Consuntivo).</strong> Poiché l'indennità tabellare del CCNL Metalmeccanici Industria copre solo pochi euro netti a turno, il delta necessario a raggiungere esattamente il netto target viene calcolato in base alla RAL e all'inquadramento del singolo lavoratore. La modalità <strong>preferibile</strong> è l'erogazione <strong>a consuntivo a fine mese</strong> di una voce dedicata in busta paga, il <strong>Gettone di disponibilità</strong>, pari all'integrazione lorda calcolata: trasparente, legata ai soli turni effettivamente svolti e senza registrare ore non lavorate. In <strong>alternativa</strong>, a parità di importo lordo, netto e costo aziendale, l'integrazione può essere liquidata come <strong>ore di straordinario</strong> imputate su un solo giorno del weekend (di default la <strong>Domenica</strong> a +{fmtNum(p.majDom * 100, 0)}%, oppure il Sabato se il lavoratore è reperibile il lunedì successivo o la domenica stessa), entro un tetto di {fmtNum(p.capHours)} ore giornaliere.
-          </P>
-          <P>
-            <strong className="text-slate-900">Tutela dei Riposi e Volontarietà.</strong> Adesione su base volontaria con rotazione equa; massimale di <strong>2 turni/settimana</strong> (mai consecutivi e mai adiacenti a turni di weekend); <strong>4 turni/mese</strong> massimi; blocco automatico del weekend/festivo successivo in caso di impegno nel weekend; ripartenza obbligatoria delle <strong>11 ore di riposo consecutivo</strong> in caso di chiamata effettiva.
-          </P>
-          <P>
-            <strong className="text-slate-900">Sostenibilità Economica.</strong> A fronte di un ricavo cliente scontato di <strong>{fmtEur(p.revenueFeriale)}/slot feriale</strong> e <strong>{fmtEur(p.revenueFestivo)}/giornata festiva</strong>, il costo aziendale pieno della reperibilità passiva incide, sul team attuale, per il <strong>{range(ferIncid)}</strong> sulla notte feriale e per il <strong>{range(festIncid)}</strong> sulla giornata weekend/festiva (2 slot). Il margine complessivo del piano compilato è riportato nella Dashboard (Sezione D).
-          </P>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <Pillar title="Un importo netto chiaro per ogni turno">
+            Per ogni turno di sola disponibilità è riconosciuto un <strong>importo netto garantito</strong>: <strong>{eur(p.netFN)}</strong> per la notte feriale, <strong>{eur(p.netWD)}</strong> per il diurno di weekend/festivo, <strong>{eur(p.netWN)}</strong> per la notte di weekend/festivo, che dura 15 ore e pesa di più. Gli eventuali interventi effettivi sono retribuiti a parte, come da CCNL.
+          </Pillar>
+          <Pillar title="Gettone di disponibilità, a consuntivo">
+            L'indennità prevista dal CCNL copre pochi euro a turno: la differenza fino al netto garantito, calcolata sulla RAL e sul livello di ciascuno, viene erogata a fine mese come <strong>Gettone di disponibilità</strong>, solo per i turni effettivamente svolti. In alternativa, a parità di netto e di costo, la stessa cifra può essere liquidata come <strong>ore di straordinario</strong> su un giorno del weekend, entro {fmtNum(p.capHours)} ore.
+          </Pillar>
+          <Pillar title="Riposi tutelati per costruzione">
+            Al massimo <strong>2 turni a settimana</strong> e <strong>4 al mese</strong>, mai in giorni consecutivi; chi copre un weekend o un festivo ha libero quello successivo. In caso di chiamata effettiva le <strong>11 ore di riposo</strong> ripartono da capo. Il calendario applica queste regole automaticamente e spiega ogni blocco.
+          </Pillar>
+          <Pillar title="Adesione volontaria e rotazione equa">
+            Ognuno indica la propria disponibilità: <strong>volontario</strong>, <strong>disponibile fino a 1–3 turni al mese</strong>, oppure nessuna preferenza. Chi non aderisce resta fuori dalla rotazione senza alcuna conseguenza. I turni vengono distribuiti in modo equilibrato rispettando le preferenze espresse.
+          </Pillar>
         </div>
+        <p className="mt-4 text-sm leading-relaxed text-slate-700">
+          <strong className="text-slate-900">Sostenibilità.</strong> Con un ricavo di <strong>{fmtEur(p.revenueFeriale)}</strong> per notte feriale e <strong>{fmtEur(p.revenueFestivo)}</strong> per giornata di weekend/festivo, il costo pieno della reperibilità incide per il <strong>{range(ferIncid)}</strong> sulla notte feriale e per il <strong>{range(festIncid)}</strong> sulla giornata di weekend/festivo. Il margine del piano compilato è nella pagina Conto economico.
+        </p>
       </div>
 
       {/* 2. Modello matematico */}
-      <Collapsible title="2. Modello Matematico e Fiscalità (CCNL Metalmeccanici Industria)">
+      <Collapsible title="2. Come si calcola il gettone (CCNL Metalmeccanici Industria)">
         <H>2.1 Parametri contrattuali di riferimento</H>
         <UL>
           <li><strong>CCNL applicato:</strong> Metalmeccanici Industria (13 mensilità, divisore orario mensile <strong>173</strong>, divisore annuo <strong>2.249 ore</strong>).</li>
@@ -73,7 +79,7 @@ export function HrDoc({ params: p, people }: { params: Params; people: Person[] 
           </table>
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          Ripartizione sui 2 slot weekend/festivi attualmente impostata: <strong>{p.indemnitySplit === 'intera' ? 'indennità giornaliera intera per ciascuno slot' : 'pro-quota orario (Diurno 9/24, Notturno 15/24)'}</strong> (modificabile nella Sezione A). La scelta non cambia netto né costo aziendale, ma solo la ripartizione tra indennità CCNL e integrazione.
+          Ripartizione sui 2 slot weekend/festivi attualmente impostata: <strong>{p.indemnitySplit === 'intera' ? 'indennità giornaliera intera per ciascuno slot' : 'pro-quota orario (Diurno 9/24, Notturno 15/24)'}</strong> (modificabile nella pagina Parametri). La scelta non cambia netto né costo aziendale, ma solo la ripartizione tra indennità CCNL e integrazione.
         </p>
 
         <H>2.3 Dal netto target al lordo e al costo aziendale</H>
@@ -93,9 +99,9 @@ export function HrDoc({ params: p, people }: { params: Params; people: Person[] 
         </P>
       </Collapsible>
 
-      {/* 3. Analisi giuridica */}
-      <Collapsible title="3. Analisi Giuridica e Tenuta Sindacale (perché questo modello regge)">
-        <P>Il modello risponde ai rilievi di natura giuslavoristica (D.Lgs. 66/2003, CCNL Metalmeccanici Industria, tutela INAIL) e sindacale (RSU).</P>
+      {/* 3. Tutele e conformità */}
+      <Collapsible title="3. Tutele, riposi e riferimenti normativi">
+        <P>L'approccio è costruito nel rispetto del D.Lgs. 66/2003 sull'orario di lavoro, del CCNL Metalmeccanici Industria e della tutela assicurativa INAIL, con un'attenzione particolare all'equilibrio tra disponibilità richiesta e tempo di recupero.</P>
         <H>3.1 Conformità ai riposi giornalieri e settimanali (artt. 7 e 9 D.Lgs. 66/2003)</H>
         <UL>
           <li><strong>Riposo giornaliero (11 ore consecutive ogni 24).</strong> La reperibilità passiva non costituisce prestazione lavorativa effettiva e non interrompe il riposo. In caso di <strong>chiamata effettiva</strong> durante la notte, il conteggio delle 11 ore riparte integralmente dal termine dell'intervento: se l'orario del mattino successivo ricade entro tali 11 ore, il lavoratore posticipa l'ingresso o salta la frazione/giornata lavorativa senza penalizzazioni.</li>
@@ -107,18 +113,18 @@ export function HrDoc({ params: p, people }: { params: Params; people: Person[] 
             </ol>
           </li>
         </UL>
-        <H>3.2 Consuntivazione a fine mese, Gettone di disponibilità e alternativa in ore</H>
+        <H>3.2 Liquidazione a consuntivo</H>
         <UL>
           <li><strong>Liquidazione a consuntivo.</strong> Gli importi vengono caricati solo a fine mese, dopo la verifica dell'effettivo svolgimento del turno e in assenza di eventi impeditivi o infortuni, eliminando il rischio di incongruenze assicurative INAIL ex-ante.</li>
           <li><strong>Gettone di disponibilità (preferibile).</strong> Voce retributiva dedicata, pari all'integrazione lorda calcolata dal simulatore: remunera la sola disponibilità passiva, è tracciabile turno per turno e non richiede di registrare in presenze ore non effettivamente lavorate.</li>
-          <li><strong>Straordinario su Domenica (alternativa).</strong> Qualora HR preferisca non introdurre una nuova voce, lo stesso importo lordo può essere liquidato come ore di straordinario domenicale (o del sabato, nei casi previsti), integrate nei flussi standard di rilevazione presenze. Netto al dipendente e costo aziendale restano identici; va validato con il consulente del lavoro, poiché le ore registrate non corrispondono a prestazione effettiva.</li>
+          <li><strong>Straordinario su Domenica (alternativa).</strong> Qualora si preferisca non introdurre una nuova voce, lo stesso importo lordo può essere liquidato come ore di straordinario domenicale (o del sabato, nei casi previsti), integrate nei flussi standard di rilevazione presenze. Netto al dipendente e costo aziendale restano identici; va validato con il consulente del lavoro, poiché le ore registrate non corrispondono a prestazione effettiva.</li>
         </UL>
         <H>3.3 Volontarietà ed equità della rotazione</H>
-        <P>L'adesione è <strong>volontaria</strong> e regolata da rotazione equa (max 2 turni/settimana non consecutivi, max 4 turni/mese). Chi non aderisce esce dalla rotazione senza ripercussioni e il sistema ricalcola la copertura sulle risorse attive.</P>
+        <P>L'adesione è <strong>volontaria</strong> e regolata da una rotazione equa (max 2 turni/settimana non consecutivi, max 4 turni/mese). Ognuno può indicarsi come volontario, fissare un massimo di 1, 2 o 3 turni al mese oppure non esprimere preferenze: la pianificazione impiega prima i volontari e non supera mai i limiti indicati. Chi non aderisce esce dalla rotazione senza ripercussioni e la copertura viene ricalcolata sulle persone disponibili.</P>
       </Collapsible>
 
       {/* 4. Tabella rapida – calcolata dal motore con i parametri correnti */}
-      <Collapsible title="4. Tabella Riferimento Rapido per RAL (Livello B1 – CCNL Metalmeccanici)">
+      <Collapsible title="4. Valori di riferimento per RAL (Livello B1 – CCNL Metalmeccanici)">
         <RefTable p={p} />
       </Collapsible>
     </div>
