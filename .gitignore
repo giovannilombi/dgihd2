@@ -27,3 +27,14 @@ dist-ssr
 .claude/settings.local.json
 .env
 .playwright-mcp/
+
+# Dati personali (anagrafica, RAL, turni, export): MAI nel repository
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.ods
+*.pdf
+reperibilita-*.json
+turni-*.*
+template-team-*.*

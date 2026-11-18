@@ -14,6 +14,12 @@ Salvataggio automatico in LocalStorage, export/import della configurazione JSON 
 
 L'app è divisa in pagine (Documento HR, A–E) e chiede utente e password. La pagina Anagrafica (con le RAL) richiede una seconda password; le RAL non compaiono nelle altre pagine né nel report CSV. Il controllo è solo nel browser: nel bundle c'è l'hash SHA-256 delle credenziali, non le credenziali in chiaro. Basta a tenere fuori un accesso occasionale, ma non è una protezione lato server.
 
+## Dati personali
+
+Il sito pubblicato contiene **solo il codice e 4 risorse placeholder**. L'anagrafica reale (nomi, RAL, disponibilità) viene inserita da chi usa il tool e resta **esclusivamente nel suo browser** (LocalStorage): non viene mai inviata a un server né salvata nel repository. Per condividerla tra colleghi si usa il file JSON esportato, da trasmettere su canali interni.
+
+Il `.gitignore` esclude CSV, Excel, PDF ed export JSON: **non committare mai file con dati reali**.
+
 ## Sviluppo
 
 ```bash
