@@ -10,8 +10,14 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 })
 
 /** Chiamata alla funzione server di gestione account (usa il token della sessione corrente). */
-export async function adminCall<T = Record<string, unknown>>(body: Record<string, unknown>): Promise<T> {
+export async function adminCall<T = Record<string, unknown>>(body: Record<string, unknown>, retried = false): Promise<T> {
   const { data, error } = await supabase.functions.invoke('admin-users', { body })
+  const status = (error as { context?: Response } | null)?.context?.status
+  if (error && status === 401 && !retried) {
+    // sessione chiusa lato server (es. dopo un cambio password): prova a rinnovarla una volta
+    const { error: refreshErr } = await supabase.auth.refreshSession()
+    if (!refreshErr) return adminCall<T>(body, true)
+  }
   if (error) {
     // l'errore HTTP contiene il messaggio leggibile restituito dalla funzione
     let message = error.message

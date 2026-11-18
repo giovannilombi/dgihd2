@@ -45,7 +45,14 @@ export function useAuth() {
 
   /** Cambio password (obbligatorio al primo accesso): passa dalla funzione server che azzera il flag. */
   const changePassword = async (password: string) => {
+    const { data: before } = await supabase.auth.getSession()
+    const email = before.session?.user.email
     await adminCall({ action: 'change_password', password })
+    // il cambio password lato server chiude le sessioni esistenti: si rientra subito con la nuova password
+    if (email) {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) throw new Error('Password aggiornata, ma il nuovo accesso non è riuscito: esci e rientra con la nuova password.')
+    }
     const { data } = await supabase.auth.getSession()
     await refresh(data.session)
   }

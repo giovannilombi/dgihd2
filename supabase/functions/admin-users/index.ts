@@ -1,6 +1,7 @@
 // Gestione account del Piano reperibilità ARM.
 // - change_password: qualsiasi utente autenticato cambia la propria password (obbligatorio al primo accesso)
 // - list / create / reset / set_role / delete: solo super admin
+// - process_requests: elabora la coda public.admin_requests (chiamata firmata dal database con il token del Vault)
 // La chiave di servizio resta lato server: non è mai inviata al browser.
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
 
@@ -50,6 +51,14 @@ Deno.serve(async (req) => {
 
   const url = Deno.env.get('SUPABASE_URL')!
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+
+  // --- Coda richieste dal database (firmata con token interno custodito nel Vault) ---
+  const cliToken = req.headers.get('x-cli-token')
+  if (cliToken) {
+    const { data: valid } = await admin.rpc('verify_cli_token', { t: cliToken })
+    if (valid !== true) return fail('Firma non valida.', 401)
+    return json({ processed: await processQueue(admin) })
+  }
 
   // Identità del chiamante dal token di sessione
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
@@ -136,3 +145,53 @@ Deno.serve(async (req) => {
 
   return fail('Azione sconosciuta.')
 })
+
+type Admin = ReturnType<typeof createClient>
+
+/** Esegue le richieste in attesa nella coda e ne registra l'esito (password temporanea inclusa). */
+async function processQueue(admin: Admin) {
+  const { data: pending } = await admin.from('admin_requests').select('*').eq('status', 'pending').order('id')
+  let n = 0
+  for (const r of (pending ?? []) as { id: number; action: string; email: string; display_name: string; role: Role | null }[]) {
+    const done = (patch: Record<string, unknown>) =>
+      admin.from('admin_requests').update({ ...patch, processed_at: new Date().toISOString() }).eq('id', r.id)
+    try {
+      const email = r.email.trim().toLowerCase()
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email non valida.')
+      if (r.action === 'create') {
+        if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')
+        const password = tempPassword()
+        const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
+        if (error || !data.user) throw new Error(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
+        const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: r.display_name.trim().slice(0, 80), role: r.role, must_change_password: true })
+        if (pErr) { await admin.auth.admin.deleteUser(data.user.id); throw new Error(pErr.message) }
+        await done({ status: 'done', temp_password: password })
+      } else {
+        const { data: target } = await admin.from('profiles').select('id, role').eq('email', email).maybeSingle()
+        if (!target) throw new Error('Utente non trovato.')
+        const superAdmins = (await admin.from('profiles').select('id').eq('role', 'super_admin')).data?.length ?? 0
+        if (r.action === 'reset') {
+          const password = tempPassword()
+          const { error } = await admin.auth.admin.updateUserById(target.id, { password })
+          if (error) throw new Error(error.message)
+          await admin.from('profiles').update({ must_change_password: true }).eq('id', target.id)
+          await done({ status: 'done', temp_password: password })
+        } else if (r.action === 'set_role') {
+          if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')
+          if (target.role === 'super_admin' && r.role !== 'super_admin' && superAdmins <= 1) throw new Error('Deve restare almeno un super admin.')
+          await admin.from('profiles').update({ role: r.role }).eq('id', target.id)
+          await done({ status: 'done' })
+        } else if (r.action === 'delete') {
+          if (target.role === 'super_admin' && superAdmins <= 1) throw new Error('Deve restare almeno un super admin.')
+          const { error } = await admin.auth.admin.deleteUser(target.id)
+          if (error) throw new Error(error.message)
+          await done({ status: 'done' })
+        }
+      }
+    } catch (e) {
+      await done({ status: 'error', error: (e as Error).message })
+    }
+    n++
+  }
+  return n
+}
