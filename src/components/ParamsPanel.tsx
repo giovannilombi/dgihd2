@@ -1,4 +1,5 @@
 import { DEFAULT_PARAMS, GROUP_LABEL, type Params } from '../lib/types'
+import { HowItWorks } from './HowItWorks'
 import { Button, NumberField } from './ui'
 
 export function ParamsPanel({ params: p, onChange }: { params: Params; onChange: (p: Params) => void }) {
@@ -19,7 +20,7 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
         </fieldset>
         <fieldset className="space-y-3">
           <legend className="mb-2 text-sm font-semibold text-slate-800">Vincoli e costo</legend>
-          <NumberField label="Cap ore compensazione giornaliera" value={p.capHours} onChange={(v) => set('capHours', v)} min={1} max={12} step={0.25} suffix="h/giorno" hint="Oltre il cap l'assegnazione viene bloccata" />
+          <NumberField label="Cap ore compensazione giornaliera" value={p.capHours} onChange={(v) => set('capHours', v)} min={1} max={12} step={0.25} suffix="h/giorno" hint="Vale per l'alternativa in ore: oltre il cap il turno viene bloccato" />
           <label className="block">
             <span className="text-xs font-medium text-slate-600">Moltiplicatore costo aziendale sul lordo</span>
             <div className="mt-2 flex items-center gap-3">
@@ -31,6 +32,8 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
         </fieldset>
       </div>
 
+      <div className="space-y-3">
+      <HowItWorks p={p} />
       <details className="rounded-xl border border-slate-200 bg-slate-50">
         <summary className="px-4 py-2.5 text-sm font-semibold text-slate-700">Parametri avanzati: coefficienti netto/lordo, maggiorazioni, indennità CCNL</summary>
         <div className="grid gap-6 border-t border-slate-200 p-4 lg:grid-cols-3">
@@ -78,6 +81,7 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
           </div>
         </div>
       </details>
+      </div>
     </div>
   )
 }

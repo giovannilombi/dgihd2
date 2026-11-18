@@ -6,7 +6,7 @@ Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilit�
 - **A · Parametri**: ricavi, gettoni netti target, cap ore di compensazione, moltiplicatore costo aziendale, coefficienti netto/lordo, maggiorazioni e indennità CCNL.
 - **B · Team**: anagrafica (aggiungi, modifica, elimina), stato di adesione alla rotazione, import da CSV o da Excel incollato.
 - **C · Calendario**: slot feriali e festivi (festività di Milano incluse), motore vincoli in tempo reale con il motivo di ogni blocco, auto-compilazione.
-- **D · Consuntivo e P&L**: ore di compensazione per settimana (Domenica o Sabato, cap 8h), lordo equivalente, netto, costo aziendale, KPI e grafico di marginalità.
+- **D · Consuntivo e P&L**: gettone di disponibilità lordo per settimana (modalità preferibile) e, in alternativa, ore di straordinario su Domenica o Sabato (cap 8h); netto, costo aziendale, KPI e grafico di marginalità.
 
 Salvataggio automatico in LocalStorage, export/import della configurazione JSON, report CSV, stampa/PDF dal browser.
 

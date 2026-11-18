@@ -101,7 +101,7 @@ export const toCsv = (rows: (string | number)[][]) => '﻿' + rows.map((r) => r.
 
 export function fullReportCsv(people: Person[], a: Assignments, p: Params) {
   const rows: (string | number)[][] = [['CONSUNTIVO CEDOLINO PER RISORSA']]
-  rows.push(['Mese', 'Risorsa', 'Livello', 'RAL', 'Settimana (lun)', 'Turni', 'Indennità CCNL lorda', 'Integrazione lorda', 'Giorno imputazione', 'Data imputazione', 'Ore compensazione', 'Lordo totale', 'Netto garantito', 'Costo aziendale', 'Note'])
+  rows.push(['Mese', 'Risorsa', 'Livello', 'RAL', 'Settimana (lun)', 'Turni', 'Indennità CCNL lorda', 'Gettone di disponibilità lordo (preferibile)', 'Alternativa: giorno straordinario', 'Alternativa: data', 'Alternativa: ore straordinario', 'Lordo totale', 'Netto garantito', 'Costo aziendale', 'Note'])
   for (const m of payroll(people, a, p)) {
     for (const r of m.rows) {
       for (const w of r.weeks) {
