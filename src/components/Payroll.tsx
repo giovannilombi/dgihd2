@@ -39,7 +39,7 @@ export function Payroll({ people, assignments, params }: { people: Person[]; ass
                     </thead>
                     <tbody>
                       {r.weeks.map((w) => {
-                        const over = w.hours > params.capHours + 1e-9
+                        const over = w.dayTotal > params.capHours + 1e-9
                         return (
                             <tr key={w.week} className="border-b border-slate-100 align-top">
                               <td className="px-4 py-2 whitespace-nowrap text-slate-600">dal {fmtDay(w.week)}</td>
@@ -50,12 +50,13 @@ export function Payroll({ people, assignments, params }: { people: Person[]; ass
                               <td className="border-l border-slate-100 py-2 pr-3 pl-3 text-slate-600">
                                 <div className="font-medium">{w.day === 'dom' ? 'Domenica' : 'Sabato'} {fmtDay(w.dayDate).split(' ').slice(1).join(' ')}</div>
                                 <div className="text-xs text-slate-500">{w.day === 'dom' ? `+${fmtNum(params.majDom * 100, 0)}%` : `+${fmtNum(params.majSab1 * 100, 0)}% prime 2h, +${fmtNum(params.majSab2 * 100, 0)}% oltre`}</div>
-                                {w.moveReason && <div className="mt-1"><Badge tone="amber">{w.moveReason}</Badge></div>}
+                                {w.moveReason && <div className="mt-1"><Badge tone={w.relocated ? 'blue' : 'amber'}>{w.moveReason}</Badge></div>}
                                 {w.warning && <div className="mt-1"><Badge tone="red">{w.warning}</Badge></div>}
                               </td>
                               <td className="py-2 pr-4 text-right whitespace-nowrap text-slate-600">
                                 {fmtHours(w.hours)}
-                                <div className="mt-0.5">{over ? <Badge tone="red">Oltre cap {fmtNum(params.capHours)} h</Badge> : <Badge tone="green">Entro cap</Badge>}</div>
+                                <div className="mt-0.5">{over ? <Badge tone="red">Oltre cap {fmtNum(params.capHours)} h</Badge> : <Badge tone="green">Entro cap</Badge>}
+                                  {w.dayTotal > w.hours + 1e-9 && <div className="mt-0.5 text-[11px] text-slate-500">{fmtNum(w.dayTotal)} h totali quel giorno</div>}</div>
                               </td>
                             </tr>
                           

@@ -2,7 +2,7 @@ import { ALL_SLOTS, SLOT_BY_ID, addDays, monthKey, weekSaturday, weekStart, week
 import { saturdayHours, slotEconomics, sundayHours } from './economics'
 import type { Assignments, Params, Person, Slot } from './types'
 
-export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R3cap' | 'R4' | 'R5'
+export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R3cap' | 'R4' | 'R5' | 'R6'
 
 export interface Violation {
   rule: RuleId
@@ -17,10 +17,11 @@ export const RULE_MESSAGES: Record<RuleId, string> = {
   R3cap: 'Bloccato: le ore di compensazione della settimana supererebbero il cap giornaliero',
   R4: 'Bloccato: raggiunto il tetto massimo di 4 giornate nel mese',
   R5: 'Bloccato: recupero festivo obbligatorio avendo già coperto un turno weekend/festivo la settimana precedente',
+  R6: 'Bloccato: nessuna domenica libera per imputare le ore di compensazione (sabato e lunedì successivo già impegnati, domenica successiva e precedente non disponibili)',
 }
 
 export const RULE_SHORT: Record<RuleId, string> = {
-  R0: 'Esclusa', R1: '1 slot/giorno', R2: 'Adiacenza', R3: 'Max 2/sett.', R3cap: 'Cap ore', R4: 'Max 4/mese', R5: 'Recupero weekend',
+  R0: 'Esclusa', R1: '1 slot/giorno', R2: 'Adiacenza', R3: 'Max 2/sett.', R3cap: 'Cap ore', R4: 'Max 4/mese', R5: 'Recupero weekend', R6: 'Nessuna domenica di recupero',
 }
 
 const isFestive = (s: Slot) => s.kind !== 'FN'
@@ -46,6 +47,11 @@ export interface WeekComp {
   dayDate: string
   hours: number
   movedToSat: boolean
+  /** Ore totali imputate su `dayDate` (anche da altre settimane spostate sulla stessa domenica). */
+  dayTotal: number
+  /** Sabato e domenica della settimana non utilizzabili: ore spostate su un'altra domenica. */
+  relocated?: 'next' | 'prev'
+  needsRelocation: boolean
   moveReason?: string
   warning?: string
 }
@@ -66,30 +72,71 @@ export function weekCompensation(person: Person, slots: Slot[], allSlotsOfPerson
   const hasSat = dates.has(sat)
   const hasNextMon = dates.has(nextMon)
   let day: 'dom' | 'sab' = 'dom'
-  let warning: string | undefined
+  let needsRelocation = false
   let moveReason: string | undefined
   if (hasSun) {
     day = 'sab'
     moveReason = 'Spostato su Sabato (turno di reperibilità la domenica)'
   } else if (hasNextMon) {
-    if (hasSat) warning = 'Turno sia il sabato sia il lunedì successivo: ore lasciate sulla domenica, verifica HR'
+    if (hasSat) needsRelocation = true // sabato e domenica entrambi a contatto con un turno
     else { day = 'sab'; moveReason = 'Spostato su Sabato (evita continuità con Lunedì)' }
   }
   const hours = day === 'dom' ? sundayHours(lcomp, person.ral, p) : saturdayHours(lcomp, person.ral, p)
   return {
     week, slots, iccnl, lcomp, ltot, net, cost, day, dayDate: day === 'dom' ? sun : sat, hours,
-    movedToSat: day === 'sab', moveReason, warning,
+    movedToSat: day === 'sab', dayTotal: hours, needsRelocation, moveReason,
   }
 }
 
-export function compensationsFor(person: Person, a: Assignments, p: Params): WeekComp[] {
-  const all = personSlots(a, person.id)
+/**
+ * Assegna il giorno di imputazione a ogni settimana di una persona.
+ * 1) Le settimane "normali" usano la propria Domenica (o il Sabato).
+ * 2) Se Sabato e Domenica sono entrambi a contatto con un turno (turno il sabato e il lunedì
+ *    successivo), le ore vanno alla Domenica successiva; in alternativa alla Domenica precedente,
+ *    purché nello stesso mese. Una domenica è utilizzabile se la persona non ha turni tra il sabato
+ *    e il lunedì attorno ad essa e se il totale delle ore imputate quel giorno resta entro il cap.
+ */
+export function allocateCompensations(person: Person, all: Slot[], p: Params): WeekComp[] {
   const byWeek = new Map<string, Slot[]>()
-  for (const s of all) {
+  for (const s of [...all].sort((x, y) => x.id.localeCompare(y.id))) {
     const w = weekStart(s.date)
     byWeek.set(w, [...(byWeek.get(w) ?? []), s])
   }
-  return [...byWeek.values()].map((ss) => weekCompensation(person, ss, all, p))
+  const comps = [...byWeek.values()].map((ss) => weekCompensation(person, ss, all, p))
+  const load = new Map<string, number>()
+  const addLoad = (d: string, h: number) => load.set(d, (load.get(d) ?? 0) + h)
+  for (const c of comps) if (!c.needsRelocation) addLoad(c.dayDate, c.hours)
+
+  const dates = new Set(all.map((s) => s.date))
+  const free = (sun: string) => !dates.has(addDays(sun, -1)) && !dates.has(sun) && !dates.has(addDays(sun, 1))
+  for (const c of comps.filter((x) => x.needsRelocation)) {
+    const h = sundayHours(c.lcomp, person.ral, p)
+    const fits = (d: string) => free(d) && (load.get(d) ?? 0) + h <= p.capHours + 1e-9
+    const next = addDays(weekSunday(c.week), 7)
+    const prev = addDays(c.week, -1)
+    c.day = 'dom'
+    c.hours = h
+    c.movedToSat = false
+    if (fits(next)) {
+      c.dayDate = next
+      c.relocated = 'next'
+      c.moveReason = 'Spostato alla Domenica successiva (sabato e lunedì già impegnati)'
+    } else if (monthKey(prev) === monthKey(c.slots[0].date) && fits(prev)) {
+      c.dayDate = prev
+      c.relocated = 'prev'
+      c.moveReason = 'Anticipato alla Domenica precedente, stesso mese (sabato e lunedì già impegnati)'
+    } else {
+      c.dayDate = weekSunday(c.week)
+      c.warning = 'Nessuna domenica libera entro il cap per imputare le ore: rivedere i turni'
+    }
+    addLoad(c.dayDate, h)
+  }
+  for (const c of comps) c.dayTotal = load.get(c.dayDate) ?? c.hours
+  return comps
+}
+
+export function compensationsFor(person: Person, a: Assignments, p: Params): WeekComp[] {
+  return allocateCompensations(person, personSlots(a, person.id), p)
 }
 
 /**
@@ -118,17 +165,15 @@ export function checkAssignment(person: Person, slotId: string, a: Assignments, 
   const sameWeek = mine.filter((s) => weekStart(s.date) === week)
   if (sameWeek.length >= 2) add('R3')
   else {
-    const withNew = [...mine, slot]
-    const weeks = [week, addDays(week, -7)] // un turno di lunedì può spostare al sabato la settimana precedente
-    for (const w of weeks) {
-      const ws = withNew.filter((s) => weekStart(s.date) === w)
-      if (!ws.length) continue
-      const c = weekCompensation(person, ws, withNew, p)
-      if (c.hours > p.capHours + 1e-9) {
-        add('R3cap', `Bloccato: le ore di compensazione della settimana salirebbero a ${c.hours.toFixed(2).replace('.', ',')} h sul ${c.day === 'dom' ? 'domenica' : 'sabato'}, oltre il cap di ${p.capHours.toString().replace('.', ',')} h/giorno (limite 2 turni/settimana)`)
-        break
-      }
+    // Ricalcola l'imputazione con il nuovo turno: contano la settimana del turno e le due adiacenti
+    // (un turno di lunedì sposta la settimana precedente; gli spostamenti di domenica toccano W±1).
+    const near = new Set([addDays(week, -7), week, addDays(week, 7)])
+    const comps = allocateCompensations(person, [...mine, slot], p).filter((c) => near.has(c.week))
+    const over = comps.find((c) => !c.warning && c.dayTotal > p.capHours + 1e-9)
+    if (over) {
+      add('R3cap', `Bloccato: le ore di compensazione salirebbero a ${over.dayTotal.toFixed(2).replace('.', ',')} h sul ${over.day === 'dom' ? 'domenica' : 'sabato'}, oltre il cap di ${p.capHours.toString().replace('.', ',')} h/giorno (limite 2 turni/settimana)`)
     }
+    if (comps.some((c) => c.warning)) add('R6')
   }
 
   // R4 – max 4 turni nel mese solare

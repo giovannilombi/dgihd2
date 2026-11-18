@@ -227,6 +227,7 @@ export function Planner({ people, assignments, params, excludedDays, onChange, o
               <li>Max 2 turni/settimana ISO e cap {String(params.capHours).replace('.', ',')} h di compensazione</li>
               <li>Max 4 turni/mese solare</li>
               <li>Weekend/festivo in W ⇒ niente weekend/festivi in W+1</li>
+              <li>Ogni settimana deve avere una domenica libera per le ore (anche la successiva o la precedente)</li>
             </ol>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
           </div>

@@ -76,6 +76,27 @@ describe('motore vincoli', () => {
     expect(c[0].dayDate).toBe('2026-11-28')
     expect(c[1].day).toBe('dom')
   })
+  it('sabato + lunedì successivo → domenica successiva', () => {
+    const c = compensationsFor(a, { '2026-11-07|D': 'a', '2026-11-09|N': 'a' }, P)
+    const w1 = c.find((x) => x.week === '2026-11-02')!
+    // la domenica 15 ospita anche le ore della settimana del 9 → somma entro il cap (RAL 38k)
+    expect(w1.relocated).toBe('next')
+    expect(w1.dayDate).toBe('2026-11-15')
+    expect(w1.warning).toBeUndefined()
+    expect(w1.dayTotal).toBeLessThanOrEqual(8)
+  })
+  it('domenica successiva occupata → domenica precedente nello stesso mese', () => {
+    // turno domenica 22 rende indisponibile la domenica 22; settimana del 9: sab 14 + lun 16
+    const c = compensationsFor(a, { '2026-11-14|D': 'a', '2026-11-16|N': 'a', '2026-11-22|D': 'a' }, P)
+    const w = c.find((x) => x.week === '2026-11-09')!
+    expect(w.relocated).toBe('prev')
+    expect(w.dayDate).toBe('2026-11-08')
+  })
+  it('nessuna domenica disponibile → R6 blocca il turno', () => {
+    // RAL 34k: lun 2 + sab 7 (7,01 h) ; lun 9 → dom 15 ha già 3,61 h → 10,62 h; dom 1 a contatto con lun 2
+    const r = checkAssignment(mk('c', 34000), '2026-11-09|N', { '2026-11-02|N': 'c', '2026-11-07|D': 'c' }, P).map((v) => v.rule)
+    expect(r).toContain('R6')
+  })
   it('auto-compila senza violazioni', () => {
     const team = Array.from({ length: 14 }, (_, i) => mk(`p${i}`, 26000 + i * 2500))
     const res = autoFill(team, {}, P, '2026-11-01', '2026-12-31')

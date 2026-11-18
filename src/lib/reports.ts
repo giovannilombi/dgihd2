@@ -111,7 +111,7 @@ export function fullReportCsv(people: Person[], a: Assignments, p: Params, exclu
           m.label, r.person.name, r.person.level, r.person.ral, w.week,
           w.slots.map((s) => slotTag(s.id)).join(', '),
           w.iccnl, w.lcomp, w.day === 'dom' ? 'Domenica' : 'Sabato', w.dayDate, w.hours, w.ltot, w.net, w.cost,
-          [w.moveReason ?? '', w.warning ?? '', w.hours > p.capHours ? 'OLTRE CAP' : ''].filter(Boolean).join(' | '),
+          [w.moveReason ?? '', w.warning ?? '', w.dayTotal > p.capHours + 1e-9 ? 'OLTRE CAP' : ''].filter(Boolean).join(' | '),
         ])
       }
     }
