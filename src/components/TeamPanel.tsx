@@ -8,8 +8,6 @@ import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type 
 import { availabilityLabel, availabilityOf, LEVELS, preferredMax, type Assignments, type Level, type Person } from '../lib/types'
 import { Badge, Button, CommitInput } from './ui'
 import { renumberReserves } from '../lib/store'
-import type { ReactElement } from 'react'
-import { cloneElement } from 'react'
 
 interface Props {
   people: Person[]
@@ -66,7 +64,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
               const nov = ps.filter((x) => x.date.startsWith('2026-11')).length
               const max = p.active ? preferredMax(p) : undefined
               return (
-                <tr key={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'}`}>
+                <tr key={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'}`} style={p.active && p.reserve ? { boxShadow: 'inset 3px 0 0 #7c3aed' } : undefined}>
                   <td className="py-2 pr-3">
                     <label className="relative block h-7 w-7 cursor-pointer rounded-full ring-2 ring-white shadow" style={{ background: p.color }} title="Cambia colore">
                       <input type="color" value={p.color} onChange={(e) => update(p.id, { color: e.target.value })} className="absolute inset-0 opacity-0" />
@@ -94,20 +92,13 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
                     ) : <Masked w="w-32" />}
                   </td>
                   <td className="py-2 pr-3">
-                    <button type="button" role="switch" aria-checked={p.active} onClick={() => update(p.id, { active: !p.active })} className="flex items-center gap-2">
-                      <span className={`relative h-5 w-9 rounded-full transition-colors ${p.active ? 'bg-emerald-600' : 'bg-slate-300'}`}>
-                        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${p.active ? 'left-[18px]' : 'left-0.5'}`} />
-                      </span>
-                      {p.active ? <Badge tone="green">In rotazione</Badge> : <Badge tone="red">KO · non in rotazione</Badge>}
-                    </button>
-                    <button type="button" role="switch" aria-checked={!!p.reserve} disabled={!p.active} onClick={() => toggleReserve(p)}
-                      title="Le riserve vengono impiegate dall'auto-compilazione solo se nessun altro è disponibile"
-                      className="mt-1.5 flex items-center gap-2 disabled:opacity-40">
-                      <span className={`relative h-4 w-7 rounded-full transition-colors ${p.reserve ? 'bg-violet-600' : 'bg-slate-300'}`}>
-                        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${p.reserve ? 'left-[14px]' : 'left-0.5'}`} />
-                      </span>
-                      <span className={`text-xs font-medium ${p.reserve ? 'text-violet-700' : 'text-slate-500'}`}>Riserva{p.reserve && p.reserveOrder ? ` n. ${p.reserveOrder}` : ''}</span>
-                    </button>
+                    <select aria-label={`Ruolo di ${p.name}`} value={roleOf(p)} onChange={(e) => setRole(p, e.target.value as RoleValue)}
+                      title="Le riserve vengono impiegate dall'auto-compilazione solo se nessun primario è disponibile"
+                      className={`rounded-md px-2 py-1 text-sm font-medium ring-1 ring-inset ${ROLE_STYLE[roleOf(p)]}`}>
+                      <option value="primary">Primario</option>
+                      <option value="reserve">Riserva</option>
+                      <option value="ko">KO · non in rotazione</option>
+                    </select>
                   </td>
                   <td className="py-2 pr-3">
                     <select aria-label={`Disponibilità di ${p.name}`} disabled={!p.active} value={availValue(p)}
@@ -143,13 +134,16 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
               )
   }
 
-  const regulars = people.filter((p) => !p.reserve)
-  const reserves = people.filter((p) => p.reserve).sort((a, b) => (a.reserveOrder ?? 99) - (b.reserveOrder ?? 99))
+  const reserves = people.filter((p) => p.active && p.reserve).sort((a, b) => (a.reserveOrder ?? 99) - (b.reserveOrder ?? 99))
 
-  /** Attiva/disattiva la riserva: le nuove riserve vanno in fondo alla lista. */
-  const toggleReserve = (p: Person) => {
-    const maxOrder = Math.max(0, ...people.filter((x) => x.reserve).map((x) => x.reserveOrder ?? 0))
-    onChange(renumberReserves(people.map((x) => (x.id === p.id ? (x.reserve ? { ...x, reserve: false, reserveOrder: undefined } : { ...x, reserve: true, reserveOrder: maxOrder + 1 }) : x))))
+  /** Cambia il ruolo: le nuove riserve vanno in fondo alla lista; chi va in KO esce dalle riserve. */
+  const setRole = (p: Person, role: RoleValue) => {
+    const maxOrder = Math.max(0, ...people.filter((x) => x.active && x.reserve).map((x) => x.reserveOrder ?? 0))
+    const patch: Partial<Person> =
+      role === 'primary' ? { active: true, reserve: false, reserveOrder: undefined }
+      : role === 'reserve' ? { active: true, reserve: true, reserveOrder: p.active && p.reserve ? p.reserveOrder : maxOrder + 1 }
+      : { active: false, reserve: false, reserveOrder: undefined }
+    onChange(renumberReserves(people.map((x) => (x.id === p.id ? { ...x, ...patch } : x))))
   }
   /** Sposta una riserva di una posizione (−1 = su, +1 = giù). */
   const moveReserve = (p: Person, dir: -1 | 1) => {
@@ -162,13 +156,15 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-        <Badge tone="blue">{counts.volontario} {counts.volontario === 1 ? 'volontario' : 'volontari'}</Badge>
+        <Badge tone="blue">{people.filter((x) => x.active && !x.reserve).length} primari</Badge>
+        <Badge tone="violet">{reserves.length} {reserves.length === 1 ? 'riserva' : 'riserve'}</Badge>
+        <Badge tone="red">{counts.ko} KO</Badge>
+        <span className="mx-1 h-4 w-px bg-slate-200" aria-hidden />
+        <Badge tone="slate">{counts.volontario} {counts.volontario === 1 ? 'volontario' : 'volontari'}</Badge>
         <Badge tone="slate">{counts.limitato} con limite</Badge>
         <Badge tone="slate">{counts.nessuna} senza preferenza</Badge>
-        <Badge tone="red">{counts.ko} KO</Badge>
         {missingRal > 0 && <Badge tone="amber" title="Con RAL a zero gli importi sono stimati e le ore di straordinario non sono calcolabili">{missingRal} RAL da inserire</Badge>}
-        {reserves.length > 0 && <Badge tone="slate">{reserves.length} {reserves.length === 1 ? 'riserva' : 'riserve'}</Badge>}
-        <span className="text-xs text-slate-500">L'auto-compilazione impiega prima i volontari, poi chi ha un limite (senza superarlo), infine chi non ha espresso preferenze; le riserve solo se nessun altro è disponibile.</span>
+        <span className="text-xs text-slate-500">L'auto-compilazione impiega prima i volontari, poi chi ha un limite (senza superarlo), infine chi non ha espresso preferenze; le riserve solo se nessun primario è disponibile.</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
@@ -178,7 +174,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
               <th className="py-2 pr-3 font-medium">Nome e cognome</th>
               <th className="py-2 pr-3 font-medium">Livello CCNL</th>
               <th className="py-2 pr-3 font-medium">RAL (€)</th>
-              <th className="py-2 pr-3 font-medium">Rotazione</th>
+              <th className="py-2 pr-3 font-medium" title="Primario: in rotazione. Riserva: usata solo se nessun primario è disponibile. KO: fuori rotazione">Ruolo</th>
               <th className="py-2 pr-3 font-medium" title="Usata dall'auto-compilazione: prima i volontari, poi chi ha un limite (rispettato), infine chi non ha espresso preferenze">Disponibilità</th>
               <th className="py-2 pr-3 font-medium" title="Ferie/assenze (blocco assoluto) e giorni di disponibilità (preferenza)">Calendario personale</th>
               <th className="py-2 pr-3 text-right font-medium" title="Calcolato automaticamente dal calendario (Sezione C): non modificabile">Turni assegnati</th>
@@ -186,8 +182,8 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
             </tr>
           </thead>
           <tbody>
-            {regulars.map((p) => renderRow(p))}
-            {!regulars.length && <tr><td colSpan={9} className="py-6 text-center text-slate-500">Nessuna risorsa. Aggiungine una o importa la lista.</td></tr>}
+            {people.map((p) => renderRow(p))}
+            {!people.length && <tr><td colSpan={9} className="py-6 text-center text-slate-500">Nessuna risorsa. Aggiungine una o importa la lista.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -199,19 +195,31 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
       <div className="mt-8 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-base font-semibold text-slate-900">Riserve <span className="text-sm font-normal text-slate-500">({reserves.length})</span></h3>
-          <p className="text-xs text-slate-600">L'auto-compilazione le impiega <strong>solo se nessun'altra risorsa può coprire lo slot</strong>, in quest'ordine (la n. 1 per prima). Per aggiungere una riserva usa il toggle "Riserva" nella tabella sopra.</p>
+          <p className="max-w-3xl text-xs text-slate-600">Usate dall'auto-compilazione <strong>solo se nessun primario può coprire lo slot</strong>, in quest'ordine. Per togliere una riserva cambia il suo ruolo nella tabella sopra.</p>
         </div>
         {reserves.length ? (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
-              <tbody>
-                {reserves.map((p, idx) => (
-                  <ReserveRow key={p.id} idx={idx} count={reserves.length} onMove={(d) => moveReserve(p, d)}>{renderRow(p)}</ReserveRow>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : <p className="mt-2 text-sm text-slate-500">Nessuna riserva.</p>}
+          <ol className="mt-3 grid gap-1.5">
+            {reserves.map((p, idx) => {
+              const n = personSlots(assignments, p.id).length
+              return (
+                <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-violet-200 bg-white px-3 py-2">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-violet-600 text-xs font-semibold text-white" title={`Riserva n. ${idx + 1}`}>{idx + 1}</span>
+                  <span className="flex flex-col">
+                    <button type="button" onClick={() => moveReserve(p, -1)} disabled={idx === 0} aria-label={`Sposta ${p.name} su`} className="rounded px-1 text-[10px] leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-25">▲</button>
+                    <button type="button" onClick={() => moveReserve(p, 1)} disabled={idx === reserves.length - 1} aria-label={`Sposta ${p.name} giù`} className="rounded px-1 text-[10px] leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-25">▼</button>
+                  </span>
+                  <span className="h-4 w-4 shrink-0 rounded-full" style={{ background: p.color }} />
+                  <span className="min-w-40 font-medium text-slate-900">{p.name}</span>
+                  <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-xs text-slate-600">
+                    <span>{availabilityLabel(p)}</span>
+                    {(p.unavailable?.length ?? 0) > 0 && <Badge tone="red" title={toRanges(p.unavailable!).map(rangeLabel).join('\n')}>Non disp. {p.unavailable!.length} gg</Badge>}
+                  </span>
+                  <span className="num text-xs text-slate-500">{n} {n === 1 ? 'turno' : 'turni'}</span>
+                </li>
+              )
+            })}
+          </ol>
+        ) : <p className="mt-2 text-sm text-slate-500">Nessuna riserva. Per aggiungerne una, imposta il ruolo "Riserva" nella tabella sopra.</p>}
       </div>
       {editingPerson && <AvailabilityDialog person={editingPerson} onClose={() => setEditing(null)} onSave={(u, pr) => saveAvailability(editingPerson.id, u, pr)} />}
       {importOpen && <ImportDialog revealed={revealed} existing={people} onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
@@ -318,18 +326,10 @@ const availValue = (p: Person) => availabilityOf(p) === 'limitato' ? `max${prefe
 const parseAvailValue = (v: string): Partial<Person> =>
   v.startsWith('max') ? { availability: 'limitato', maxPerMonth: Number(v.slice(3)) } : { availability: v as Person['availability'], maxPerMonth: undefined }
 
-/** Riga della lista riserve: posizione e frecce per l'ordine, poi la riga standard della persona. */
-function ReserveRow({ idx, count, onMove, children }: { idx: number; count: number; onMove: (d: -1 | 1) => void; children: ReactElement<{ children?: React.ReactNode }> }) {
-  const order = (
-    <td key="ord" className="w-20 py-2 pr-3 align-middle">
-      <div className="flex items-center gap-1">
-        <span className="grid h-7 w-7 place-items-center rounded-full bg-violet-600 text-xs font-semibold text-white" title={`Riserva n. ${idx + 1}`}>{idx + 1}</span>
-        <div className="flex flex-col">
-          <button type="button" onClick={() => onMove(-1)} disabled={idx === 0} aria-label="Sposta su" className="px-1 text-xs leading-none text-slate-500 hover:text-slate-900 disabled:opacity-25">▲</button>
-          <button type="button" onClick={() => onMove(1)} disabled={idx === count - 1} aria-label="Sposta giù" className="px-1 text-xs leading-none text-slate-500 hover:text-slate-900 disabled:opacity-25">▼</button>
-        </div>
-      </div>
-    </td>
-  )
-  return cloneElement(children, {}, [order, ...([] as React.ReactNode[]).concat(children.props.children ?? [])])
+type RoleValue = 'primary' | 'reserve' | 'ko'
+const roleOf = (p: Person): RoleValue => (!p.active ? 'ko' : p.reserve ? 'reserve' : 'primary')
+const ROLE_STYLE: Record<RoleValue, string> = {
+  primary: 'bg-blue-50 text-blue-800 ring-blue-200',
+  reserve: 'bg-violet-50 text-violet-800 ring-violet-200',
+  ko: 'bg-red-50 text-red-700 ring-red-200',
 }

@@ -23,6 +23,7 @@ const TONES = {
   amber: 'bg-amber-50 text-amber-800 ring-amber-600/25',
   red: 'bg-red-50 text-red-700 ring-red-600/20',
   blue: 'bg-blue-50 text-blue-800 ring-blue-600/20',
+  violet: 'bg-violet-50 text-violet-800 ring-violet-600/20',
   slate: 'bg-slate-100 text-slate-700 ring-slate-500/20',
 } as const
 
