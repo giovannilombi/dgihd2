@@ -13,6 +13,8 @@ export interface DetailsRow {
   max_per_month: number | null
   unavailable: string[]
   preferred_days: string[]
+  reserve: boolean
+  reserve_order: number | null
 }
 export interface AssignmentRow { slot_id: string; person_id: string; pinned: boolean }
 
@@ -32,6 +34,7 @@ export function rowsToData(
         level: d?.level ?? 'B1', ral: Number(d?.ral ?? 0),
         availability: d?.availability ?? 'nessuna', maxPerMonth: d?.max_per_month ?? undefined,
         unavailable: d?.unavailable ?? [], preferredDays: d?.preferred_days ?? [],
+        reserve: d?.reserve ?? false, reserveOrder: d?.reserve_order ?? undefined,
       }
     }),
     assignments: Object.fromEntries(assignments.map((a) => [a.slot_id, a.person_id])),
@@ -46,6 +49,7 @@ const detailsRow = (p: Person): DetailsRow => ({
   person_id: p.id, level: p.level, ral: p.ral, availability: p.availability ?? 'nessuna',
   max_per_month: p.availability === 'limitato' ? p.maxPerMonth ?? 1 : null,
   unavailable: p.unavailable ?? [], preferred_days: p.preferredDays ?? [],
+  reserve: !!p.reserve, reserve_order: p.reserve ? p.reserveOrder ?? null : null,
 })
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
@@ -116,7 +120,7 @@ export async function persist(o: Ops) {
 export async function loadAll(readFull: boolean): Promise<AppData> {
   const [people, details, assignments, excluded, settings] = await Promise.all([
     supabase.from('people').select('id, name, color, active, sort'),
-    readFull ? supabase.from('people_details').select('person_id, level, ral, availability, max_per_month, unavailable, preferred_days') : Promise.resolve({ data: null, error: null }),
+    readFull ? supabase.from('people_details').select('person_id, level, ral, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order') : Promise.resolve({ data: null, error: null }),
     supabase.from('assignments').select('slot_id, person_id, pinned'),
     supabase.from('excluded_days').select('day'),
     readFull ? supabase.from('settings').select('params').eq('id', 1).maybeSingle() : Promise.resolve({ data: null, error: null }),

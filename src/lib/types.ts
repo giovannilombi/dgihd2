@@ -23,6 +23,10 @@ export interface Person {
   unavailable?: string[]
   /** Date in cui la persona ha indicato di essere disponibile: preferenza per l'auto-compilazione. */
   preferredDays?: string[]
+  /** Riserva: impiegata dall'auto-compilazione solo se nessun altro è disponibile. */
+  reserve?: boolean
+  /** Ordine tra le riserve (1 = la prima a essere chiamata). */
+  reserveOrder?: number
 }
 
 export const availabilityOf = (p: Pick<Person, 'availability'>): Availability => p.availability ?? 'nessuna'

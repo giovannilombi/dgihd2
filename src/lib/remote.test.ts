@@ -5,8 +5,8 @@ const { diff, isEmpty, rowsToData } = await import('./remote')
 
 const base = () => rowsToData(
   [{ id: 'a', name: 'Anna', color: '#2563eb', active: true, sort: 0 }, { id: 'b', name: 'Bruno', color: '#0d9488', active: true, sort: 1 }],
-  [{ person_id: 'a', level: 'B1', ral: 30000, availability: 'limitato', max_per_month: 2, unavailable: ['2026-11-10'], preferred_days: [] },
-   { person_id: 'b', level: 'C2', ral: 0, availability: 'nessuna', max_per_month: null, unavailable: [], preferred_days: ['2026-11-12'] }],
+  [{ person_id: 'a', level: 'B1', ral: 30000, availability: 'limitato', max_per_month: 2, unavailable: ['2026-11-10'], preferred_days: [], reserve: false, reserve_order: null },
+   { person_id: 'b', level: 'C2', ral: 0, availability: 'nessuna', max_per_month: null, unavailable: [], preferred_days: ['2026-11-12'], reserve: true, reserve_order: 1 }],
   [{ slot_id: '2026-11-24|N', person_id: 'a', pinned: true }],
   ['2026-12-07'],
   { netFN: 55 },
@@ -27,6 +27,12 @@ describe('database ↔ app', () => {
     const d = rowsToData([{ id: 'a', name: 'Anna', color: '#2563eb', active: true, sort: 0 }], null, [], [], undefined)
     expect(d.people[0].ral).toBe(0)
     expect(d.people[0].unavailable ?? []).toEqual([])
+  })
+  it('riserva letta e riscritta', () => {
+    const d = base()
+    expect([d.people[1].reserve, d.people[1].reserveOrder]).toEqual([true, 1])
+    expect(diff(d, { ...d, people: d.people.map((p) => p.id === 'b' ? { ...p, reserve: false, reserveOrder: undefined } : p) }).detailsUpsert)
+      .toMatchObject([{ person_id: 'b', reserve: false, reserve_order: null }])
   })
   it('nessuna modifica → nessuna operazione', () => {
     expect(isEmpty(diff(base(), base()))).toBe(true)

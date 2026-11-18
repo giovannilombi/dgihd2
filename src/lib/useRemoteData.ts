@@ -16,6 +16,7 @@ export function useRemoteData(readFull: boolean, editable: boolean) {
   const confirmed = useRef<AppData>(data) // ultimo stato allineato al database
   const queue = useRef(Promise.resolve())
   const pending = useRef(0)
+  const lastLocalEdit = useRef(0)
 
   const reload = useCallback(async () => {
     try {
@@ -34,11 +35,18 @@ export function useRemoteData(readFull: boolean, editable: boolean) {
   useEffect(() => {
     void Promise.resolve().then(reload)
     let timer: ReturnType<typeof setTimeout> | undefined
-    // modifiche di altri utenti: ricarica (non durante i propri salvataggi)
-    const off = subscribe(() => {
+    // Modifiche di altri utenti: ricarica, ma mai durante i propri salvataggi o mentre si sta
+    // modificando (le notifiche arrivano anche per le proprie scritture e sovrascriverebbero il campo).
+    const schedule = (delay: number) => {
       clearTimeout(timer)
-      timer = setTimeout(() => { if (pending.current === 0) void reload() }, 400)
-    })
+      timer = setTimeout(() => {
+        const quiet = Date.now() - lastLocalEdit.current > 2000
+        const editingField = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement
+        if (pending.current === 0 && quiet && !editingField) void reload()
+        else schedule(1000)
+      }, delay)
+    }
+    const off = subscribe(() => schedule(400))
     return () => { off(); clearTimeout(timer) }
   }, [reload])
 
@@ -47,6 +55,7 @@ export function useRemoteData(readFull: boolean, editable: boolean) {
     const next = typeof fn === 'function' ? fn(current.current) : fn
     // un blocco esiste solo su uno slot assegnato
     const fixed = { ...next, pinned: next.pinned.filter((id) => next.assignments[id]) }
+    lastLocalEdit.current = Date.now()
     current.current = fixed
     setLocal(fixed)
     pending.current++

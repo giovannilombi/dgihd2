@@ -3,7 +3,7 @@ import { ALL_SLOTS, daysInRange, toRanges, weekday } from './calendar'
 import { baseHourly, saturdayHours, slotEconomics, sundayHours } from './economics'
 import { autoFill, checkAssignment, compensationsFor, existingViolations, preferenceWarning, regenerate } from './rules'
 import { parseTeamText, TEMPLATE_CSV } from './team'
-import { normalizeWithReport } from './store'
+import { normalizeWithReport, renumberReserves } from './store'
 import { buildShiftsPdf, buildShiftsXlsx, shiftCalendar, shiftsByPerson } from './shiftsExport'
 import { exportableMonths, exportFileName, validateRange } from './exportRange'
 import { fullReportCsv, pnl } from './reports'
@@ -310,6 +310,29 @@ describe('export per periodo', () => {
     const csv = fullReportCsv(team, asg, P, [], dec)
     expect(csv).toContain('Mer 2 Dic')
     expect(csv).not.toContain('Mar 24 Nov')
+  })
+})
+
+describe('riserve', () => {
+  it('usate solo se nessun altro è disponibile, nell\'ordine indicato', () => {
+    const regular = mk('r', 38000) // RAL alta: due notti nella stessa settimana restano entro il cap di 8 h
+    const res1 = { ...mk('x1', 30000), reserve: true, reserveOrder: 1 }
+    const res2 = { ...mk('x2', 30000), reserve: true, reserveOrder: 2 }
+    // stesso giorno: la regolare copre il primo slot disponibile, la riserva 1 interviene solo quando la regolare è bloccata
+    const out = autoFill([res2, res1, regular], {}, P, '2026-11-23', '2026-11-25')
+    expect(out['2026-11-23|N']).toBe('r')
+    expect(out['2026-11-24|N']).toBe('x1') // la regolare è bloccata (giorno adiacente): prima la riserva n.1
+    expect(out['2026-11-25|N']).toBe('r')
+  })
+  it('a parità di ordine la scelta è casuale tra le riserve', () => {
+    const a = { ...mk('a', 30000), reserve: true, reserveOrder: 1 }
+    const b = { ...mk('b', 30000), reserve: true, reserveOrder: 1 }
+    expect(autoFill([a, b], {}, P, '2026-11-24', '2026-11-24', [], () => 0.1)['2026-11-24|N']).toBe('a')
+    expect(autoFill([a, b], {}, P, '2026-11-24', '2026-11-24', [], () => 0.9)['2026-11-24|N']).toBe('b')
+  })
+  it('numerazione delle riserve 1..n', () => {
+    const ps = renumberReserves([{ ...mk('a', 1), reserve: true, reserveOrder: 5 }, mk('b', 1), { ...mk('c', 1), reserve: true }, { ...mk('d', 1), reserve: true, reserveOrder: 2 }])
+    expect(ps.map((p) => [p.id, p.reserveOrder])).toEqual([['a', 2], ['b', undefined], ['c', 3], ['d', 1]])
   })
 })
 

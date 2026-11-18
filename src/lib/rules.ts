@@ -240,7 +240,7 @@ export function preferenceWarning(person: Person, slotId: string, a: Assignments
 /** Ordine di impiego nell'auto-compilazione: prima i volontari, poi chi ha dato una disponibilità limitata, infine chi non ha espresso preferenze. */
 const TIER = { volontario: 0, limitato: 1, nessuna: 2 } as const
 
-export function autoFill(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[] = []): Assignments {
+export function autoFill(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[] = [], random: () => number = Math.random): Assignments {
   const result: Assignments = { ...a }
   const active = people.filter((x) => x.active)
   const excluded = new Set(excludedDays)
@@ -248,8 +248,19 @@ export function autoFill(people: Person[], a: Assignments, p: Params, from: stri
   const ordered = [...slots.filter(isFestive), ...slots.filter((s) => !isFestive(s))]
   for (const slot of ordered) {
     const month = monthKey(slot.date)
-    const ranked = active
-      .filter((x) => checkAssignment(x, slot.id, result, p).length === 0 && !preferenceWarning(x, slot.id, result))
+    const valid = active.filter((x) => checkAssignment(x, slot.id, result, p).length === 0 && !preferenceWarning(x, slot.id, result))
+    // le riserve entrano solo se nessun'altra risorsa può coprire lo slot, nell'ordine indicato (a parità, a caso)
+    const regular = valid.filter((x) => !x.reserve)
+    if (!regular.length) {
+      const reserves = valid.filter((x) => x.reserve)
+      if (reserves.length) {
+        const best = Math.min(...reserves.map((x) => x.reserveOrder ?? Infinity))
+        const tied = reserves.filter((x) => (x.reserveOrder ?? Infinity) === best)
+        result[slot.id] = tied[Math.floor(random() * tied.length)].id
+      }
+      continue
+    }
+    const ranked = regular
       .map((x) => {
         const ss = personSlots(result, x.id)
         return {

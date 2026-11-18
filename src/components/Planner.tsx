@@ -277,7 +277,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                           <span className="min-w-0 truncate font-medium text-slate-800">{p.name}</span>
                           <span className="ml-auto shrink-0">{isAssigned ? <Badge tone="blue">Assegnato</Badge> : v.length ? <Badge tone="red">Bloccato</Badge> : pref ? <Badge tone="amber">Oltre disponibilità</Badge> : <Badge tone="green">Disponibile</Badge>}</span>
                         </div>
-                        <div className="pl-4.5 text-[11px] text-slate-500">{p.preferredDays?.includes(focusSlot.date) && <span className="font-semibold text-emerald-700">Ha dato disponibilità per questo giorno · </span>}{availabilityLabel(p)}{preferredMax(p) !== undefined ? ` · ${monthCount(p.id, focusSlot.date)} assegnati nel mese` : ''}</div>
+                        <div className="pl-4.5 text-[11px] text-slate-500">{p.reserve && <span className="font-semibold text-violet-700">Riserva n. {p.reserveOrder} · </span>}{p.preferredDays?.includes(focusSlot.date) && <span className="font-semibold text-emerald-700">Ha dato disponibilità per questo giorno · </span>}{availabilityLabel(p)}{preferredMax(p) !== undefined ? ` · ${monthCount(p.id, focusSlot.date)} assegnati nel mese` : ''}</div>
                         {pref && !isAssigned && <div className="pl-4.5 text-amber-800">{pref}</div>}
                         {v.length > 0 && !isAssigned && <ul className="mt-1 space-y-0.5 pl-4.5 text-slate-600">{v.map((x) => <li key={x.rule}>{x.message}</li>)}</ul>}
                       </li>

@@ -63,6 +63,7 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
       availability: r.availability === 'volontario' || r.availability === 'limitato' ? r.availability : 'nessuna',
       ...(r.availability === 'limitato' ? { maxPerMonth: [1, 2, 3].includes(r.maxPerMonth as number) ? (r.maxPerMonth as number) : 1 } : {}),
       ...cleanDays(r.unavailable, r.preferredDays),
+      ...(r.reserve === true ? { reserve: true, reserveOrder: Number.isInteger(r.reserveOrder) && (r.reserveOrder as number) >= 1 ? (r.reserveOrder as number) : undefined } : {}),
     })
   }
   const dropped = (d.people as unknown[]).length - people.length
@@ -100,7 +101,7 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
 
   const pinned = Array.isArray(d.pinned) ? [...new Set((d.pinned as unknown[]).filter((x): x is string => typeof x === 'string' && !!assignments[x]))] : []
 
-  return { data: { version: 1, params, people, assignments, excludedDays, pinned }, warnings }
+  return { data: { version: 1, params, people: renumberReserves(people), assignments, excludedDays, pinned }, warnings }
 }
 
 export const normalize = (raw: unknown) => normalizeWithReport(raw).data
@@ -115,4 +116,11 @@ export function purgeLegacyLocalData() {
     sessionStorage.removeItem('reperibilita-q4-2026:auth')
     sessionStorage.removeItem('reperibilita-q4-2026:team')
   } catch { /* storage non disponibile */ }
+}
+
+/** Numera le riserve 1..n mantenendo l'ordine esistente (le nuove vanno in coda). */
+export function renumberReserves(people: Person[]): Person[] {
+  const reserves = people.filter((p) => p.reserve).sort((a, b) => (a.reserveOrder ?? Infinity) - (b.reserveOrder ?? Infinity))
+  const order = new Map(reserves.map((p, i) => [p.id, i + 1]))
+  return people.map((p) => (p.reserve ? { ...p, reserveOrder: order.get(p.id) } : { ...p, reserveOrder: undefined }))
 }

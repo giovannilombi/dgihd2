@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 
 export function Section({ id, letter, title, subtitle, actions, children }: { id: string; letter?: string; title: string; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode }) {
   return (
@@ -94,5 +94,39 @@ export function Collapsible({ title, children, defaultOpen = false }: { title: R
       <AccordionSummary>{title}</AccordionSummary>
       <div className="border-t border-slate-200 px-5 py-4">{children}</div>
     </details>
+  )
+}
+
+/**
+ * Campo di testo che salva solo all'uscita dal campo o con Invio (Esc annulla): evita salvataggi
+ * e ricaricamenti a ogni tasto mentre si scrive. Un valore non valido torna al precedente.
+ */
+export function CommitInput({ value, onCommit, validate, type = 'text', ...rest }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
+  value: string | number
+  onCommit: (v: string) => void
+  validate?: (v: string) => boolean
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const cancelled = useRef(false)
+  const shown = draft ?? String(value)
+  const commit = () => {
+    const v = draft
+    setDraft(null)
+    if (cancelled.current) { cancelled.current = false; return }
+    if (v !== null && v !== String(value) && (!validate || validate(v))) onCommit(v)
+  }
+  return (
+    <input
+      {...rest}
+      type={type}
+      value={shown}
+      onFocus={(e) => { setDraft(String(value)); rest.onFocus?.(e) }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        if (e.key === 'Escape') { cancelled.current = true; (e.target as HTMLInputElement).blur() }
+      }}
+    />
   )
 }
