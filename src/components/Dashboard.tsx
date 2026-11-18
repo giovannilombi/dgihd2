@@ -6,6 +6,8 @@ import { Kpi } from './ui'
 
 export function Dashboard({ people, assignments, params, excludedDays }: { people: Person[]; assignments: Assignments; params: Params; excludedDays: string[] }) {
   const { months, weeks, total } = pnl(people, assignments, params, excludedDays)
+  const assignedIds = new Set(Object.values(assignments))
+  const missingRal = people.filter((x) => assignedIds.has(x.id) && !(x.ral > 0)).length
   const [view, setView] = useState<'weeks' | 'months'>('weeks')
   const rows = view === 'weeks' ? weeks : months
   return (
@@ -16,6 +18,11 @@ export function Dashboard({ people, assignments, params, excludedDays }: { peopl
         <Kpi label="Margine lordo aziendale" value={fmtEur(total.margin)} tone={total.margin < 0 ? 'bad' : undefined} sub="Ricavo − costo aziendale" />
         <Kpi label="Marginalità %" value={total.revenue ? fmtPct(total.marginPct) : '–'} tone={total.margin < 0 ? 'bad' : undefined} sub="Margine / ricavo (non markup)" />
       </div>
+      {missingRal > 0 && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          ⚠ {missingRal === 1 ? '1 persona con turni assegnati non ha' : `${missingRal} persone con turni assegnati non hanno`} la RAL inserita: costi e margine sono stimati con il coefficiente netto/lordo della fascia più bassa e diventano definitivi inserendo le RAL nella pagina Team.
+        </p>
+      )}
       {total.festiviParziali > 0 && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
           ⚠ {total.festiviParziali === 1 ? '1 giornata weekend/festiva ha' : `${total.festiviParziali} giornate weekend/festive hanno`} un solo slot coperto: il costo è conteggiato ma il ricavo giornaliero non viene fatturato finché la copertura h24 non è completa.

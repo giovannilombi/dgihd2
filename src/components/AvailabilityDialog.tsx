@@ -59,7 +59,7 @@ export function AvailabilityDialog({ person, onClose, onSave }: {
           <div>
             <h3 id="av-title" className="text-lg font-semibold text-slate-900">Disponibilità di {person.name}</h3>
             <p className="mt-0.5 text-sm text-slate-500">
-              <strong className="text-red-700">Non disponibile</strong> (ferie, assenze): la persona non viene mai assegnata in quei giorni.{' '}
+              <strong className="text-red-700">Non disponibile</strong> (ferie, assenze): la persona non viene mai assegnata in quei giorni, né nella notte che li precede.{' '}
               <strong className="text-emerald-700">Disponibile</strong>: in quei giorni l'auto-compilazione la sceglie per prima.
             </p>
           </div>

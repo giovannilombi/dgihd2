@@ -1,5 +1,5 @@
 import { ALL_SLOTS, SLOT_BY_ID, addDays, monthKey, weekSaturday, weekStart, weekSunday } from './calendar'
-import { saturdayHours, slotEconomics, sundayHours } from './economics'
+import { hasRal, saturdayHours, slotEconomics, sundayHours } from './economics'
 import { availabilityOf, preferredMax, type Assignments, type Params, type Person, type Slot } from './types'
 
 export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R3cap' | 'R4' | 'R5' | 'R6' | 'R7'
@@ -26,6 +26,19 @@ export const RULE_SHORT: Record<RuleId, string> = {
 }
 
 const isFestive = (s: Slot) => s.kind !== 'FN'
+
+/**
+ * Indisponibilità per ferie/assenze:
+ * - 'giorno': lo slot cade in un giorno di ferie (inclusa la notte che parte da quel giorno,
+ *   quindi anche la notte dopo l'ultimo giorno di ferie è coperta);
+ * - 'notte-prima': è la notte che termina alle 09:00 del primo giorno di ferie.
+ */
+export function unavailabilityReason(unavailable: string[] | undefined, slot: Pick<Slot, 'date' | 'kind'>): 'giorno' | 'notte-prima' | undefined {
+  if (!unavailable?.length) return undefined
+  if (unavailable.includes(slot.date)) return 'giorno'
+  if (slot.kind !== 'WD' && unavailable.includes(addDays(slot.date, 1))) return 'notte-prima'
+  return undefined
+}
 
 /** Slot assegnati a una persona, ordinati per data. */
 export function personSlots(a: Assignments, personId: string): Slot[] {
@@ -110,9 +123,11 @@ export function allocateCompensations(person: Person, all: Slot[], p: Params): W
 
   const dates = new Set(all.map((s) => s.date))
   const free = (sun: string) => !dates.has(addDays(sun, -1)) && !dates.has(sun) && !dates.has(addDays(sun, 1))
+  const ralKnown = hasRal(person.ral)
   for (const c of comps.filter((x) => x.needsRelocation)) {
     const h = sundayHours(c.lcomp, person.ral, p)
-    const fits = (d: string) => free(d) && (load.get(d) ?? 0) + h <= p.capHours + 1e-9
+    // senza RAL le ore non sono calcolabili: conta solo che la domenica sia libera da turni
+    const fits = (d: string) => free(d) && (!ralKnown || (load.get(d) ?? 0) + h <= p.capHours + 1e-9)
     const next = addDays(weekSunday(c.week), 7)
     const prev = addDays(c.week, -1)
     c.day = 'dom'
@@ -154,8 +169,10 @@ export function checkAssignment(person: Person, slotId: string, a: Assignments, 
 
   if (!person.active) add('R0')
 
-  // R7 – ferie/assenze: la persona non è mai reperibile in quei giorni
-  if (person.unavailable?.includes(slot.date)) add('R7')
+  // R7 – ferie/assenze: nessun turno nei giorni di ferie né nella notte che le precede
+  const off = unavailabilityReason(person.unavailable, slot)
+  if (off === 'giorno') add('R7')
+  else if (off === 'notte-prima') add('R7', 'Bloccato: è la notte che precede un giorno di ferie o assenza (finirebbe alle 09:00 del primo giorno di ferie)')
 
   // R1 – un solo slot nello stesso giorno
   if (mine.some((s) => s.date === slot.date)) add('R1')
@@ -168,7 +185,7 @@ export function checkAssignment(person: Person, slotId: string, a: Assignments, 
   const week = weekStart(slot.date)
   const sameWeek = mine.filter((s) => weekStart(s.date) === week)
   if (sameWeek.length >= 2) add('R3')
-  else {
+  else if (hasRal(person.ral)) {
     // Ricalcola l'imputazione con il nuovo turno: contano la settimana del turno e le due adiacenti
     // (un turno di lunedì sposta la settimana precedente; gli spostamenti di domenica toccano W±1).
     const near = new Set([addDays(week, -7), week, addDays(week, 7)])

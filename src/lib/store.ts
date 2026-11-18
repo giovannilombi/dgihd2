@@ -50,7 +50,7 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
   const people: Person[] = []
   for (const r of d.people as Record<string, unknown>[]) {
     const ok = r && typeof r === 'object' && typeof r.name === 'string' && r.name.trim() &&
-      LEVELS.includes(r.level as Level) && typeof r.ral === 'number' && Number.isFinite(r.ral) && r.ral > 0
+      LEVELS.includes(r.level as Level) && typeof r.ral === 'number' && Number.isFinite(r.ral) && r.ral >= 0
     if (!ok) continue
     let id = typeof r.id === 'string' && r.id ? r.id : newId()
     if (people.some((x) => x.id === id)) id = newId()

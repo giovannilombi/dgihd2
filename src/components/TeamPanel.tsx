@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { fmtEur } from '../lib/economics'
-import { personSlots } from '../lib/rules'
-import { rangeLabel, toRanges } from '../lib/calendar'
+import { personSlots, unavailabilityReason } from '../lib/rules'
+import { rangeLabel, SLOT_BY_ID, toRanges } from '../lib/calendar'
 import { download, slotTag } from '../lib/reports'
 import { AvailabilityDialog } from './AvailabilityDialog'
 import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
@@ -30,9 +30,8 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
 
   /** Salva ferie e disponibilità; i turni già assegnati nei giorni di ferie vengono liberati (con conferma). */
   const saveAvailability = (id: string, unavailable: string[], preferred: string[]) => {
-    const off = new Set(unavailable)
-    const clash = Object.entries(assignments).filter(([sid, pid]) => pid === id && off.has(sid.slice(0, 10)))
-    if (clash.length && !confirm(`${clash.length} ${clash.length === 1 ? 'turno assegnato cade' : 'turni assegnati cadono'} nei giorni di non disponibilità e ${clash.length === 1 ? 'verrà liberato' : 'verranno liberati'}:\n${clash.map(([sid]) => '• ' + slotTag(sid)).join('\n')}\n\nContinuare?`)) return
+    const clash = Object.entries(assignments).filter(([sid, pid]) => pid === id && unavailabilityReason(unavailable, SLOT_BY_ID[sid]))
+    if (clash.length && !confirm(`${clash.length} ${clash.length === 1 ? 'turno assegnato cade' : 'turni assegnati cadono'} nei giorni di non disponibilità (o nella notte che li precede) e ${clash.length === 1 ? 'verrà liberato' : 'verranno liberati'}:\n${clash.map(([sid]) => '• ' + slotTag(sid)).join('\n')}\n\nContinuare?`)) return
     const nextPeople = people.map((x) => (x.id === id ? { ...x, unavailable: unavailable.length ? unavailable : undefined, preferredDays: preferred.length ? preferred : undefined } : x))
     if (clash.length) {
       const drop = new Set(clash.map(([sid]) => sid))
@@ -51,6 +50,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
     onChange(people.filter((x) => x.id !== p.id), a)
   }
 
+  const missingRal = people.filter((x) => !(x.ral > 0)).length
   const counts = {
     volontario: people.filter((x) => x.active && availabilityOf(x) === 'volontario').length,
     limitato: people.filter((x) => x.active && availabilityOf(x) === 'limitato').length,
@@ -64,6 +64,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
         <Badge tone="slate">{counts.limitato} con limite</Badge>
         <Badge tone="slate">{counts.nessuna} senza preferenza</Badge>
         <Badge tone="red">{counts.ko} KO</Badge>
+        {missingRal > 0 && <Badge tone="amber" title="Con RAL a zero gli importi sono stimati e le ore di straordinario non sono calcolabili">{missingRal} RAL da inserire</Badge>}
         <span className="text-xs text-slate-500">L'auto-compilazione impiega prima i volontari, poi chi ha un limite (senza superarlo), infine chi non ha espresso preferenze.</span>
       </div>
       <div className="overflow-x-auto">
@@ -108,7 +109,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
                     {revealed ? (
                       <>
                         <input type="number" step={500} min={0} value={p.ral} aria-label="RAL" onChange={(e) => Number.isFinite(e.target.valueAsNumber) && update(p.id, { ral: e.target.valueAsNumber })} className="num w-32 rounded-md px-2 py-1 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-600 outline-none" />
-                        <div className="mt-0.5 text-xs text-slate-400">{fmtEur(p.ral)}</div>
+                        <div className={`mt-0.5 text-xs ${p.ral > 0 ? 'text-slate-400' : 'font-medium text-amber-700'}`}>{p.ral > 0 ? fmtEur(p.ral) : 'Da inserire'}</div>
                       </>
                     ) : <Masked w="w-32" />}
                   </td>

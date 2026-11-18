@@ -41,12 +41,17 @@ export function slotEconomics(person: Pick<Person, 'level' | 'ral'>, slot: Pick<
 }
 
 /** Ore di straordinario domenicale (+55%) necessarie per liquidare un lordo. */
+/** RAL non ancora inserita (0): importi stimati, ore di straordinario non calcolabili. */
+export const hasRal = (ral: number) => Number.isFinite(ral) && ral > 0
+
 export function sundayHours(lcomp: number, ral: number, p: Params) {
+  if (!hasRal(ral)) return NaN
   return lcomp / (baseHourly(ral) * (1 + p.majDom))
 }
 
 /** Ore di sabato a scaglioni: +25% prime 2 ore, +30% dalla terza. */
 export function saturdayHours(lcomp: number, ral: number, p: Params) {
+  if (!hasRal(ral)) return NaN
   const base = baseHourly(ral)
   const firstTwo = 2 * base * (1 + p.majSab1)
   if (lcomp <= firstTwo) return lcomp / (base * (1 + p.majSab1))
@@ -58,6 +63,7 @@ export const fmtEur = (n: number) =>
 export const fmtNum = (n: number, d = 2) => n.toLocaleString('it-IT', { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: 'always' })
 export const fmtPct = (n: number) => `${fmtNum(n, 1)}%`
 export function fmtHours(h: number) {
+  if (!Number.isFinite(h)) return 'RAL da inserire'
   let hh = Math.floor(h)
   let mm = Math.round((h - hh) * 60)
   if (mm === 60) { hh += 1; mm = 0 }

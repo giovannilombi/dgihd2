@@ -242,6 +242,19 @@ describe('ferie e giorni di disponibilità', () => {
     const res = autoFill([ferie, mk('g', 30000)], {}, P, '2026-11-01', '2026-12-31')
     expect(Object.entries(res).some(([sid, pid]) => pid === 'f' && sid >= '2026-11-09' && sid <= '2026-11-22|Z')).toBe(false)
   })
+  it('ferie da mercoledì a giovedì: bloccate la notte mar→mer e la notte gio→ven', () => {
+    const f = { ...mk('f', 30000), unavailable: ['2026-11-25', '2026-11-26'] }
+    const rule = (sid: string) => checkAssignment(f, sid, {}, P).map((v) => v.rule)
+    expect(rule('2026-11-24|N')).toContain('R7') // notte prima (mar→mer)
+    expect(rule('2026-11-26|N')).toContain('R7') // notte dopo l'ultimo giorno (gio→ven)
+    expect(rule('2026-11-23|N')).not.toContain('R7')
+    expect(rule('2026-11-27|N')).not.toContain('R7')
+  })
+  it('ferie da lunedì: bloccata la notte domenica→lunedì ma non il diurno di domenica', () => {
+    const f = { ...mk('f', 30000), unavailable: ['2026-11-30'] }
+    expect(checkAssignment(f, '2026-11-29|N', {}, P).map((v) => v.rule)).toContain('R7')
+    expect(checkAssignment(f, '2026-11-29|D', {}, P).map((v) => v.rule)).not.toContain('R7')
+  })
   it('nei giorni indicati come disponibili la persona viene scelta per prima', () => {
     const vol = { ...mk('v', 30000), availability: 'volontario' as const }
     const pref = { ...mk('p', 30000), preferredDays: ['2026-11-24'] }
@@ -257,6 +270,20 @@ describe('ferie e giorni di disponibilità', () => {
     expect(toRanges(['2026-11-03', '2026-11-01', '2026-11-02', '2026-11-10'])).toEqual([
       { from: '2026-11-01', to: '2026-11-03', days: 3 }, { from: '2026-11-10', to: '2026-11-10', days: 1 },
     ])
+  })
+})
+
+describe('RAL non ancora inserita', () => {
+  it('persona con RAL 0: importabile, assegnabile, ore non calcolabili', () => {
+    const { data } = normalizeWithReport({ people: [{ id: 'z', name: 'Z', level: 'B1', ral: 0 }] })
+    expect(data.people).toHaveLength(1)
+    const z = data.people[0]
+    expect(checkAssignment(z, '2026-11-24|N', { '2026-11-23|N': 'z' }, P).map((v) => v.rule)).not.toContain('R3cap')
+    const c = compensationsFor(z, { '2026-11-24|N': 'z' }, P)
+    expect(Number.isNaN(c[0].hours)).toBe(true)
+    expect(c[0].lcomp).toBeGreaterThan(0)
+    const res = autoFill([z], {}, P, '2026-11-01', '2026-11-30')
+    expect(Object.keys(res).length).toBeGreaterThan(0)
   })
 })
 

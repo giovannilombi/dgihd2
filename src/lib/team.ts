@@ -1,6 +1,6 @@
 import { LEVELS, type Availability, type Level, type Person } from './types'
 
-export const PALETTE = ['#2563eb', '#0d9488', '#9333ea', '#ea580c', '#db2777', '#4d7c0f', '#0891b2', '#b45309', '#4f46e5', '#be123c', '#15803d', '#7c3aed']
+export const PALETTE = ['#2563eb', '#0d9488', '#9333ea', '#ea580c', '#db2777', '#4d7c0f', '#0891b2', '#b45309', '#4f46e5', '#be123c', '#15803d', '#7c3aed', '#a21caf', '#ca8a04', '#334155', '#65a30d']
 
 export const newId = () => Math.random().toString(36).slice(2, 10)
 
