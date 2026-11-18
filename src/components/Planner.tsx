@@ -11,13 +11,24 @@ interface Props {
   people: Person[]
   assignments: Assignments
   params: Params
+  excludedDays: string[]
   onChange: (a: Assignments) => void
+  onToggleDay: (day: string) => void
+}
+
+function LockIcon({ open, className = 'h-4 w-4' }: { open?: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <rect x="4" y="9" width="12" height="8.5" rx="1.8" />
+      {open ? <path d="M7 9V6.5a3 3 0 0 1 5.8-1.1" /> : <path d="M7 9V6.5a3 3 0 0 1 6 0V9" />}
+    </svg>
+  )
 }
 
 export type RangeMode = 'all' | 'from23'
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 
-export function Planner({ people, assignments, params, onChange }: Props) {
+export function Planner({ people, assignments, params, excludedDays, onChange, onToggleDay }: Props) {
   const [range, setRange] = useState<RangeMode>('all')
   const [focus, setFocus] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -35,7 +46,9 @@ export function Planner({ people, assignments, params, onChange }: Props) {
   }, [people, assignments, params])
   const conflicts = useMemo(() => existingViolations(people, assignments, params), [people, assignments, params])
 
-  const visibleSlots = ALL_SLOTS.filter((s) => s.date >= from)
+  const excluded = new Set(excludedDays)
+  const visibleSlots = ALL_SLOTS.filter((s) => s.date >= from && !excluded.has(s.date))
+  const blockedInRange = excludedDays.filter((d) => d >= from).length
   const covered = visibleSlots.filter((s) => byId[assignments[s.id]]).length
   const active = people.filter((p) => p.active)
 
@@ -51,7 +64,7 @@ export function Planner({ people, assignments, params, onChange }: Props) {
   }
 
   const runAutofill = () => {
-    const res = autoFill(people, assignments, params, from, HORIZON_END)
+    const res = autoFill(people, assignments, params, from, HORIZON_END, excludedDays)
     const added = Object.keys(res).length - Object.keys(assignments).length
     const missing = visibleSlots.filter((s) => !res[s.id]).length
     onChange(res)
@@ -77,6 +90,7 @@ export function Planner({ people, assignments, params, onChange }: Props) {
         <Button variant="primary" onClick={runAutofill} disabled={!active.length}>Auto-compila turni validi</Button>
         <Button variant="danger" onClick={clearRange}>Svuota periodo</Button>
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
+          {blockedInRange > 0 && <Badge tone="slate"><LockIcon className="h-3 w-3" /> {blockedInRange} {blockedInRange === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</Badge>}
           <Badge tone={covered === visibleSlots.length ? 'green' : covered ? 'amber' : 'red'}>{covered}/{visibleSlots.length} slot coperti</Badge>
           {Object.keys(conflicts).length > 0 && <Badge tone="red">{Object.keys(conflicts).length} conflitti</Badge>}
         </div>
@@ -97,11 +111,35 @@ export function Planner({ people, assignments, params, onChange }: Props) {
                   if (day < from || day > HORIZON_END) return <div key={day} className="rounded-lg bg-slate-50/60" />
                   const festive = isWeekendOrHoliday(day)
                   const d = toDate(day)
+                  const dayNum = `${d.getUTCDate()}${d.getUTCDate() === 1 || day === from ? ` ${fmtDay(day).split(' ')[2]}` : ''}`
+                  if (excluded.has(day)) {
+                    return (
+                      <div key={day} className="flex flex-col rounded-lg border border-dashed border-slate-300 bg-slate-100 p-1.5 text-slate-500" style={{ backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 6px, rgb(226 232 240) 6px 7px)' }}>
+                        <div className="mb-1 flex items-baseline justify-between gap-1">
+                          <span className="text-sm font-semibold text-slate-400 line-through">{dayNum}</span>
+                          {HOLIDAYS[day] && <span className="truncate text-[10px] text-slate-400" title={HOLIDAYS[day]}>{HOLIDAYS[day]}</span>}
+                        </div>
+                        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-1">
+                          <span className="grid h-7 w-7 place-items-center rounded-full bg-slate-700 text-white shadow-sm"><LockIcon /></span>
+                          <span className="text-[11px] font-semibold text-slate-600">Non richiesto</span>
+                          <button type="button" onClick={() => onToggleDay(day)} className="no-print mt-0.5 inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-slate-300 hover:bg-blue-50" aria-label={`Sblocca ${fmtDay(day)}`}>
+                            <LockIcon open className="h-3 w-3" /> Sblocca
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  }
                   return (
-                    <div key={day} className={`rounded-lg border p-1.5 ${festive ? 'border-indigo-200 bg-indigo-50/60' : 'border-slate-200 bg-white'}`}>
-                      <div className="mb-1 flex items-baseline justify-between gap-1">
-                        <span className="text-sm font-semibold text-slate-800">{d.getUTCDate()}{d.getUTCDate() === 1 || day === from ? ` ${fmtDay(day).split(' ')[2]}` : ''}</span>
-                        {HOLIDAYS[day] && <span className="truncate text-[10px] font-medium text-indigo-700" title={HOLIDAYS[day]}>{HOLIDAYS[day]}</span>}
+                    <div key={day} className={`group rounded-lg border p-1.5 ${festive ? 'border-indigo-200 bg-indigo-50/60' : 'border-slate-200 bg-white'}`}>
+                      <div className="mb-1 flex items-center justify-between gap-1">
+                        <span className="text-sm font-semibold text-slate-800">{dayNum}</span>
+                        <span className="flex min-w-0 items-center gap-1">
+                          {HOLIDAYS[day] && <span className="truncate text-[10px] font-medium text-indigo-700" title={HOLIDAYS[day]}>{HOLIDAYS[day]}</span>}
+                          <button type="button" onClick={() => onToggleDay(day)} title="Blocca giorno: non richiesto dal cliente (escluso dalla rotazione)" aria-label={`Blocca ${fmtDay(day)}`}
+                            className="no-print shrink-0 rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-700 focus-visible:text-slate-700 group-hover:text-slate-400">
+                            <LockIcon open className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
                       </div>
                       <div className="space-y-1">
                         {slotsForDay(day).map((s) => {
@@ -190,6 +228,7 @@ export function Planner({ people, assignments, params, onChange }: Props) {
               <li>Max 4 turni/mese solare</li>
               <li>Weekend/festivo in W ⇒ niente weekend/festivi in W+1</li>
             </ol>
+            <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
           </div>
         </aside>
       </div>

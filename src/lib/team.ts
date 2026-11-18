@@ -27,30 +27,111 @@ export function parseAmount(raw: string) {
   return Number.isFinite(n) ? n : NaN
 }
 
+export type ImportedPerson = Omit<Person, 'id' | 'color'>
+
 export interface ParseResult {
-  people: Omit<Person, 'id' | 'color'>[]
-  errors: string[]
+  people: ImportedPerson[]
+  errors: string[] // righe scartate
+  warnings: string[] // righe importate ma da verificare
+  fatal?: string // file non interpretabile: nessuna riga importabile
 }
 
-/** Accetta testo incollato da Excel (tab) o CSV (; o ,): Nome, Livello, RAL. Ignora l'intestazione. */
+export const MAX_IMPORT_ROWS = 500
+export const RAL_MIN = 10_000
+export const RAL_MAX = 250_000
+
+export const TEMPLATE_CSV = '﻿' + ['Nome;Livello;RAL', 'Mario Rossi;B1;32.000', 'Anna Bianchi;C2;28.500'].join('\r\n') + '\r\n'
+
+/** Divide una riga CSV rispettando i campi tra virgolette ("26.000,00"). */
+function splitCsvLine(line: string, sep: string) {
+  const out: string[] = []
+  let cur = '', quoted = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') { cur += '"'; i++ } else quoted = !quoted
+    } else if (ch === sep && !quoted) { out.push(cur); cur = '' } else cur += ch
+  }
+  out.push(cur)
+  return out.map((c) => c.trim())
+}
+
+function detectSeparator(line: string) {
+  if (line.includes('\t')) return '\t'
+  if (line.includes(';')) return ';'
+  return ','
+}
+
+const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z]/g, '')
+const HEADER_ALIASES = {
+  name: ['nome', 'nomecognome', 'nomeecognome', 'cognomenome', 'cognomeenome', 'name', 'risorsa', 'dipendente'],
+  level: ['livello', 'livelloccnl', 'level', 'inquadramento', 'liv'],
+  ral: ['ral', 'ralannua', 'retribuzioneannualorda', 'ralanno', 'ralannualorda'],
+} as const
+
+/** Riconosce un livello anche se scritto "b1", "Liv. B1", "livello B1". */
+function parseLevel(raw: string): Level | null {
+  const m = raw.toUpperCase().match(/\b([ABCD][123])\b/) ?? raw.toUpperCase().match(/([ABCD][123])/)
+  const lvl = m?.[1] as Level | undefined
+  return lvl && LEVELS.includes(lvl) ? lvl : null
+}
+
+/**
+ * Accetta testo incollato da Excel (tab) o CSV (; o ,). Se c'è un'intestazione le colonne
+ * vengono riconosciute per nome in qualunque ordine; altrimenti l'ordine atteso è Nome, Livello, RAL.
+ */
 export function parseTeamText(text: string): ParseResult {
-  const out: ParseResult = { people: [], errors: [] }
-  text.split(/\r?\n/).forEach((line, i) => {
-    if (!line.trim()) return
-    const sep = line.includes('\t') ? '\t' : line.includes(';') ? ';' : ','
-    const cells = line.split(sep).map((c) => c.trim().replace(/^"|"$/g, ''))
-    if (sep === ',' && cells.length > 3) {
-      // RAL con separatore migliaia "," in CSV con virgola: ricompatta le celle finali
-      cells.splice(2, cells.length - 2, cells.slice(2).join(''))
+  const out: ParseResult = { people: [], errors: [], warnings: [] }
+  if (text.includes('\u0000') || text.startsWith('PK\u0003\u0004')) {
+    out.fatal = 'Il file non è un CSV di testo (sembra un file Excel o binario). Salvalo come "CSV UTF-8" oppure copia le celle da Excel e incollale qui.'
+    return out
+  }
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/).map((l, i) => ({ l, n: i + 1 })).filter((x) => x.l.trim())
+  if (!lines.length) return out
+  if (lines.length > MAX_IMPORT_ROWS + 1) {
+    out.fatal = `Il file contiene ${lines.length} righe: il massimo importabile è ${MAX_IMPORT_ROWS}. Verifica di aver caricato il file giusto.`
+    return out
+  }
+  const sep = detectSeparator(lines[0].l)
+  const first = splitCsvLine(lines[0].l, sep).map(norm)
+  const find = (aliases: readonly string[]) => first.findIndex((c) => aliases.includes(c))
+  let cols = { name: 0, level: 1, ral: 2 }
+  let body = lines
+  const looksLikeHeader = first.some((c) => Object.values(HEADER_ALIASES).some((a) => (a as readonly string[]).includes(c)))
+  if (looksLikeHeader) {
+    const idx = { name: find(HEADER_ALIASES.name), level: find(HEADER_ALIASES.level), ral: find(HEADER_ALIASES.ral) }
+    const missing = [idx.name < 0 && 'Nome', idx.level < 0 && 'Livello', idx.ral < 0 && 'RAL'].filter(Boolean)
+    if (missing.length) {
+      out.fatal = `Intestazione riconosciuta ma mancano le colonne: ${missing.join(', ')}. Usa il template (colonne Nome, Livello, RAL).`
+      return out
     }
-    const [name, lvl, ralRaw] = cells
-    if (i === 0 && /nome/i.test(name ?? '')) return
-    const level = (lvl ?? '').toUpperCase() as Level
-    const ral = parseAmount(ralRaw ?? '')
-    if (!name) return out.errors.push(`Riga ${i + 1}: nome mancante`) && undefined
-    if (!LEVELS.includes(level)) return out.errors.push(`Riga ${i + 1}: livello "${lvl ?? ''}" non valido`) && undefined
-    if (!(ral > 0)) return out.errors.push(`Riga ${i + 1}: RAL "${ralRaw ?? ''}" non valida`) && undefined
+    cols = idx
+    body = lines.slice(1)
+  }
+  const seen = new Map<string, number>()
+  for (const { l, n } of body) {
+    let cells = splitCsvLine(l, sep)
+    if (!looksLikeHeader && sep === ',' && cells.length > 3) {
+      // CSV con virgola e RAL non tra virgolette ("26,000"): ricompatta le celle finali
+      cells = [cells[0], cells[1], cells.slice(2).join('')]
+    }
+    const name = (cells[cols.name] ?? '').replace(/\s+/g, ' ').trim()
+    const lvlRaw = cells[cols.level] ?? ''
+    const ralRaw = cells[cols.ral] ?? ''
+    if (!name) { out.errors.push(`Riga ${n}: nome mancante`); continue }
+    if (name.length > 80) { out.errors.push(`Riga ${n}: nome troppo lungo (max 80 caratteri)`); continue }
+    const level = parseLevel(lvlRaw)
+    if (!level) { out.errors.push(`Riga ${n} (${name}): livello "${lvlRaw}" non valido – ammessi ${LEVELS.join(', ')}`); continue }
+    const ral = parseAmount(ralRaw)
+    if (!Number.isFinite(ral) || ral <= 0) { out.errors.push(`Riga ${n} (${name}): RAL "${ralRaw}" non è un numero`); continue }
+    if (ral < RAL_MIN || ral > RAL_MAX) { out.errors.push(`Riga ${n} (${name}): RAL ${ralRaw} fuori dall'intervallo plausibile (${RAL_MIN.toLocaleString('it-IT')}–${RAL_MAX.toLocaleString('it-IT')} €)`); continue }
+    const key = name.toLowerCase()
+    if (seen.has(key)) out.warnings.push(`Riga ${n}: "${name}" compare anche alla riga ${seen.get(key)}`)
+    else seen.set(key, n)
     out.people.push({ name, level, ral, active: true })
-  })
+  }
+  if (!out.people.length && out.errors.length && !looksLikeHeader) {
+    out.fatal = 'Nessuna riga riconosciuta. Il file deve avere le colonne Nome, Livello, RAL: scarica il template e compilalo.'
+  }
   return out
 }

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { ALL_SLOTS, weekday } from './calendar'
 import { baseHourly, saturdayHours, slotEconomics, sundayHours } from './economics'
 import { autoFill, checkAssignment, compensationsFor, existingViolations } from './rules'
-import { parseTeamText } from './team'
+import { parseTeamText, TEMPLATE_CSV } from './team'
+import { normalizeWithReport } from './store'
+import { buildShiftsXlsx } from './shiftsExport'
 import { pnl } from './reports'
 import { DEFAULT_PARAMS as P, type Person } from './types'
 
@@ -83,9 +85,82 @@ describe('motore vincoli', () => {
   })
 })
 
+describe('import team – robustezza', () => {
+  it('colonne in ordine diverso riconosciute dall\'intestazione', () => {
+    const r = parseTeamText('RAL;Nome e cognome;Livello\n"32.000,00";Mario Rossi;Liv. B1')
+    expect(r.people).toEqual([{ name: 'Mario Rossi', level: 'B1', ral: 32000, active: true }])
+  })
+  it('intestazione senza colonna RAL → errore bloccante', () => {
+    expect(parseTeamText('Nome;Livello;Email\nMario;B1;m@x.it').fatal).toMatch(/RAL/)
+  })
+  it('CSV a caso → nessuna riga, errore bloccante', () => {
+    const r = parseTeamText('id,prodotto,prezzo\n1,mela,0.5\n2,pera,0.7')
+    expect(r.people).toHaveLength(0)
+    expect(r.fatal).toBeTruthy()
+  })
+  it('file Excel binario → errore bloccante', () => {
+    expect(parseTeamText('PK\u0003\u0004xxxx').fatal).toMatch(/Excel/)
+  })
+  it('RAL fuori range e duplicati', () => {
+    const r = parseTeamText('Nome;Livello;RAL\nA;B1;300\nB;B1;30000\nB;C1;31000')
+    expect(r.errors[0]).toMatch(/fuori/)
+    expect(r.people).toHaveLength(2)
+    expect(r.warnings).toHaveLength(1)
+  })
+  it('template scaricabile è importabile', () => {
+    expect(parseTeamText(TEMPLATE_CSV).people).toHaveLength(2)
+  })
+})
+
+describe('import configurazione JSON', () => {
+  it('scarta dati non validi senza rompere', () => {
+    const { data, warnings } = normalizeWithReport({ people: [{ id: 'a', name: 'X', level: 'B1', ral: 30000 }, { name: 1 }, 5], assignments: { '2026-11-24|N': 'a', 'foo': 'a', '2026-11-25|N': 'zzz' }, params: { netFN: 'abc', capHours: 7 } })
+    expect(data.people).toHaveLength(1)
+    expect(data.assignments).toEqual({ '2026-11-24|N': 'a' })
+    expect(data.params.netFN).toBe(50)
+    expect(data.params.capHours).toBe(7)
+    expect(warnings).toHaveLength(2)
+  })
+  it('JSON estraneo → errore chiaro', () => {
+    expect(() => normalizeWithReport({ foo: 1 })).toThrow(/people/)
+    expect(() => normalizeWithReport([1, 2])).toThrow()
+  })
+})
+
+describe('export turni Excel', () => {
+  it('genera un xlsx leggibile senza dati economici', async () => {
+    const ExcelJS = (await import('exceljs')).default
+    const team = [mk('a', 30000), mk('b', 34000)]
+    const buf = await buildShiftsXlsx(team, { '2026-11-24|N': 'a', '2026-11-28|D': 'b' })
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf)
+    const ws = wb.getWorksheet('Calendario turni')!
+    const values = ws.getSheetValues().flat().filter(Boolean).map(String)
+    expect(values).toContain('a')
+    expect(values.some((v) => /€|RAL|costo/i.test(v))).toBe(false)
+    expect(wb.getWorksheet('Turni per persona')!.getRow(2).getCell(4).value).toBe(1)
+  })
+})
+
+describe('giorni non richiesti', () => {
+  it('auto-compila e P&L ignorano i giorni bloccati', () => {
+    const team = Array.from({ length: 14 }, (_, i) => mk(`p${i}`, 26000 + i * 2500))
+    const blocked = ['2026-11-24', '2026-11-28']
+    const res = autoFill(team, {}, P, '2026-11-01', '2026-12-31', blocked)
+    expect(Object.keys(res).some((sid) => blocked.includes(sid.slice(0, 10)))).toBe(false)
+    const full = pnl(team, res, P).total.slotsTotal
+    expect(pnl(team, res, P, blocked).total.slotsTotal).toBe(full - 3)
+  })
+  it('import JSON rimuove turni sui giorni bloccati', () => {
+    const { data } = normalizeWithReport({ people: [{ id: 'a', name: 'X', level: 'B1', ral: 30000 }], assignments: { '2026-11-24|N': 'a' }, excludedDays: ['2026-11-24', 'xx'] })
+    expect(data.excludedDays).toEqual(['2026-11-24'])
+    expect(data.assignments).toEqual({})
+  })
+})
+
 describe('import team', () => {
   it('Excel/CSV con intestazione e RAL italiana', () => {
-    const r = parseTeamText('Nome\tLivello\tRAL\nMario Rossi\tb1\t26.000\nAnna Bianchi;C2;31.500,00\nX,ZZ,1')
+    const r = parseTeamText('Nome\tLivello\tRAL\nMario Rossi\tb1\t26.000\nAnna Bianchi\tC2\t31.500,00\nX\tZZ\t1')
     expect(r.people).toEqual([
       { name: 'Mario Rossi', level: 'B1', ral: 26000, active: true },
       { name: 'Anna Bianchi', level: 'C2', ral: 31500, active: true },

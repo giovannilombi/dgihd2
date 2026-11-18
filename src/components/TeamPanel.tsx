@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { fmtEur } from '../lib/economics'
 import { personSlots } from '../lib/rules'
-import { newId, nextColor, parseTeamText } from '../lib/team'
+import { download } from '../lib/reports'
+import { newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
 import { LEVELS, type Assignments, type Level, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 
@@ -35,13 +36,15 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
               <th className="py-2 pr-3 font-medium">Livello CCNL</th>
               <th className="py-2 pr-3 font-medium">RAL (€)</th>
               <th className="py-2 pr-3 font-medium">Stato adesione</th>
-              <th className="py-2 pr-3 text-right font-medium">Turni</th>
+              <th className="py-2 pr-3 text-right font-medium" title="Calcolato automaticamente dal calendario (Sezione C): non modificabile">Turni assegnati</th>
               <th className="py-2" />
             </tr>
           </thead>
           <tbody>
             {people.map((p) => {
-              const n = personSlots(assignments, p.id).length
+              const ps = personSlots(assignments, p.id)
+              const n = ps.length
+              const nov = ps.filter((x) => x.date.startsWith('2026-11')).length
               return (
                 <tr key={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'}`}>
                   <td className="py-2 pr-3">
@@ -69,7 +72,10 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
                       {p.active ? <Badge tone="green">Attivo in rotazione</Badge> : <Badge tone="amber">Escluso su richiesta</Badge>}
                     </button>
                   </td>
-                  <td className="num py-2 pr-3 text-right">{n}</td>
+                  <td className="num py-2 pr-3 text-right" title="Conteggio automatico dei turni assegnati nel calendario (max 4 al mese)">
+                    <div className="font-medium text-slate-800">{n}</div>
+                    <div className="text-xs whitespace-nowrap text-slate-400">Nov {nov} · Dic {n - nov}</div>
+                  </td>
                   <td className="py-2 text-right">
                     <Button variant="ghost" className="no-print text-red-700" onClick={() => remove(p)} aria-label={`Elimina ${p.name}`}>Elimina</Button>
                   </td>
@@ -84,7 +90,7 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
         <Button variant="primary" onClick={add}>+ Aggiungi risorsa</Button>
         <Button onClick={() => setImportOpen(true)}>Importa CSV / Incolla da Excel</Button>
       </div>
-      {importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
+      {importOpen && <ImportDialog existing={people} onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
         const base = replace ? [] : people
         const added: Person[] = []
         for (const r of rows) added.push({ ...r, id: newId(), color: nextColor([...base, ...added]) })
@@ -95,33 +101,88 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
   )
 }
 
-function ImportDialog({ onClose, onImport }: { onClose: () => void; onImport: (rows: ReturnType<typeof parseTeamText>['people'], replace: boolean) => void }) {
+const MAX_FILE_BYTES = 1_000_000
+
+function ImportDialog({ existing, onClose, onImport }: { existing: Person[]; onClose: () => void; onImport: (rows: ImportedPerson[], replace: boolean) => void }) {
   const [text, setText] = useState('')
+  const [fileError, setFileError] = useState('')
+  const [fileName, setFileName] = useState('')
   const [replace, setReplace] = useState(true)
   const parsed = parseTeamText(text)
-  const readFile = async (f?: File) => f && setText(await f.text())
+  const existingNames = new Set(existing.map((x) => x.name.trim().toLowerCase()))
+  const clashes = replace ? [] : parsed.people.filter((x) => existingNames.has(x.name.toLowerCase()))
+  const warnings = [...parsed.warnings, ...clashes.map((x) => `"${x.name}" è già presente nel team attuale`)]
+
+  const readFile = async (f?: File) => {
+    setFileError('')
+    if (!f) return
+    setFileName(f.name)
+    if (/\.(xlsx|xls|numbers|ods)$/i.test(f.name)) return setFileError('Hai caricato un foglio di calcolo: da Excel usa "Salva con nome → CSV UTF-8", oppure copia le celle e incollale nel riquadro.')
+    if (!/\.(csv|txt|tsv)$/i.test(f.name)) return setFileError(`Formato "${f.name.split('.').pop()}" non supportato: carica un file .csv (scarica il template).`)
+    if (f.size > MAX_FILE_BYTES) return setFileError('File troppo grande (oltre 1 MB): verifica di aver scelto il file giusto.')
+    try {
+      setText(await f.text())
+    } catch {
+      setFileError('Impossibile leggere il file. Riprova oppure incolla il contenuto nel riquadro.')
+    }
+  }
+
+  const status = fileError || parsed.fatal
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="imp-title">
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="imp-title">
       <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
-        <h3 id="imp-title" className="text-lg font-semibold">Importa team</h3>
-        <p className="mt-1 text-sm text-slate-500">Incolla le righe da Excel oppure carica un CSV con colonne <strong>Nome, Livello, RAL</strong> (separatore tab, punto e virgola o virgola; intestazione opzionale).</p>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} placeholder={'Nome\tLivello\tRAL\nMario Rossi\tB1\t32.000\nAnna Bianchi\tC2\t28.500'} className="mt-3 w-full rounded-lg p-3 font-mono text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" />
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h3 id="imp-title" className="text-lg font-semibold">Importa team</h3>
+            <p className="mt-1 text-sm text-slate-500">Colonne richieste: <strong>Nome, Livello, RAL</strong>. Livelli ammessi: {LEVELS.join(', ')}.</p>
+          </div>
+          <Button onClick={() => download('template-team-reperibilita.csv', TEMPLATE_CSV, 'text/csv;charset=utf-8')}>↓ Scarica template CSV</Button>
+        </div>
+        <ol className="mt-3 list-decimal space-y-0.5 pl-5 text-xs text-slate-600">
+          <li>Scarica il template e compilalo in Excel, una riga per persona.</li>
+          <li>Salvalo come CSV e caricalo qui, oppure copia le celle da Excel e incollale nel riquadro.</li>
+        </ol>
+        <textarea value={text} onChange={(e) => { setText(e.target.value); setFileError(''); setFileName('') }} rows={6} placeholder={'Nome\tLivello\tRAL\nMario Rossi\tB1\t32.000\nAnna Bianchi\tC2\t28.500'} aria-label="Contenuto da importare" className="mt-3 w-full rounded-lg p-3 font-mono text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <label className="cursor-pointer text-blue-700 hover:underline">
-            Carica file CSV…
-            <input type="file" accept=".csv,.txt,.tsv" className="hidden" onChange={(e) => readFile(e.target.files?.[0])} />
+          <label className="cursor-pointer font-medium text-blue-700 hover:underline">
+            Carica file CSV…{fileName && <span className="ml-1 font-normal text-slate-500">({fileName})</span>}
+            <input type="file" accept=".csv,.txt,.tsv,text/csv" className="hidden" onChange={(e) => { readFile(e.target.files?.[0]); e.target.value = '' }} />
           </label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Sostituisci il team attuale (azzera il calendario)</label>
         </div>
-        {text && (
-          <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm">
-            <Badge tone={parsed.people.length ? 'green' : 'amber'}>{parsed.people.length} risorse riconosciute</Badge>
-            {parsed.errors.length > 0 && <ul className="mt-2 list-disc pl-5 text-red-700">{parsed.errors.slice(0, 6).map((e) => <li key={e}>{e}</li>)}</ul>}
+
+        {status && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">⚠ {status}</p>}
+
+        {!status && text.trim() && (
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <Badge tone={parsed.people.length ? 'green' : 'red'}>{parsed.people.length} righe valide</Badge>
+              {parsed.errors.length > 0 && <Badge tone="red">{parsed.errors.length} righe scartate</Badge>}
+              {warnings.length > 0 && <Badge tone="amber">{warnings.length} avvisi</Badge>}
+            </div>
+            {parsed.people.length > 0 && (
+              <div className="max-h-40 overflow-auto rounded-lg ring-1 ring-slate-200">
+                <table className="num w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-1.5 font-medium">Nome</th><th className="py-1.5 font-medium">Livello</th><th className="px-3 py-1.5 text-right font-medium">RAL</th></tr></thead>
+                  <tbody>{parsed.people.map((x, i) => <tr key={i} className="border-t border-slate-100"><td className="px-3 py-1">{x.name}</td><td className="py-1">{x.level}</td><td className="px-3 py-1 text-right">{fmtEur(x.ral)}</td></tr>)}</tbody>
+                </table>
+              </div>
+            )}
+            {(parsed.errors.length > 0 || warnings.length > 0) && (
+              <ul className="max-h-32 space-y-0.5 overflow-auto rounded-lg bg-slate-50 p-2.5 text-xs">
+                {parsed.errors.map((e) => <li key={e} className="text-red-700">✕ {e}</li>)}
+                {warnings.map((w) => <li key={w} className="text-amber-800">! {w}</li>)}
+              </ul>
+            )}
           </div>
         )}
-        <div className="mt-4 flex justify-end gap-2">
+
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+          {!status && parsed.errors.length > 0 && parsed.people.length > 0 && <span className="mr-auto text-xs text-slate-500">Le righe scartate non verranno importate.</span>}
           <Button variant="ghost" onClick={onClose}>Annulla</Button>
-          <Button variant="primary" disabled={!parsed.people.length} onClick={() => onImport(parsed.people, replace)}>Importa {parsed.people.length || ''}</Button>
+          <Button variant="primary" disabled={!!status || !parsed.people.length} onClick={() => onImport(parsed.people, replace)}>
+            Importa {parsed.people.length || ''} {parsed.people.length === 1 ? 'risorsa' : 'risorse'}
+          </Button>
         </div>
       </div>
     </div>

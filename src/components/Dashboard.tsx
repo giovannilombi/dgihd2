@@ -4,8 +4,8 @@ import { pnl, type PeriodPnl } from '../lib/reports'
 import type { Assignments, Params, Person } from '../lib/types'
 import { Kpi } from './ui'
 
-export function Dashboard({ people, assignments, params }: { people: Person[]; assignments: Assignments; params: Params }) {
-  const { months, weeks, total } = pnl(people, assignments, params)
+export function Dashboard({ people, assignments, params, excludedDays }: { people: Person[]; assignments: Assignments; params: Params; excludedDays: string[] }) {
+  const { months, weeks, total } = pnl(people, assignments, params, excludedDays)
   const [view, setView] = useState<'weeks' | 'months'>('weeks')
   const rows = view === 'weeks' ? weeks : months
   return (

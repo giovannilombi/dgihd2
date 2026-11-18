@@ -22,7 +22,8 @@ function emptyPeriod(key: string, label: string): PeriodPnl {
 }
 
 /** Conto economico per mese e per settimana (ricavi per giorno coperto, costi per slot assegnato). */
-export function pnl(people: Person[], a: Assignments, p: Params) {
+export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: string[] = []) {
+  const excluded = new Set(excludedDays)
   const byId = Object.fromEntries(people.map((x) => [x.id, x]))
   const months = new Map<string, PeriodPnl>()
   const weeks = new Map<string, PeriodPnl>()
@@ -32,6 +33,7 @@ export function pnl(people: Person[], a: Assignments, p: Params) {
     return m.get(k)!
   }
   for (const day of daysInRange()) {
+    if (excluded.has(day)) continue
     const buckets = [get(months, monthKey(day), monthLabel(monthKey(day))), get(weeks, weekStart(day), `Sett. ${fmtDay(weekStart(day))}`), total]
     const slots = ALL_SLOTS.filter((s) => s.date === day)
     const covered = slots.filter((s) => byId[a[s.id]])
@@ -99,7 +101,7 @@ const csvCell = (v: string | number) => {
 }
 export const toCsv = (rows: (string | number)[][]) => '﻿' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n')
 
-export function fullReportCsv(people: Person[], a: Assignments, p: Params) {
+export function fullReportCsv(people: Person[], a: Assignments, p: Params, excludedDays: string[] = []) {
   const rows: (string | number)[][] = [['CONSUNTIVO CEDOLINO PER RISORSA']]
   rows.push(['Mese', 'Risorsa', 'Livello', 'RAL', 'Settimana (lun)', 'Turni', 'Indennità CCNL lorda', 'Gettone di disponibilità lordo (preferibile)', 'Alternativa: giorno straordinario', 'Alternativa: data', 'Alternativa: ore straordinario', 'Lordo totale', 'Netto garantito', 'Costo aziendale', 'Note'])
   for (const m of payroll(people, a, p)) {
@@ -114,7 +116,7 @@ export function fullReportCsv(people: Person[], a: Assignments, p: Params) {
       }
     }
   }
-  const pl = pnl(people, a, p)
+  const pl = pnl(people, a, p, excludedDays)
   rows.push([], ['CONTO ECONOMICO'], ['Periodo', 'Feriali coperti', 'Weekend/festivi coperti', 'Weekend/festivi parziali (non fatturati)', 'Ricavo', 'Costo aziendale', 'Margine', 'Marginalità %'])
   for (const b of [...pl.months, ...pl.weeks, pl.total]) {
     rows.push([b.label, b.ferialiCoperti, b.festiviCoperti, b.festiviParziali, b.revenue, b.cost, b.margin, b.marginPct])
@@ -122,7 +124,7 @@ export function fullReportCsv(people: Person[], a: Assignments, p: Params) {
   return toCsv(rows)
 }
 
-export function download(filename: string, content: string, mime: string) {
+export function download(filename: string, content: BlobPart, mime: string) {
   const url = URL.createObjectURL(new Blob([content], { type: mime }))
   const el = document.createElement('a')
   el.href = url

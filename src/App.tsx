@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Dashboard } from './components/Dashboard'
 import { HrDoc } from './components/HrDoc'
 import { Login } from './components/Login'
@@ -9,7 +10,8 @@ import { TeamPanel } from './components/TeamPanel'
 import { Button, Section } from './components/ui'
 import { isAuthenticated, setAuthenticated } from './lib/auth'
 import { download, fullReportCsv } from './lib/reports'
-import { defaultData, normalize, useAppData } from './lib/store'
+import { buildShiftsXlsx } from './lib/shiftsExport'
+import { defaultData, normalizeWithReport, useAppData } from './lib/store'
 
 const NAV = [
   ['doc', 'Documento HR'],
@@ -23,36 +25,63 @@ const NAV = [
 export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated)
   if (!authed) return <Login onSuccess={() => { setAuthenticated(true); setAuthed(true) }} />
-  return <Main onLogout={() => { setAuthenticated(false); setAuthed(false) }} />
+  return <ErrorBoundary><Main onLogout={() => { setAuthenticated(false); setAuthed(false) }} /></ErrorBoundary>
 }
 
 function Main({ onLogout }: { onLogout: () => void }) {
   const { data, setData, storageOk } = useAppData()
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // In stampa/PDF tutte le sezioni collassabili vengono espanse e poi ripristinate.
-  useEffect(() => {
-    let closed: HTMLDetailsElement[] = []
-    const before = () => {
-      closed = [...document.querySelectorAll('details:not([open])')] as HTMLDetailsElement[]
-      closed.forEach((d) => (d.open = true))
-    }
-    const after = () => closed.forEach((d) => (d.open = false))
-    window.addEventListener('beforeprint', before)
-    window.addEventListener('afterprint', after)
-    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', after) }
-  }, [])
-
   const exportJson = () => download('reperibilita-q4-2026-config.json', JSON.stringify(data, null, 2), 'application/json')
-  const exportCsv = () => download('reperibilita-q4-2026-report-hr-finance.csv', fullReportCsv(data.people, data.assignments, data.params), 'text/csv;charset=utf-8')
-  const importJson = async (f?: File) => {
-    if (!f) return
+  const exportCsv = () => download('reperibilita-q4-2026-report-hr-finance.csv', fullReportCsv(data.people, data.assignments, data.params, data.excludedDays), 'text/csv;charset=utf-8')
+  const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const exportShiftsXlsx = async () => {
+    setExporting(true)
     try {
-      setData(normalize(JSON.parse(await f.text())))
+      const buf = await buildShiftsXlsx(data.people, data.assignments, data.excludedDays)
+      download('turni-reperibilita-nov-dic-2026.xlsx', buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     } catch (e) {
-      alert(`Import non riuscito: ${(e as Error).message}`)
+      setNotice({ tone: 'error', text: `Export Excel non riuscito: ${(e as Error).message}` })
+    } finally {
+      setExporting(false)
     }
+  }
+  const importJson = async (f?: File) => {
     if (fileRef.current) fileRef.current.value = ''
+    if (!f) return
+    if (!/\.json$/i.test(f.name)) return setNotice({ tone: 'error', text: `Import non riuscito: "${f.name}" non è un file .json. Usa un file creato con "Esporta configurazione JSON".` })
+    if (f.size > 2_000_000) return setNotice({ tone: 'error', text: 'Import non riuscito: file troppo grande per essere una configurazione del tool.' })
+    let raw: unknown
+    try {
+      raw = JSON.parse(await f.text())
+    } catch {
+      return setNotice({ tone: 'error', text: 'Import non riuscito: il file non contiene JSON valido (forse è danneggiato o non è una configurazione del tool).' })
+    }
+    try {
+      const { data: next, warnings } = normalizeWithReport(raw)
+      if (!confirm(`Importare ${next.people.length} risorse e ${Object.keys(next.assignments).length} turni? I dati attuali verranno sostituiti.`)) return
+      setData(next)
+      setNotice(warnings.length
+        ? { tone: 'warn', text: `Configurazione importata con avvisi: ${warnings.join('; ')}.` }
+        : { tone: 'ok', text: `Configurazione importata: ${next.people.length} risorse, ${Object.keys(next.assignments).length} turni.` })
+    } catch (e) {
+      setNotice({ tone: 'error', text: `Import non riuscito: ${(e as Error).message}` })
+    }
+  }
+  /** Blocca/sblocca un giorno non richiesto dal cliente; bloccandolo si rimuovono i turni già assegnati. */
+  const toggleDay = (day: string) => {
+    if (data.excludedDays.includes(day)) {
+      setData((d) => ({ ...d, excludedDays: d.excludedDays.filter((x) => x !== day) }))
+      return
+    }
+    const assigned = Object.keys(data.assignments).filter((sid) => sid.startsWith(day + '|'))
+    if (assigned.length && !confirm(`Il giorno ha ${assigned.length} ${assigned.length === 1 ? 'turno assegnato' : 'turni assegnati'}: bloccandolo verranno rimossi. Continuare?`)) return
+    setData((d) => ({
+      ...d,
+      excludedDays: [...d.excludedDays, day].sort(),
+      assignments: Object.fromEntries(Object.entries(d.assignments).filter(([sid]) => !sid.startsWith(day + '|'))),
+    }))
   }
   const reset = () => confirm('Ripristinare parametri, team placeholder e calendario vuoto? I dati attuali verranno sovrascritti.') && setData(defaultData())
 
@@ -78,12 +107,18 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <p className="mt-1 max-w-3xl text-sm text-slate-600">Documentazione HR, simulatore operativo con validazione dei vincoli in tempo reale, consuntivo cedolino e conto economico.</p>
           <div className="no-print mt-4 flex flex-wrap gap-2">
             <Button variant="primary" onClick={exportCsv}>Esporta report HR &amp; Finance (CSV)</Button>
-            <Button onClick={() => window.print()}>Stampa / Salva PDF</Button>
+            <Button onClick={exportShiftsXlsx} disabled={exporting}>{exporting ? 'Preparazione…' : 'Esporta turni (Excel)'}</Button>
             <Button onClick={exportJson}>Esporta configurazione JSON</Button>
             <Button onClick={() => fileRef.current?.click()}>Importa configurazione JSON</Button>
             <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => importJson(e.target.files?.[0])} />
             <Button variant="ghost" onClick={reset}>Ripristina dati iniziali</Button>
           </div>
+          {notice && (
+            <div role={notice.tone === 'error' ? 'alert' : 'status'} className={`mt-3 flex items-start gap-3 rounded-lg px-3 py-2 text-sm ${notice.tone === 'error' ? 'bg-red-50 text-red-800' : notice.tone === 'warn' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-900'}`}>
+              <span className="flex-1">{notice.text}</span>
+              <button type="button" onClick={() => setNotice(null)} className="text-xs font-medium opacity-70 hover:opacity-100" aria-label="Chiudi messaggio">Chiudi</button>
+            </div>
+          )}
         </div>
 
         <Section id="doc" title="Documentazione formale per Risorse Umane" subtitle="Abstract sempre visibile; approfondimenti normativi, matematici e legali espandibili.">
@@ -98,8 +133,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <TeamPanel people={data.people} assignments={data.assignments} onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
         </Section>
 
-        <Section id="planner" letter="C" title="Pianificatore calendario Nov – Dic 2026" subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto.">
-          <Planner people={data.people} assignments={data.assignments} params={data.params} onChange={(assignments) => setData((d) => ({ ...d, assignments }))} />
+        <Section id="planner" letter="C" title="Pianificatore calendario Nov – Dic 2026" subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto." actions={<Button onClick={exportShiftsXlsx} disabled={exporting}>Esporta turni (Excel)</Button>}>
+          <Planner people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays}
+            onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay} />
         </Section>
 
         <div className="print-break" />
@@ -107,8 +143,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <Payroll people={data.people} assignments={data.assignments} params={data.params} />
         </Section>
 
-        <Section id="pnl" letter="D" title="Dashboard economica & marginalità (P&L)" actions={<><Button onClick={exportCsv}>Esporta CSV</Button><Button onClick={() => window.print()}>Stampa PDF</Button></>}>
-          <Dashboard people={data.people} assignments={data.assignments} params={data.params} />
+        <Section id="pnl" letter="D" title="Dashboard economica & marginalità (P&L)" actions={<Button onClick={exportCsv}>Esporta CSV</Button>}>
+          <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} />
         </Section>
       </main>
     </div>

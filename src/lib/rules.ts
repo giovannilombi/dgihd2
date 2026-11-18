@@ -160,10 +160,11 @@ export function existingViolations(people: Person[], a: Assignments, p: Params):
  * Priorità ai weekend/festivi (fatturati a giornata intera), poi alle notti feriali.
  * Tra i candidati validi preferisce chi ha meno turni nel mese, poi in totale, poi il costo minore.
  */
-export function autoFill(people: Person[], a: Assignments, p: Params, from: string, to: string): Assignments {
+export function autoFill(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[] = []): Assignments {
   const result: Assignments = { ...a }
   const active = people.filter((x) => x.active)
-  const slots = ALL_SLOTS.filter((s) => s.date >= from && s.date <= to && !result[s.id])
+  const excluded = new Set(excludedDays)
+  const slots = ALL_SLOTS.filter((s) => s.date >= from && s.date <= to && !result[s.id] && !excluded.has(s.date))
   const ordered = [...slots.filter(isFestive), ...slots.filter((s) => !isFestive(s))]
   for (const slot of ordered) {
     const month = monthKey(slot.date)
