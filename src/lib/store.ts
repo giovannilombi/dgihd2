@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { ALL_SLOTS, SLOT_BY_ID } from './calendar'
 import { DEFAULT_TEAM, newId, nextColor } from './team'
 import { DEFAULT_PARAMS, LEVELS, type Assignments, type Level, type Params, type Person } from './types'
@@ -106,27 +105,14 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
 
 export const normalize = (raw: unknown) => normalizeWithReport(raw).data
 
-export function useAppData() {
-  const [data, setData] = useState<AppData>(() => {
-    try {
-      const s = localStorage.getItem(STORAGE_KEY)
-      if (s) return normalize(JSON.parse(s))
-    } catch { /* storage assente o corrotto: si riparte dai default */ }
-    return defaultData()
-  })
-  const [storageOk] = useState(() => {
-    try { localStorage.setItem(STORAGE_KEY + ':probe', '1'); localStorage.removeItem(STORAGE_KEY + ':probe'); return true } catch { return false }
-  })
-  // Salvataggio automatico in LocalStorage a ogni modifica
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch { /* quota o storage bloccato */ }
-  }, [data])
-  /** Setter che mantiene coerenti i blocchi: un turno bloccato esiste solo se lo slot è assegnato. */
-  const update = (fn: AppData | ((d: AppData) => AppData)) =>
-    setData((prev) => {
-      const next = typeof fn === 'function' ? fn(prev) : fn
-      const pinned = (next.pinned ?? []).filter((id) => next.assignments[id])
-      return pinned.length === (next.pinned ?? []).length && next.pinned ? next : { ...next, pinned }
-    })
-  return { data, setData: update, storageOk }
+/**
+ * Le versioni precedenti salvavano i dati nel browser: ora i dati stanno solo nel database condiviso.
+ * Rimuove eventuali copie locali rimaste (anche con dati personali) al primo avvio.
+ */
+export function purgeLegacyLocalData() {
+  try {
+    localStorage.removeItem(STORAGE_KEY)
+    sessionStorage.removeItem('reperibilita-q4-2026:auth')
+    sessionStorage.removeItem('reperibilita-q4-2026:team')
+  } catch { /* storage non disponibile */ }
 }

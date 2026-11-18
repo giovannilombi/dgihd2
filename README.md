@@ -12,9 +12,22 @@ Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilit�
 
 Salvataggio automatico in LocalStorage, export/import della configurazione JSON (validata), report CSV HR & Finance, export dei soli turni in Excel formattato o in PDF (senza dati economici).
 
-## Accesso
+## Accesso e dati condivisi
 
-L'app è divisa in pagine (Approccio, A–E) e chiede utente e password. L'accesso alla pagina Anagrafica è riservato ai soli autorizzati (seconda password). Il controllo è solo nel browser: nel bundle c'è l'hash SHA-256 delle credenziali, non le credenziali in chiaro. Basta a tenere fuori un accesso occasionale, ma non è una protezione lato server.
+I dati (anagrafica, ferie, turni, parametri) stanno in un database **Supabase** (UE, Francoforte) e sono condivisi in tempo reale tra gli utenti. Il sito su GitHub Pages contiene solo il codice. Ogni persona accede con email e password personali; al primo accesso e dopo un reset la password temporanea (formato `animale-animale-NN`) va cambiata, e finché non viene cambiata il database non restituisce alcun dato.
+
+| Livello | Vede | Modifica |
+|---|---|---|
+| Super admin | tutto | tutto + utenti e livelli (pagina Utenti) |
+| Full edit | tutto | tutto, senza gestione utenti |
+| Viewer esteso | tutto (RAL e livello reinserendo la propria password) | nulla |
+| Viewer | solo calendario turni | nulla |
+
+I permessi sono applicati dal database (Row Level Security, `supabase/migrations`); la gestione account passa dalla funzione server `supabase/functions/admin-users`, che usa la chiave di servizio senza esporla al browser.
+
+### Accesso (versione precedente)
+
+Le password condivise lato browser delle prime versioni sono state sostituite dal login personale su Supabase.
 
 ## Dati personali
 

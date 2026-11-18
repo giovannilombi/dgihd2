@@ -16,6 +16,10 @@ interface Props {
   onChange: (a: Assignments) => void
   onToggleDay: (day: string) => void
   onTogglePin: (slotId: string) => void
+  /** Sola lettura (viewer e viewer esteso): nessuna modifica possibile. */
+  readOnly?: boolean
+  /** Vista essenziale (viewer): solo turni, senza pannello vincoli, ferie o disponibilità. */
+  simple?: boolean
 }
 
 function PinIcon({ filled, className = 'h-3.5 w-3.5' }: { filled?: boolean; className?: string }) {
@@ -39,7 +43,7 @@ function LockIcon({ open, className = 'h-4 w-4' }: { open?: boolean; className?:
 export type RangeMode = 'all' | 'from23'
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 
-export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin }: Props) {
+export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, readOnly = false, simple = false }: Props) {
   const pinnedSet = new Set(pinned)
   const [range, setRange] = useState<RangeMode>('all')
   const [focus, setFocus] = useState<string | null>(null)
@@ -118,8 +122,9 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             <button key={k} role="tab" aria-selected={range === k} onClick={() => setRange(k)} className={`rounded-md px-3 py-1.5 font-medium ${range === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
           ))}
         </div>
-        <Button variant="primary" onClick={runAutofill} disabled={!active.length}>Auto-compila (mantiene i bloccati)</Button>
-        <Button variant="danger" onClick={clearRange}>Svuota periodo</Button>
+        {!readOnly && <Button variant="primary" onClick={runAutofill} disabled={!active.length}>Auto-compila (mantiene i bloccati)</Button>}
+        {!readOnly && <Button variant="danger" onClick={clearRange}>Svuota periodo</Button>}
+        {readOnly && <Badge tone="slate">Sola lettura</Badge>}
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
           {pinnedInRange > 0 && <Badge tone="blue"><PinIcon filled className="h-3 w-3" /> {pinnedInRange} {pinnedInRange === 1 ? 'turno bloccato' : 'turni bloccati'}</Badge>}
           {blockedInRange > 0 && <Badge tone="slate"><LockIcon className="h-3 w-3" /> {blockedInRange} {blockedInRange === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</Badge>}
@@ -129,7 +134,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
       </div>
       {notice && <p className="no-print mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">{notice}</p>}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div className={`mt-4 grid gap-4 ${simple ? '' : 'xl:grid-cols-[minmax(0,1fr)_300px]'}`}>
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
             {months.map((m, mi) => {
@@ -165,9 +170,9 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                         <div className="flex flex-1 flex-col items-center justify-center gap-1 py-1">
                           <span className="grid h-7 w-7 place-items-center rounded-full bg-slate-700 text-white shadow-sm"><LockIcon /></span>
                           <span className="text-[11px] font-semibold text-slate-600">Non richiesto</span>
-                          <button type="button" onClick={() => onToggleDay(day)} className="no-print mt-0.5 inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-slate-300 hover:bg-blue-50" aria-label={`Sblocca ${fmtDay(day)}`}>
+                          {!readOnly && <button type="button" onClick={() => onToggleDay(day)} className="no-print mt-0.5 inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-slate-300 hover:bg-blue-50" aria-label={`Sblocca ${fmtDay(day)}`}>
                             <LockIcon open className="h-3 w-3" /> Sblocca
-                          </button>
+                          </button>}
                         </div>
                       </div>
                     )
@@ -178,17 +183,17 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                         <span className="text-sm font-semibold text-slate-800">{dayNum}</span>
                         <span className="flex min-w-0 items-center gap-1">
                           {HOLIDAYS[day] && <span className="truncate text-[10px] font-medium text-indigo-700" title={HOLIDAYS[day]}>{HOLIDAYS[day]}</span>}
-                          <button type="button" onClick={() => onToggleDay(day)} title="Blocca giorno: non richiesto dal cliente (escluso dalla rotazione)" aria-label={`Blocca ${fmtDay(day)}`}
+                          {!readOnly && <button type="button" onClick={() => onToggleDay(day)} title="Blocca giorno: non richiesto dal cliente (escluso dalla rotazione)" aria-label={`Blocca ${fmtDay(day)}`}
                             className="no-print shrink-0 rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-700 focus-visible:text-slate-700 group-hover:text-slate-400">
                             <LockIcon open className="h-3.5 w-3.5" />
-                          </button>
+                          </button>}
                         </span>
                       </div>
                       <div className="space-y-1">
                         {slotsForDay(day).map((s) => {
                           const pid = assignments[s.id]
                           const person = byId[pid]
-                          const conflict = conflicts[s.id]
+                          const conflict = simple ? undefined : conflicts[s.id]
                           const overPref = !conflict && person ? preferenceWarning(person, s.id, assignments) : undefined
                           const isPinned = !!person && pinnedSet.has(s.id)
                           return (
@@ -198,7 +203,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                                 <span className="flex items-center gap-1">
                                   {conflict && <span className="font-semibold text-red-600" title={conflict.map((c) => c.message).join('\n')}>⚠</span>}
                                   {overPref && <span className="font-semibold text-amber-600" title={overPref}>⚠</span>}
-                                  {person && (
+                                  {person && !readOnly && (
                                     <button type="button" onClick={() => onTogglePin(s.id)} aria-pressed={isPinned}
                                       aria-label={`${isPinned ? 'Sblocca' : 'Blocca'} turno ${fmtDay(day)} ${SLOT_LABEL[s.kind]}`}
                                       title={isPinned ? 'Turno bloccato: l\'auto-compilazione non lo modifica. Clicca per sbloccare' : 'Blocca questo turno: l\'auto-compilazione lo manterrà'}
@@ -215,7 +220,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                                   value={person ? pid : ''}
                                   onFocus={() => setFocus(s.id)}
                                   onChange={(e) => assign(s.id, e.target.value)}
-                                  disabled={isPinned}
+                                  disabled={isPinned || readOnly}
                                   title={isPinned ? 'Turno bloccato: sbloccalo con la puntina per modificarlo' : undefined}
                                   className={`w-full disabled:cursor-not-allowed min-w-0 truncate rounded-md bg-transparent py-1 pl-2 pr-1 text-xs outline-none ${person ? 'font-medium text-slate-900' : 'text-slate-400'}`}
                                 >
@@ -248,7 +253,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
         </div>
 
         {/* Pannello esplicativo dei vincoli per lo slot selezionato */}
-        <aside className="no-print xl:sticky xl:top-20 xl:self-start">
+        {!simple && <aside className="no-print xl:sticky xl:top-20 xl:self-start">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <h3 className="text-sm font-semibold text-slate-800">Disponibilità slot</h3>
             {focusSlot ? (
@@ -299,7 +304,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><PinIcon filled className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" /> Con la puntina blocchi un turno assegnato: non è modificabile e l'auto-compilazione ricalcola tutti gli altri tenendolo fisso.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
           </div>
-        </aside>
+        </aside>}
       </div>
     </div>
   )

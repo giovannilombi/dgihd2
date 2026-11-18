@@ -6,16 +6,20 @@ import { Login } from './components/Login'
 import { ParamsPanel } from './components/ParamsPanel'
 import { Payroll } from './components/Payroll'
 import { Planner } from './components/Planner'
-import { EyeIcon, PasswordDialog, TeamGate } from './components/TeamGate'
+import { EyeIcon, PasswordDialog } from './components/PasswordDialog'
 import { useRevealSensitive } from './components/useRevealSensitive'
+import { ChangePasswordForm, ForcedPasswordChange } from './components/ChangePassword'
+import { UsersPage } from './components/UsersPage'
 import { TeamPanel } from './components/TeamPanel'
 import { Button, Section } from './components/ui'
-import { isAuthenticated, setAuthenticated } from './lib/auth'
+import { useAuth, verifyOwnPassword } from './lib/useAuth'
+import { useRemoteData, type SyncStatus } from './lib/useRemoteData'
+import { canEdit, canManageUsers, canReadFull, ROLE_HELP, ROLE_LABEL, type Profile, type Role } from './lib/roles'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import type { ExportRange } from './lib/exportRange'
 import { ExportDialog, type ExportFormat } from './components/ExportDialog'
-import { defaultData, normalizeWithReport, useAppData } from './lib/store'
+import { normalizeWithReport } from './lib/store'
 import type { Assignments, Person } from './lib/types'
 
 const NAV = [
@@ -25,39 +29,68 @@ const NAV = [
   ['planner', 'C · Calendario'],
   ['payroll', 'D · Consuntivo'],
   ['pnl', 'E · Conto economico'],
+  ['users', 'Utenti'],
 ] as const
 type PageId = (typeof NAV)[number][0]
 
-const readPage = (): PageId => {
-  const h = location.hash.replace(/^#\/?/, '')
-  return (NAV.find(([id]) => id === h)?.[0] ?? 'doc')
+/** Pagine visibili per livello: il viewer vede solo il calendario, la gestione utenti è del super admin. */
+const pagesFor = (role: Role): PageId[] =>
+  role === 'viewer' ? ['planner']
+  : NAV.map(([id]) => id).filter((id) => id !== 'users' || canManageUsers(role))
+
+const readPage = (allowed: PageId[]): PageId => {
+  const h = location.hash.replace(/^#\/?/, '') as PageId
+  return allowed.includes(h) ? h : allowed[0]
 }
 
-/** Navigazione a pagine tramite hash (#/planner…): funziona anche aprendo il file in locale. */
-function usePage() {
-  const [page, setPage] = useState<PageId>(readPage)
+/** Navigazione a pagine tramite hash (#/planner…). */
+function usePage(allowed: PageId[]) {
+  const key = allowed.join(',')
+  const [page, setPage] = useState<PageId>(() => readPage(allowed))
   useEffect(() => {
-    const on = () => { setPage(readPage()); window.scrollTo(0, 0) }
+    const list = key.split(',') as PageId[]
+    const on = () => { setPage(readPage(list)); window.scrollTo(0, 0) }
+    on()
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
-  }, [])
+  }, [key])
   return page
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState(isAuthenticated)
-  if (!authed) return <Login onSuccess={() => { setAuthenticated(true); setAuthed(true) }} />
-  return <ErrorBoundary><Main onLogout={() => { setAuthenticated(false); setAuthed(false) }} /></ErrorBoundary>
+  const { state, signIn, signOut, changePassword } = useAuth()
+  if (state.status === 'loading') return <div className="grid min-h-screen place-items-center text-sm text-slate-500">Caricamento…</div>
+  if (state.status === 'signed-out') return <Login onSignIn={signIn} />
+  if (state.status === 'no-profile') {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-100 px-4">
+        <div className="max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-sm shadow-sm">
+          <h1 className="text-lg font-semibold text-slate-900">Account non abilitato</h1>
+          <p className="mt-2 text-slate-600">Questo account non ha un livello di accesso assegnato. Contatta il super admin.</p>
+          <Button className="mt-4" onClick={signOut}>Esci</Button>
+        </div>
+      </div>
+    )
+  }
+  const { profile } = state
+  if (profile.must_change_password) return <ForcedPasswordChange email={profile.email} onSubmit={changePassword} onSignOut={signOut} />
+  return <ErrorBoundary><Main key={profile.id + profile.role} profile={profile} onLogout={signOut} onChangePassword={changePassword} /></ErrorBoundary>
 }
 
-function Main({ onLogout }: { onLogout: () => void }) {
-  const { data, setData, storageOk } = useAppData()
+function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void> }) {
+  const role = profile.role
+  const editable = canEdit(role)
+  const { data, setData, replace, status, error: syncError } = useRemoteData(canReadFull(role), editable)
   const fileRef = useRef<HTMLInputElement>(null)
-  const page = usePage()
+  const allowed = pagesFor(role)
+  const page = usePage(allowed)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [userMenu, setUserMenu] = useState(false)
+  const [pwdOpen, setPwdOpen] = useState(false)
+  const verify = (password: string) => verifyOwnPassword(profile.email, password)
 
   const [confirmExport, setConfirmExport] = useState(false)
-  const doExportJson = () => download('reperibilita-q4-2026-config.json', JSON.stringify(data, null, 2), 'application/json')
+  const doExportJson = () => download(`${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-ARM-HD2-configurazione.json`, JSON.stringify(data, null, 2), 'application/json')
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat | null>(null)
@@ -93,8 +126,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
     }
     try {
       const { data: next, warnings } = normalizeWithReport(raw)
-      if (!confirm(`Importare ${next.people.length} risorse e ${Object.keys(next.assignments).length} turni? I dati attuali verranno sostituiti.`)) return
-      setData(next)
+      if (!confirm(`Importare ${next.people.length} risorse e ${Object.keys(next.assignments).length} turni? I dati condivisi attuali verranno sostituiti per tutti gli utenti.`)) return
+      await replace(next)
       setNotice(warnings.length
         ? { tone: 'warn', text: `Configurazione importata con avvisi: ${warnings.join('; ')}.` }
         : { tone: 'ok', text: `Configurazione importata: ${next.people.length} risorse, ${Object.keys(next.assignments).length} turni.` })
@@ -116,8 +149,6 @@ function Main({ onLogout }: { onLogout: () => void }) {
       assignments: Object.fromEntries(Object.entries(d.assignments).filter(([sid]) => !sid.startsWith(day + '|'))),
     }))
   }
-  const reset = () => confirm('Ripristinare parametri, team placeholder e calendario vuoto? I dati attuali verranno sovrascritti.') && setData(defaultData())
-
   function openImport() { fileRef.current?.click() }
 
   const sections: Record<PageId, React.ReactNode> = {
@@ -128,14 +159,12 @@ function Main({ onLogout }: { onLogout: () => void }) {
     ),
     params: (
       <Section id="params" letter="A" title="Parametri economici & ricavi" subtitle="Ogni modifica ricalcola istantaneamente vincoli, consuntivo e marginalità.">
-        <ParamsPanel params={data.params} onChange={(params) => setData((d) => ({ ...d, params }))} />
+        <fieldset disabled={!editable} className="min-w-0"><ParamsPanel params={data.params} onChange={(params) => setData((d) => ({ ...d, params }))} /></fieldset>
       </Section>
     ),
     team: (
-      <TeamGate>
-        {(lock) => <TeamPage lock={lock} people={data.people} assignments={data.assignments}
-          onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />}
-      </TeamGate>
+      <TeamPage verify={verify} editable={editable} people={data.people} assignments={data.assignments}
+        onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
     ),
     planner: (
       <Section id="planner" letter="C" title="Pianificatore calendario Nov – Dic 2026" subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto."
@@ -143,7 +172,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <Button onClick={() => setExportFormat('xlsx')}>Esporta turni (Excel)</Button>
           <Button onClick={() => setExportFormat('pdf')}>Esporta turni (PDF)</Button>
         </>}>
-        <Planner people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
+        <Planner readOnly={!editable} simple={role === 'viewer'} people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
           onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay}
           onTogglePin={(sid) => setData((d) => ({ ...d, pinned: d.pinned.includes(sid) ? d.pinned.filter((x) => x !== sid) : [...d.pinned, sid] }))} />
       </Section>
@@ -159,6 +188,11 @@ function Main({ onLogout }: { onLogout: () => void }) {
         <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} />
       </Section>
     ),
+    users: canManageUsers(role) ? (
+      <Section id="users" title="Utenti e livelli di accesso" subtitle="Solo il super admin vede questa pagina.">
+        <UsersPage me={profile} />
+      </Section>
+    ) : null,
   }
 
   return (
@@ -167,7 +201,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
           <a href="#/doc" className="font-semibold text-slate-900">Piano reperibilità <span className="text-blue-700">- ARM</span></a>
           <nav className="flex flex-wrap gap-1 text-sm" aria-label="Sezioni">
-            {NAV.map(([id, label]) => (
+            {NAV.filter(([id]) => allowed.includes(id)).map(([id, label]) => (
               <a key={id} href={`#/${id}`} aria-current={page === id ? 'page' : undefined}
                 className={`rounded-md px-2.5 py-1.5 font-medium ${page === id ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
                 {label}
@@ -175,22 +209,49 @@ function Main({ onLogout }: { onLogout: () => void }) {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden text-xs text-slate-400 xl:inline">{storageOk ? '● Salvataggio automatico' : 'Salvataggio locale non disponibile: usa Esporta JSON'}</span>
+            <SyncBadge status={status} />
+            {editable && (
+              <div className="relative">
+                <Button onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen} aria-haspopup="menu">Dati ▾</Button>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
+                    <div role="menu" className="absolute right-0 z-50 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+                      <MenuItem onClick={() => { setMenuOpen(false); setConfirmExport(true) }}>Esporta configurazione JSON</MenuItem>
+                      <MenuItem onClick={() => { setMenuOpen(false); openImport() }}>Importa configurazione JSON</MenuItem>
+                    </div>
+                  </>
+                )}
+                <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => importJson(e.target.files?.[0])} />
+              </div>
+            )}
             <div className="relative">
-              <Button onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen} aria-haspopup="menu">Dati ▾</Button>
-              {menuOpen && (
+              <button type="button" onClick={() => setUserMenu((o) => !o)} aria-expanded={userMenu} aria-haspopup="menu"
+                className="flex items-center gap-2 rounded-lg px-2 py-1 text-left ring-1 ring-slate-200 hover:bg-slate-50">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-700 text-xs font-semibold text-white">{initials(profile)}</span>
+                <span className="hidden leading-tight sm:block">
+                  <span className="block max-w-40 truncate text-sm font-medium text-slate-900">{profile.display_name || profile.email}</span>
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-blue-700">{ROLE_LABEL[role]}</span>
+                </span>
+                <span className="text-slate-400">▾</span>
+              </button>
+              {userMenu && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
-                  <div role="menu" className="absolute right-0 z-50 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
-                    <MenuItem onClick={() => { setMenuOpen(false); setConfirmExport(true) }}>Esporta configurazione JSON</MenuItem>
-                    <MenuItem onClick={() => { setMenuOpen(false); openImport() }}>Importa configurazione JSON</MenuItem>
-                    <MenuItem danger onClick={() => { setMenuOpen(false); reset() }}>Ripristina dati iniziali</MenuItem>
+                  <div className="fixed inset-0 z-40" onClick={() => setUserMenu(false)} aria-hidden />
+                  <div role="menu" className="absolute right-0 z-50 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+                    <div className="px-3 py-2">
+                      <div className="text-sm font-medium text-slate-900">{profile.display_name || '—'}</div>
+                      <div className="truncate text-xs text-slate-500">{profile.email}</div>
+                      <div className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Livello: {ROLE_LABEL[role]}</div>
+                      <div className="mt-1 text-xs text-slate-500">{ROLE_HELP[role]}</div>
+                    </div>
+                    <div className="my-1 border-t border-slate-100" />
+                    <MenuItem onClick={() => { setUserMenu(false); setPwdOpen(true) }}>Cambia password</MenuItem>
+                    <MenuItem danger onClick={() => { setUserMenu(false); onLogout() }}>Esci</MenuItem>
                   </div>
                 </>
               )}
-              <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => importJson(e.target.files?.[0])} />
             </div>
-            <Button variant="ghost" onClick={onLogout}>Esci</Button>
           </div>
         </div>
       </header>
@@ -202,8 +263,17 @@ function Main({ onLogout }: { onLogout: () => void }) {
             <button type="button" onClick={() => setNotice(null)} className="text-xs font-medium opacity-70 hover:opacity-100" aria-label="Chiudi messaggio">Chiudi</button>
           </div>
         )}
-        {sections[page]}
+        {syncError && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{syncError}</div>}
+        {status === 'loading' ? <p className="py-10 text-center text-sm text-slate-500">Caricamento dei dati condivisi…</p> : sections[page]}
       </main>
+      {pwdOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="cp-title">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h3 id="cp-title" className="mb-3 text-lg font-semibold text-slate-900">Cambia password</h3>
+            <ChangePasswordForm onSubmit={onChangePassword} onCancel={() => setPwdOpen(false)} />
+          </div>
+        </div>
+      )}
       {exportFormat && (
         <ExportDialog format={exportFormat} busy={exporting} onClose={() => setExportFormat(null)}
           onExport={(range, fileName) => runExport(exportFormat, range, fileName)} />
@@ -211,7 +281,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
       {confirmExport && (
         <PasswordDialog
           title="Esporta configurazione"
-          description="Il file contiene l'anagrafica completa: reinserisci la password dell'anagrafica per esportarlo."
+          description="Il file contiene l'anagrafica completa: reinserisci la tua password per esportarlo."
+          verify={verify}
           onSuccess={() => { setConfirmExport(false); doExportJson() }}
           onClose={() => setConfirmExport(false)}
         />
@@ -228,8 +299,8 @@ function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?:
 }
 
 /** Pagina anagrafica: RAL e livello oscurati finché non si reinserisce la password (lo stato si azzera cambiando pagina). */
-function TeamPage({ lock, people, assignments, onChange }: { lock: () => void; people: Person[]; assignments: Assignments; onChange: (people: Person[], assignments?: Assignments) => void }) {
-  const { revealed, toggle, dialog } = useRevealSensitive()
+function TeamPage({ verify, editable, people, assignments, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; people: Person[]; assignments: Assignments; onChange: (people: Person[], assignments?: Assignments) => void }) {
+  const { revealed, toggle, dialog } = useRevealSensitive(verify)
   return (
     <>
       <Section id="team" letter="B" title="Anagrafica team" subtitle="Chi ha dato KO resta in anagrafica ma non compare nel calendario. La disponibilità guida l'auto-compilazione."
@@ -237,11 +308,25 @@ function TeamPage({ lock, people, assignments, onChange }: { lock: () => void; p
           <Button onClick={toggle} aria-pressed={revealed} className={revealed ? 'ring-blue-300 bg-blue-50 text-blue-800' : ''}>
             <EyeIcon off={revealed} /> {revealed ? 'Oscura RAL e livello' : 'Mostra RAL e livello'}
           </Button>
-          <Button variant="ghost" onClick={lock}>Blocca anagrafica</Button>
         </>}>
-        <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed} />
+        <fieldset disabled={!editable} className="min-w-0">
+          <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed} />
+        </fieldset>
       </Section>
       {dialog}
     </>
   )
+}
+
+const initials = (p: Profile) => (p.display_name || p.email).split(/[\s.@]+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('')
+
+function SyncBadge({ status }: { status: SyncStatus }) {
+  const map: Record<SyncStatus, [string, string]> = {
+    loading: ['Caricamento…', 'text-slate-400'],
+    synced: ['● Sincronizzato', 'text-emerald-700'],
+    saving: ['● Salvataggio…', 'text-amber-700'],
+    error: ['● Errore di sincronizzazione', 'text-red-700'],
+  }
+  const [label, cls] = map[status]
+  return <span className={`hidden text-xs xl:inline ${cls}`}>{label}</span>
 }
