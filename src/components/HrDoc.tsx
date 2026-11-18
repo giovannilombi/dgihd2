@@ -123,7 +123,7 @@ export function HrDoc({ params: p, people }: { params: Params; people: Person[] 
 
 // ---------- Tabella di riferimento rapido (B1) ----------
 const REF_RALS = Array.from({ length: 9 }, (_, i) => 24_000 + i * 2_000) // 24k → 40k, passo 2k
-const ROW_H = 40
+const ROW_H = 52
 const HEAD_H = 36
 const KINDS = ['FN', 'WD', 'WN'] as const
 
@@ -133,6 +133,15 @@ function refRow(ral: number, p: Params) {
     return { kind, e, dom: sundayHours(e.lcomp, ral, p), sab: saturdayHours(e.lcomp, ral, p) }
   })
   return { ral, base: baseHourly(ral), k: kNetto(ral, p), cells }
+}
+
+function HoursOption({ hours, day }: { hours: number; day: string }) {
+  return (
+    <div className="flex-1 rounded-md bg-slate-50 px-2 py-1.5 text-center ring-1 ring-slate-200">
+      <div className="num text-lg leading-tight font-semibold text-slate-900">{fmtNum(hours)} h</div>
+      <div className="text-xs text-slate-500">{day}</div>
+    </div>
+  )
 }
 
 const KIND_LABEL = { FN: 'Notte feriale', WD: 'Festivo diurno', WN: 'Festivo notte' } as const
@@ -145,7 +154,7 @@ function RefTable({ p }: { p: Params }) {
 
   return (
     <div>
-      <P>Valori calcolati in tempo reale con i parametri correnti per un dipendente <strong>Livello B1</strong> (indennità feriale {fmtEur(p.indemnity.g3.feriale)}, festiva {fmtEur(p.indemnity.g3.domenica)} lordi). Ore del sabato calcolate a scaglioni esatti.</P>
+      <P>Valori calcolati in tempo reale con i parametri correnti per un dipendente <strong>Livello B1</strong> (indennità feriale {fmtEur(p.indemnity.g3.feriale)}, festiva {fmtEur(p.indemnity.g3.domenica)} lordi). Le ore vanno imputate <strong>o</strong> sulla Domenica <strong>oppure</strong> sul Sabato (mai su entrambi): il lordo liquidato è lo stesso, cambiano solo le ore perché cambia la maggiorazione. Ore del sabato calcolate a scaglioni esatti.</P>
 
       {/* Calcolo al volo per una RAL qualsiasi */}
       <div className="mt-4 flex flex-col gap-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4 lg:flex-row lg:items-start">
@@ -163,9 +172,15 @@ function RefTable({ p }: { p: Params }) {
             {live.cells.map((c) => (
               <div key={c.kind} className="rounded-lg bg-white p-3 ring-1 ring-slate-200">
                 <div className="text-xs font-medium text-slate-500">{KIND_LABEL[c.kind]} · {eur(net[c.kind])} netti</div>
-                <div className="num mt-1 text-lg font-semibold text-slate-900">{fmtNum(c.dom)} h <span className="text-sm font-normal text-slate-500">Dom</span></div>
-                <div className="num text-sm text-slate-700">{fmtNum(c.sab)} h Sab · {fmtEur(c.e.ltot)} lordi</div>
-                <div className="num mt-1 text-xs text-slate-500">Costo aziendale {fmtEur(c.e.cost)}</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <HoursOption hours={c.dom} day="Domenica" />
+                  <span className="text-xs font-medium text-slate-500 italic">oppure</span>
+                  <HoursOption hours={c.sab} day="Sabato" />
+                </div>
+                <div className="num mt-2 border-t border-slate-100 pt-2 text-sm text-slate-700">
+                  <span className="font-semibold text-slate-900">{fmtEur(c.e.ltot)}</span> lordi <span className="text-xs text-slate-500">(stesso importo in entrambi i casi)</span>
+                </div>
+                <div className="num text-xs text-slate-500">Costo aziendale {fmtEur(c.e.cost)}</div>
               </div>
             ))}
           </div>
@@ -190,7 +205,7 @@ function RefTable({ p }: { p: Params }) {
                   <td className="px-3 font-semibold whitespace-nowrap">{fmtEur(ral).replace(',00', '')}</td>
                   <td className="pr-3 text-right whitespace-nowrap">{fmtEur(r.base)}</td>
                   {r.cells.map((c) => (
-                    <td key={c.kind} className="pr-3 whitespace-nowrap">{fmtEur(c.e.ltot)} · <strong>{fmtNum(c.dom)} h</strong> Dom · {fmtNum(c.sab)} h Sab</td>
+                    <td key={c.kind} className="pr-3 whitespace-nowrap"><div>{fmtNum(c.dom)} h Dom <span className="text-xs text-slate-400 italic">oppure</span> {fmtNum(c.sab)} h Sab</div><div className="text-xs text-slate-500">{fmtEur(c.e.ltot)} lordi</div></td>
                   ))}
                   <td className="pr-3 text-right whitespace-nowrap">{fmtEur(r.cells[0].e.cost)} / {fmtEur(r.cells[2].e.cost)}</td>
                 </tr>
