@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { baseHourly, fmtEur, fmtNum, kNetto, slotEconomics, sundayHours } from '../lib/economics'
 import { LEVELS, type Level, type Params } from '../lib/types'
+import { AccordionSummary } from './ui'
 
 /** Esempio guidato, calcolato dal vivo: dal netto target al gettone, all'alternativa in ore e al costo aziendale. */
 export function HowItWorks({ p }: { p: Params }) {
@@ -23,8 +24,8 @@ export function HowItWorks({ p }: { p: Params }) {
   ] : []
 
   return (
-    <details className="rounded-xl border border-slate-200 bg-slate-50">
-      <summary className="px-4 py-2.5 text-sm font-semibold text-slate-700">Come funziona: esempio guidato su una notte feriale</summary>
+    <details className="group rounded-xl border border-slate-200 bg-slate-50">
+      <AccordionSummary compact>Come funziona: esempio guidato su una notte feriale</AccordionSummary>
       <div className="grid gap-6 border-t border-slate-200 p-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div>
           <div className="flex flex-wrap items-end gap-3">

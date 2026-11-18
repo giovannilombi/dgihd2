@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { isTeamUnlocked, setTeamUnlocked, verifyTeamPassword } from '../lib/auth'
 import { Button } from './ui'
 
-/** Protegge in pagina l'anagrafica (contiene le RAL) con una password dedicata. */
+/** Protegge in pagina l'anagrafica con una password dedicata (accesso riservato agli autorizzati). */
 export function TeamGate({ children }: { children: (lock: () => void) => ReactNode }) {
   const [unlocked, setUnlocked] = useState(isTeamUnlocked)
   const [pwd, setPwd] = useState('')
@@ -30,7 +30,7 @@ export function TeamGate({ children }: { children: (lock: () => void) => ReactNo
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-5 w-5" aria-hidden><rect x="4" y="9" width="12" height="8.5" rx="1.8" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
       </span>
       <h3 className="mt-3 font-semibold text-slate-900">Anagrafica riservata</h3>
-      <p className="mt-1 text-sm text-slate-500">Contiene le RAL delle persone: inserisci la password dedicata per visualizzarla.</p>
+      <p className="mt-1 text-sm text-slate-500">L'accesso all'anagrafica è riservato ai soli autorizzati.</p>
       <input type="password" autoFocus autoComplete="off" value={pwd} aria-label="Password anagrafica"
         onChange={(e) => { setPwd(e.target.value); setError('') }}
         className="mt-4 w-full rounded-lg px-3 py-2 text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" placeholder="Password anagrafica" />

@@ -74,14 +74,24 @@ export function Kpi({ label, value, sub, tone }: { label: string; value: string;
   )
 }
 
+/** Intestazione cliccabile di un accordion: freccia che ruota + etichetta Espandi/Chiudi. Il <details> padre deve avere la classe `group`. */
+export function AccordionSummary({ children, compact }: { children: ReactNode; compact?: boolean }) {
+  return (
+    <summary className={`flex items-center gap-2 rounded-xl select-none hover:bg-slate-100/70 ${compact ? 'px-4 py-2.5 text-sm text-slate-700' : 'px-4 py-3 text-slate-800'} font-semibold`}>
+      <svg className="chev h-4 w-4 shrink-0 text-slate-500 transition-transform" viewBox="0 0 20 20" fill="currentColor" aria-hidden><path d="M7 4l6 6-6 6V4z" /></svg>
+      <span className="flex-1">{children}</span>
+      <span className="flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200 group-open:text-slate-500 group-open:ring-slate-200">
+        <span className="group-open:hidden">Espandi</span>
+        <span className="hidden group-open:inline">Chiudi</span>
+      </span>
+    </summary>
+  )
+}
+
 export function Collapsible({ title, children, defaultOpen = false }: { title: ReactNode; children: ReactNode; defaultOpen?: boolean }) {
   return (
     <details open={defaultOpen} className="group rounded-xl border border-slate-200 bg-white">
-      <summary className="flex items-center gap-2 px-4 py-3 font-semibold text-slate-800 hover:bg-slate-50">
-        <svg className="chev h-4 w-4 shrink-0 text-slate-400 transition-transform" viewBox="0 0 20 20" fill="currentColor" aria-hidden><path d="M7 4l6 6-6 6V4z" /></svg>
-        <span className="flex-1">{title}</span>
-        <span className="text-xs font-normal text-slate-400 group-open:hidden">Clicca per espandere</span>
-      </summary>
+      <AccordionSummary>{title}</AccordionSummary>
       <div className="border-t border-slate-200 px-5 py-4">{children}</div>
     </details>
   )

@@ -1,6 +1,6 @@
 import { DEFAULT_PARAMS, GROUP_LABEL, type Params } from '../lib/types'
 import { HowItWorks } from './HowItWorks'
-import { Button, NumberField } from './ui'
+import { AccordionSummary, Button, NumberField } from './ui'
 
 export function ParamsPanel({ params: p, onChange }: { params: Params; onChange: (p: Params) => void }) {
   const set = <K extends keyof Params>(k: K, v: Params[K]) => onChange({ ...p, [k]: v })
@@ -34,8 +34,8 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
 
       <div className="space-y-3">
       <HowItWorks p={p} />
-      <details className="rounded-xl border border-slate-200 bg-slate-50">
-        <summary className="px-4 py-2.5 text-sm font-semibold text-slate-700">Parametri avanzati: coefficienti netto/lordo, maggiorazioni, indennità CCNL</summary>
+      <details className="group rounded-xl border border-slate-200 bg-slate-50">
+        <AccordionSummary compact>Parametri avanzati: coefficienti netto/lordo, maggiorazioni, indennità CCNL</AccordionSummary>
         <div className="grid gap-6 border-t border-slate-200 p-4 lg:grid-cols-3">
           <fieldset className="space-y-3">
             <legend className="mb-2 text-sm font-semibold text-slate-800">Coefficiente netto/lordo (K)</legend>

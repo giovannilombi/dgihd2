@@ -12,7 +12,7 @@ Salvataggio automatico in LocalStorage, export/import della configurazione JSON 
 
 ## Accesso
 
-L'app è divisa in pagine (Documento HR, A–E) e chiede utente e password. La pagina Anagrafica (con le RAL) richiede una seconda password; le RAL non compaiono nelle altre pagine né nel report CSV. Il controllo è solo nel browser: nel bundle c'è l'hash SHA-256 delle credenziali, non le credenziali in chiaro. Basta a tenere fuori un accesso occasionale, ma non è una protezione lato server.
+L'app è divisa in pagine (Documento HR, A–E) e chiede utente e password. L'accesso alla pagina Anagrafica è riservato ai soli autorizzati (seconda password). Il controllo è solo nel browser: nel bundle c'è l'hash SHA-256 delle credenziali, non le credenziali in chiaro. Basta a tenere fuori un accesso occasionale, ma non è una protezione lato server.
 
 ## Dati personali
 
