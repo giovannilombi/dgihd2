@@ -13,6 +13,8 @@ import { Button, Section } from './components/ui'
 import { isAuthenticated, setAuthenticated } from './lib/auth'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
+import type { ExportRange } from './lib/exportRange'
+import { ExportDialog, type ExportFormat } from './components/ExportDialog'
 import { defaultData, normalizeWithReport, useAppData } from './lib/store'
 import type { Assignments, Person } from './lib/types'
 
@@ -56,27 +58,24 @@ function Main({ onLogout }: { onLogout: () => void }) {
 
   const [confirmExport, setConfirmExport] = useState(false)
   const doExportJson = () => download('reperibilita-q4-2026-config.json', JSON.stringify(data, null, 2), 'application/json')
-  const exportCsv = () => download('reperibilita-q4-2026-report-hr-finance.csv', fullReportCsv(data.people, data.assignments, data.params, data.excludedDays), 'text/csv;charset=utf-8')
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null)
   const [exporting, setExporting] = useState(false)
-  const exportShiftsPdf = async () => {
+  const [exportFormat, setExportFormat] = useState<ExportFormat | null>(null)
+
+  /** Genera il file del formato scelto, limitato al periodo indicato nella finestra di export. */
+  const runExport = async (format: ExportFormat, range: ExportRange, fileName: string) => {
     setExporting(true)
     try {
-      const buf = await buildShiftsPdf(data.people, data.assignments, data.excludedDays)
-      download('turni-reperibilita-nov-dic-2026.pdf', buf, 'application/pdf')
+      if (format === 'csv') {
+        download(fileName, fullReportCsv(data.people, data.assignments, data.params, data.excludedDays, range), 'text/csv;charset=utf-8')
+      } else if (format === 'xlsx') {
+        download(fileName, await buildShiftsXlsx(data.people, data.assignments, data.excludedDays, range), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      } else {
+        download(fileName, await buildShiftsPdf(data.people, data.assignments, data.excludedDays, range), 'application/pdf')
+      }
+      setExportFormat(null)
     } catch (e) {
-      setNotice({ tone: 'error', text: `Export PDF non riuscito: ${(e as Error).message}` })
-    } finally {
-      setExporting(false)
-    }
-  }
-  const exportShiftsXlsx = async () => {
-    setExporting(true)
-    try {
-      const buf = await buildShiftsXlsx(data.people, data.assignments, data.excludedDays)
-      download('turni-reperibilita-nov-dic-2026.xlsx', buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    } catch (e) {
-      setNotice({ tone: 'error', text: `Export Excel non riuscito: ${(e as Error).message}` })
+      setNotice({ tone: 'error', text: `Export non riuscito: ${(e as Error).message}` })
     } finally {
       setExporting(false)
     }
@@ -141,8 +140,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
     planner: (
       <Section id="planner" letter="C" title="Pianificatore calendario Nov – Dic 2026" subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto."
         actions={<>
-          <Button onClick={exportShiftsXlsx} disabled={exporting}>Esporta turni (Excel)</Button>
-          <Button onClick={exportShiftsPdf} disabled={exporting}>Esporta turni (PDF)</Button>
+          <Button onClick={() => setExportFormat('xlsx')}>Esporta turni (Excel)</Button>
+          <Button onClick={() => setExportFormat('pdf')}>Esporta turni (PDF)</Button>
         </>}>
         <Planner people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
           onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay}
@@ -151,12 +150,12 @@ function Main({ onLogout }: { onLogout: () => void }) {
     ),
     payroll: (
       <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone di disponibilità e alternativa in ore."
-        actions={<Button onClick={exportCsv}>Esporta report HR &amp; Finance (CSV)</Button>}>
+        actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
         <Payroll people={data.people} assignments={data.assignments} params={data.params} />
       </Section>
     ),
     pnl: (
-      <Section id="pnl" letter="E" title="Dashboard economica & marginalità (P&L)" actions={<Button onClick={exportCsv}>Esporta report HR &amp; Finance (CSV)</Button>}>
+      <Section id="pnl" letter="E" title="Dashboard economica & marginalità (P&L)" actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
         <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} />
       </Section>
     ),
@@ -205,6 +204,10 @@ function Main({ onLogout }: { onLogout: () => void }) {
         )}
         {sections[page]}
       </main>
+      {exportFormat && (
+        <ExportDialog format={exportFormat} busy={exporting} onClose={() => setExportFormat(null)}
+          onExport={(range, fileName) => runExport(exportFormat, range, fileName)} />
+      )}
       {confirmExport && (
         <PasswordDialog
           title="Esporta configurazione"

@@ -1,6 +1,7 @@
 import { ALL_SLOTS, SLOT_BY_ID, daysInRange, fmtDay, isWeekendOrHoliday, monthKey, monthLabel, weekStart, SLOT_LABEL } from './calendar'
 import { compensationsFor, type WeekComp } from './rules'
 import { fmtNum, slotEconomics } from './economics'
+import { FULL_RANGE, inRange, rangeText, type ExportRange } from './exportRange'
 import type { Assignments, Params, Person } from './types'
 
 export interface PeriodPnl {
@@ -22,7 +23,7 @@ function emptyPeriod(key: string, label: string): PeriodPnl {
 }
 
 /** Conto economico per mese e per settimana (ricavi per giorno coperto, costi per slot assegnato). */
-export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: string[] = []) {
+export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: string[] = [], range?: ExportRange) {
   const excluded = new Set(excludedDays)
   const byId = Object.fromEntries(people.map((x) => [x.id, x]))
   const months = new Map<string, PeriodPnl>()
@@ -33,7 +34,7 @@ export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: s
     return m.get(k)!
   }
   for (const day of daysInRange()) {
-    if (excluded.has(day)) continue
+    if (excluded.has(day) || !inRange(day, range)) continue
     const buckets = [get(months, monthKey(day), monthLabel(monthKey(day))), get(weeks, weekStart(day), `Sett. ${fmtDay(weekStart(day))}`), total]
     const slots = ALL_SLOTS.filter((s) => s.date === day)
     const covered = slots.filter((s) => byId[a[s.id]])
@@ -101,12 +102,14 @@ const csvCell = (v: string | number) => {
 }
 export const toCsv = (rows: (string | number)[][]) => '﻿' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n')
 
-export function fullReportCsv(people: Person[], a: Assignments, p: Params, excludedDays: string[] = []) {
-  const rows: (string | number)[][] = [['CONSUNTIVO CEDOLINO PER RISORSA']]
+/** Report CSV del periodo: le settimane del consuntivo sono incluse se il loro ultimo turno cade nel periodo. */
+export function fullReportCsv(people: Person[], a: Assignments, p: Params, excludedDays: string[] = [], range: ExportRange = FULL_RANGE) {
+  const rows: (string | number)[][] = [['PIANO REPERIBILITÀ - ARM', `Periodo ${rangeText(range)}`], [], ['CONSUNTIVO CEDOLINO PER RISORSA']]
   rows.push(['Mese', 'Risorsa', 'Settimana (lun)', 'Turni', 'Indennità CCNL lorda', 'Gettone di disponibilità lordo (preferibile)', 'Alternativa: giorno straordinario', 'Alternativa: data', 'Alternativa: ore straordinario', 'Lordo totale', 'Netto garantito', 'Costo aziendale', 'Note'])
   for (const m of payroll(people, a, p)) {
     for (const r of m.rows) {
       for (const w of r.weeks) {
+        if (!inRange(w.slots[w.slots.length - 1].date, range)) continue
         rows.push([
           m.label, r.person.name, w.week,
           w.slots.map((s) => slotTag(s.id)).join(', '),
@@ -116,7 +119,7 @@ export function fullReportCsv(people: Person[], a: Assignments, p: Params, exclu
       }
     }
   }
-  const pl = pnl(people, a, p, excludedDays)
+  const pl = pnl(people, a, p, excludedDays, range)
   rows.push([], ['CONTO ECONOMICO'], ['Periodo', 'Feriali coperti', 'Weekend/festivi coperti', 'Weekend/festivi parziali (non fatturati)', 'Ricavo', 'Costo aziendale', 'Margine', 'Marginalità %'])
   for (const b of [...pl.months, ...pl.weeks, pl.total]) {
     rows.push([b.label, b.ferialiCoperti, b.festiviCoperti, b.festiviParziali, b.revenue, b.cost, b.margin, b.marginPct])

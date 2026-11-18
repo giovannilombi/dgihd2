@@ -4,8 +4,9 @@ import { baseHourly, saturdayHours, slotEconomics, sundayHours } from './economi
 import { autoFill, checkAssignment, compensationsFor, existingViolations, preferenceWarning, regenerate } from './rules'
 import { parseTeamText, TEMPLATE_CSV } from './team'
 import { normalizeWithReport } from './store'
-import { buildShiftsPdf, buildShiftsXlsx } from './shiftsExport'
-import { pnl } from './reports'
+import { buildShiftsPdf, buildShiftsXlsx, shiftCalendar, shiftsByPerson } from './shiftsExport'
+import { exportableMonths, exportFileName, validateRange } from './exportRange'
+import { fullReportCsv, pnl } from './reports'
 import { DEFAULT_PARAMS as P, type Person } from './types'
 
 const mk = (id: string, ral: number, level: Person['level'] = 'B1'): Person => ({ id, name: id, level, ral, active: true, color: '#000' })
@@ -284,6 +285,31 @@ describe('RAL non ancora inserita', () => {
     expect(c[0].lcomp).toBeGreaterThan(0)
     const res = autoFill([z], {}, P, '2026-11-01', '2026-11-30')
     expect(Object.keys(res).length).toBeGreaterThan(0)
+  })
+})
+
+describe('export per periodo', () => {
+  it('nome file AAAAMMGG-ARM-HD2-daX_aY', () => {
+    expect(exportFileName('csv', { from: '2026-11-01', to: '2026-11-30' }, new Date(2026, 10, 18))).toBe('20261118-ARM-HD2-da20261101_a20261130.csv')
+  })
+  it('mesi scaricabili e validazione intervallo', () => {
+    expect(exportableMonths().map((m) => [m.from, m.to])).toEqual([['2026-11-01', '2026-11-30'], ['2026-12-01', '2026-12-31']])
+    expect(validateRange({ from: '2026-12-10', to: '2026-12-01' })).toMatch(/precedente/)
+    expect(validateRange({ from: '2026-10-01', to: '2026-12-01' })).toMatch(/periodo pianificato/)
+    expect(validateRange({ from: '2026-11-05', to: '2026-11-20' })).toBeUndefined()
+  })
+  it('turni e report limitati al periodo', () => {
+    const team = [mk('a', 30000)]
+    const asg = { '2026-11-24|N': 'a', '2026-12-02|N': 'a' }
+    const dec = { from: '2026-12-01', to: '2026-12-31' }
+    const r = shiftsByPerson(team, asg, dec)[0]
+    expect(r.total).toBe(1)
+    expect(r.perMonth).toEqual([1])
+    const cal = shiftCalendar(team, asg, [], dec)
+    expect(cal.map((m) => m.key)).toEqual(['2026-12'])
+    const csv = fullReportCsv(team, asg, P, [], dec)
+    expect(csv).toContain('Mer 2 Dic')
+    expect(csv).not.toContain('Mar 24 Nov')
   })
 })
 

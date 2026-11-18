@@ -1,5 +1,6 @@
 import { HOLIDAYS, MONTH_LONG, SLOT_HOURS, daysInRange, isWeekendOrHoliday, monthKey, monthLabel, slotsForDay, toDate, weekday } from './calendar'
 import { personSlots } from './rules'
+import { FULL_RANGE, inRange, rangeText, type ExportRange } from './exportRange'
 import type { Assignments, Person } from './types'
 
 const WD_LONG = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato']
@@ -17,11 +18,11 @@ export interface ShiftDayRow {
 }
 
 /** Calendario turni (solo nominativi, nessun dato economico), raggruppato per mese. */
-export function shiftCalendar(people: Person[], a: Assignments, excludedDays: string[] = []) {
+export function shiftCalendar(people: Person[], a: Assignments, excludedDays: string[] = [], range: ExportRange = FULL_RANGE) {
   const excluded = new Set(excludedDays)
   const byId = Object.fromEntries(people.map((x) => [x.id, x]))
   const months = new Map<string, ShiftDayRow[]>()
-  for (const date of daysInRange()) {
+  for (const date of daysInRange(range.from, range.to)) {
     const slots = slotsForDay(date)
     const festive = isWeekendOrHoliday(date)
     const d = toDate(date)
@@ -41,23 +42,24 @@ export function shiftCalendar(people: Person[], a: Assignments, excludedDays: st
   return [...months.entries()].map(([key, rows]) => ({ key, label: monthLabel(key), rows }))
 }
 
-/** Riepilogo per persona: numero turni per mese ed elenco date (nessun dato economico). */
-export function shiftsByPerson(people: Person[], a: Assignments) {
+/** Riepilogo per persona nel periodo: turni per mese ed elenco date (nessun dato economico). */
+export function shiftsByPerson(people: Person[], a: Assignments, range: ExportRange = FULL_RANGE) {
+  const months = [...new Set(daysInRange(range.from, range.to).map(monthKey))]
   return people
     .map((p) => {
-      const slots = personSlots(a, p.id)
+      const slots = personSlots(a, p.id).filter((s) => inRange(s.date, range))
       const fmt = (s: (typeof slots)[number]) => {
         const d = toDate(s.date)
         return `${WD_LONG[d.getUTCDay()].slice(0, 3)} ${d.getUTCDate()} ${MONTH_LONG[d.getUTCMonth()].slice(0, 3)} ${s.kind === 'WD' ? 'Diurno' : 'Notte'}`
       }
       return {
         person: p,
-        nov: slots.filter((s) => s.date.startsWith('2026-11')).length,
-        dec: slots.filter((s) => s.date.startsWith('2026-12')).length,
+        perMonth: months.map((m) => slots.filter((s) => monthKey(s.date) === m).length),
+        total: slots.length,
         list: slots.map(fmt).join(', '),
       }
     })
-    .filter((r) => r.nov + r.dec > 0 || r.person.active)
+    .filter((r) => r.total > 0 || r.person.active)
 }
 
 const tint = (hex: string, f = 0.82) => {
@@ -67,7 +69,8 @@ const tint = (hex: string, f = 0.82) => {
 }
 
 /** Genera il file Excel formattato con i soli turni. */
-export async function buildShiftsXlsx(people: Person[], a: Assignments, excludedDays: string[] = []): Promise<ArrayBuffer> {
+export async function buildShiftsXlsx(people: Person[], a: Assignments, excludedDays: string[] = [], range: ExportRange = FULL_RANGE): Promise<ArrayBuffer> {
+  const months = [...new Set(daysInRange(range.from, range.to).map(monthKey))]
   const { default: ExcelJS } = await import('exceljs')
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Piano reperibilità - ARM'
@@ -88,7 +91,7 @@ export async function buildShiftsXlsx(people: Person[], a: Assignments, excluded
     { key: 'day', width: 30 }, { key: 'night', width: 30 },
   ]
   ws.mergeCells('A1:E1')
-  ws.getCell('A1').value = 'Piano reperibilità - ARM · Calendario turni Nov – Dic 2026'
+  ws.getCell('A1').value = `Piano reperibilità - ARM · Calendario turni ${rangeText(range)}`
   ws.getCell('A1').font = { bold: true, size: 14, color: { argb: 'FF0F172A' } }
   ws.mergeCells('A2:E2')
   ws.getCell('A2').value = `Generato il ${new Date().toLocaleDateString('it-IT')} · Diurno ${SLOT_HOURS.WD} solo weekend e festivi · Notte ${SLOT_HOURS.FN}`
@@ -99,7 +102,7 @@ export async function buildShiftsXlsx(people: Person[], a: Assignments, excluded
   head.height = 20
   ws.autoFilter = 'A3:E3'
 
-  for (const m of shiftCalendar(people, a, excludedDays)) {
+  for (const m of shiftCalendar(people, a, excludedDays, range)) {
     const mr = ws.addRow([m.label.toUpperCase()])
     ws.mergeCells(`A${mr.number}:E${mr.number}`)
     mr.getCell(1).font = { bold: true, color: { argb: 'FF1E3A8A' } }
@@ -142,14 +145,15 @@ export async function buildShiftsXlsx(people: Person[], a: Assignments, excluded
     views: [{ state: 'frozen', ySplit: 1 }],
     pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   })
-  ws2.columns = [{ width: 30 }, { width: 11 }, { width: 11 }, { width: 9 }, { width: 90 }]
-  const h2 = ws2.addRow(['Nome', 'Novembre', 'Dicembre', 'Totale', 'Date e fasce'])
+  ws2.columns = [{ width: 30 }, ...months.map(() => ({ width: 12 })), { width: 9 }, { width: 90 }]
+  const h2 = ws2.addRow(['Nome', ...months.map((m) => monthLabel(m).split(' ')[0]), 'Totale', 'Date e fasce'])
   h2.eachCell((c) => { c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = headFill; c.border = border })
-  for (const r of shiftsByPerson(people, a)) {
-    const row = ws2.addRow([r.person.name + (r.person.active ? '' : ' (esclusa)'), r.nov, r.dec, r.nov + r.dec, r.list])
+  const lastCol = months.length + 3
+  for (const r of shiftsByPerson(people, a, range)) {
+    const row = ws2.addRow([r.person.name + (r.person.active ? '' : ' (KO)'), ...r.perMonth, r.total, r.list])
     row.eachCell({ includeEmpty: true }, (c, col) => {
       c.border = border
-      c.alignment = { vertical: 'top', wrapText: col === 5, horizontal: col >= 2 && col <= 4 ? 'center' : undefined }
+      c.alignment = { vertical: 'top', wrapText: col === lastCol, horizontal: col >= 2 && col < lastCol ? 'center' : undefined }
     })
     row.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: tint(r.person.color) } }
     row.getCell(1).font = { bold: true }
@@ -164,7 +168,8 @@ const rgb = (hex: string, f = 0): [number, number, number] => {
 }
 
 /** Genera un PDF A4 con i soli turni (calendario per mese + riepilogo per persona), senza dati economici. */
-export async function buildShiftsPdf(people: Person[], a: Assignments, excludedDays: string[] = []): Promise<ArrayBuffer> {
+export async function buildShiftsPdf(people: Person[], a: Assignments, excludedDays: string[] = [], range: ExportRange = FULL_RANGE): Promise<ArrayBuffer> {
+  const months = [...new Set(daysInRange(range.from, range.to).map(monthKey))]
   const { jsPDF } = await import('jspdf')
   const { autoTable } = await import('jspdf-autotable')
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -179,9 +184,9 @@ export async function buildShiftsPdf(people: Person[], a: Assignments, excludedD
     doc.text(`${title} · generato il ${generated}`, 14, 22)
   }
 
-  shiftCalendar(people, a, excludedDays).forEach((m, i) => {
+  shiftCalendar(people, a, excludedDays, range).forEach((m, i) => {
     if (i > 0) doc.addPage()
-    header(`Calendario turni · ${m.label}`)
+    header(`Calendario turni · ${m.label} · periodo ${rangeText(range)}`)
     autoTable(doc, {
       startY: 27,
       head: [['Data', 'Giorno', 'Tipo', `Diurno ${SLOT_HOURS.WD}`, `Notte ${SLOT_HOURS.FN}`]],
@@ -214,19 +219,20 @@ export async function buildShiftsPdf(people: Person[], a: Assignments, excludedD
     })
   })
 
+  const byPerson = shiftsByPerson(people, a, range)
   doc.addPage()
-  header('Turni per persona')
+  header(`Turni per persona · periodo ${rangeText(range)}`)
   autoTable(doc, {
     startY: 27,
-    head: [['Nome', 'Nov', 'Dic', 'Tot.', 'Date e fasce']],
-    body: shiftsByPerson(people, a).map((r) => [r.person.name + (r.person.active ? '' : ' (KO)'), r.nov, r.dec, r.nov + r.dec, r.list || '—']),
+    head: [['Nome', ...months.map((m) => monthLabel(m).slice(0, 3)), 'Tot.', 'Date e fasce']],
+    body: byPerson.map((r) => [r.person.name + (r.person.active ? '' : ' (KO)'), ...r.perMonth, r.total, r.list || '—']),
     theme: 'grid',
     styles: { fontSize: 8.5, cellPadding: 1.8, lineColor: [203, 213, 225], lineWidth: 0.15, textColor: [15, 23, 42], valign: 'top' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' }, 1: { cellWidth: 12, halign: 'center' }, 2: { cellWidth: 12, halign: 'center' }, 3: { cellWidth: 12, halign: 'center' } },
+    columnStyles: Object.fromEntries([[0, { cellWidth: 45, fontStyle: 'bold' }], ...Array.from({ length: months.length + 1 }, (_, i) => [i + 1, { cellWidth: 12, halign: 'center' }])]),
     margin: { left: 14, right: 14 },
     didParseCell: (d) => {
-      if (d.section === 'body' && d.column.index === 0) d.cell.styles.fillColor = rgb(shiftsByPerson(people, a)[d.row.index].person.color, 0.82)
+      if (d.section === 'body' && d.column.index === 0) d.cell.styles.fillColor = rgb(byPerson[d.row.index].person.color, 0.82)
     },
   })
 
