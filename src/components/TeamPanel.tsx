@@ -10,9 +10,18 @@ interface Props {
   people: Person[]
   assignments: Assignments
   onChange: (people: Person[], assignments?: Assignments) => void
+  /** RAL e livello in chiaro e modificabili solo dopo aver reinserito la password. */
+  revealed: boolean
 }
 
-export function TeamPanel({ people, assignments, onChange }: Props) {
+const Masked = ({ w = 'w-20' }: { w?: string }) => (
+  <span className={`inline-flex ${w} items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-slate-400 select-none`} title="Dato oscurato: usa l'icona a forma di occhio e reinserisci la password">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3 w-3 shrink-0" aria-hidden><rect x="4" y="9" width="12" height="8.5" rx="1.8" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
+    <span aria-label="oscurato" className="tracking-widest">•••••</span>
+  </span>
+)
+
+export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
   const [importOpen, setImportOpen] = useState(false)
   const update = (id: string, patch: Partial<Person>) => onChange(people.map((x) => (x.id === id ? { ...x, ...patch } : x)))
 
@@ -71,13 +80,19 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
                     <input value={p.name} onChange={(e) => update(p.id, { name: e.target.value })} aria-label="Nome e cognome" className="w-full min-w-48 rounded-md px-2 py-1 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-600 outline-none" />
                   </td>
                   <td className="py-2 pr-3">
-                    <select value={p.level} onChange={(e) => update(p.id, { level: e.target.value as Level })} aria-label="Livello" className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
-                      {LEVELS.map((l) => <option key={l}>{l}</option>)}
-                    </select>
+                    {revealed ? (
+                      <select value={p.level} onChange={(e) => update(p.id, { level: e.target.value as Level })} aria-label="Livello" className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
+                        {LEVELS.map((l) => <option key={l}>{l}</option>)}
+                      </select>
+                    ) : <Masked w="w-16" />}
                   </td>
                   <td className="py-2 pr-3">
-                    <input type="number" step={500} min={0} value={p.ral} aria-label="RAL" onChange={(e) => Number.isFinite(e.target.valueAsNumber) && update(p.id, { ral: e.target.valueAsNumber })} className="num w-32 rounded-md px-2 py-1 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-600 outline-none" />
-                    <div className="mt-0.5 text-xs text-slate-400">{fmtEur(p.ral)}</div>
+                    {revealed ? (
+                      <>
+                        <input type="number" step={500} min={0} value={p.ral} aria-label="RAL" onChange={(e) => Number.isFinite(e.target.valueAsNumber) && update(p.id, { ral: e.target.valueAsNumber })} className="num w-32 rounded-md px-2 py-1 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-600 outline-none" />
+                        <div className="mt-0.5 text-xs text-slate-400">{fmtEur(p.ral)}</div>
+                      </>
+                    ) : <Masked w="w-32" />}
                   </td>
                   <td className="py-2 pr-3">
                     <button type="button" role="switch" aria-checked={p.active} onClick={() => update(p.id, { active: !p.active })} className="flex items-center gap-2">
@@ -118,7 +133,7 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
         <Button variant="primary" onClick={add}>+ Aggiungi risorsa</Button>
         <Button onClick={() => setImportOpen(true)}>Importa CSV / Incolla da Excel</Button>
       </div>
-      {importOpen && <ImportDialog existing={people} onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
+      {importOpen && <ImportDialog revealed={revealed} existing={people} onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
         const base = replace ? [] : people
         const added: Person[] = []
         for (const r of rows) added.push({ ...r, id: newId(), color: nextColor([...base, ...added]) })
@@ -131,7 +146,7 @@ export function TeamPanel({ people, assignments, onChange }: Props) {
 
 const MAX_FILE_BYTES = 1_000_000
 
-function ImportDialog({ existing, onClose, onImport }: { existing: Person[]; onClose: () => void; onImport: (rows: ImportedPerson[], replace: boolean) => void }) {
+function ImportDialog({ revealed, existing, onClose, onImport }: { revealed: boolean; existing: Person[]; onClose: () => void; onImport: (rows: ImportedPerson[], replace: boolean) => void }) {
   const [text, setText] = useState('')
   const [fileError, setFileError] = useState('')
   const [fileName, setFileName] = useState('')
@@ -193,7 +208,7 @@ function ImportDialog({ existing, onClose, onImport }: { existing: Person[]; onC
               <div className="max-h-40 overflow-auto rounded-lg ring-1 ring-slate-200">
                 <table className="num w-full text-sm">
                   <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-1.5 font-medium">Nome</th><th className="py-1.5 font-medium">Livello</th><th className="px-3 py-1.5 text-right font-medium">RAL</th><th className="pr-3 py-1.5 font-medium">Disponibilità</th></tr></thead>
-                  <tbody>{parsed.people.map((x, i) => <tr key={i} className="border-t border-slate-100"><td className="px-3 py-1">{x.name}</td><td className="py-1">{x.level}</td><td className="px-3 py-1 text-right">{fmtEur(x.ral)}</td><td className="pr-3 py-1">{availabilityLabel(x)}</td></tr>)}</tbody>
+                  <tbody>{parsed.people.map((x, i) => <tr key={i} className="border-t border-slate-100"><td className="px-3 py-1">{x.name}</td><td className="py-1">{revealed ? x.level : '•••'}</td><td className="px-3 py-1 text-right">{revealed ? fmtEur(x.ral) : '•••••'}</td><td className="pr-3 py-1">{availabilityLabel(x)}</td></tr>)}</tbody>
                 </table>
               </div>
             )}

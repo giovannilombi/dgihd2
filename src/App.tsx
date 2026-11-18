@@ -6,13 +6,15 @@ import { Login } from './components/Login'
 import { ParamsPanel } from './components/ParamsPanel'
 import { Payroll } from './components/Payroll'
 import { Planner } from './components/Planner'
-import { TeamGate } from './components/TeamGate'
+import { EyeIcon, PasswordDialog, TeamGate } from './components/TeamGate'
+import { useRevealSensitive } from './components/useRevealSensitive'
 import { TeamPanel } from './components/TeamPanel'
 import { Button, Section } from './components/ui'
 import { isAuthenticated, setAuthenticated } from './lib/auth'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import { defaultData, normalizeWithReport, useAppData } from './lib/store'
+import type { Assignments, Person } from './lib/types'
 
 const NAV = [
   ['doc', 'Approccio'],
@@ -52,7 +54,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const page = usePage()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const exportJson = () => download('reperibilita-q4-2026-config.json', JSON.stringify(data, null, 2), 'application/json')
+  const [confirmExport, setConfirmExport] = useState(false)
+  const doExportJson = () => download('reperibilita-q4-2026-config.json', JSON.stringify(data, null, 2), 'application/json')
   const exportCsv = () => download('reperibilita-q4-2026-report-hr-finance.csv', fullReportCsv(data.people, data.assignments, data.params, data.excludedDays), 'text/csv;charset=utf-8')
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -131,12 +134,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
     ),
     team: (
       <TeamGate>
-        {(lock) => (
-          <Section id="team" letter="B" title="Anagrafica team" subtitle="Chi ha dato KO resta in anagrafica ma non compare nel calendario. La disponibilità guida l'auto-compilazione."
-            actions={<Button variant="ghost" onClick={lock}>Blocca anagrafica</Button>}>
-            <TeamPanel people={data.people} assignments={data.assignments} onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
-          </Section>
-        )}
+        {(lock) => <TeamPage lock={lock} people={data.people} assignments={data.assignments}
+          onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />}
       </TeamGate>
     ),
     planner: (
@@ -183,7 +182,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
                   <div role="menu" className="absolute right-0 z-50 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
-                    <MenuItem onClick={() => { setMenuOpen(false); exportJson() }}>Esporta configurazione JSON</MenuItem>
+                    <MenuItem onClick={() => { setMenuOpen(false); setConfirmExport(true) }}>Esporta configurazione JSON</MenuItem>
                     <MenuItem onClick={() => { setMenuOpen(false); openImport() }}>Importa configurazione JSON</MenuItem>
                     <MenuItem danger onClick={() => { setMenuOpen(false); reset() }}>Ripristina dati iniziali</MenuItem>
                   </div>
@@ -205,6 +204,14 @@ function Main({ onLogout }: { onLogout: () => void }) {
         )}
         {sections[page]}
       </main>
+      {confirmExport && (
+        <PasswordDialog
+          title="Esporta configurazione"
+          description="Il file contiene l'anagrafica completa: reinserisci la password dell'anagrafica per esportarlo."
+          onSuccess={() => { setConfirmExport(false); doExportJson() }}
+          onClose={() => setConfirmExport(false)}
+        />
+      )}
     </div>
   )
 }
@@ -213,5 +220,24 @@ function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?:
   return (
     <button role="menuitem" type="button" onClick={onClick}
       className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-100 ${danger ? 'text-red-700' : 'text-slate-700'}`}>{children}</button>
+  )
+}
+
+/** Pagina anagrafica: RAL e livello oscurati finché non si reinserisce la password (lo stato si azzera cambiando pagina). */
+function TeamPage({ lock, people, assignments, onChange }: { lock: () => void; people: Person[]; assignments: Assignments; onChange: (people: Person[], assignments?: Assignments) => void }) {
+  const { revealed, toggle, dialog } = useRevealSensitive()
+  return (
+    <>
+      <Section id="team" letter="B" title="Anagrafica team" subtitle="Chi ha dato KO resta in anagrafica ma non compare nel calendario. La disponibilità guida l'auto-compilazione."
+        actions={<>
+          <Button onClick={toggle} aria-pressed={revealed} className={revealed ? 'ring-blue-300 bg-blue-50 text-blue-800' : ''}>
+            <EyeIcon off={revealed} /> {revealed ? 'Oscura RAL e livello' : 'Mostra RAL e livello'}
+          </Button>
+          <Button variant="ghost" onClick={lock}>Blocca anagrafica</Button>
+        </>}>
+        <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed} />
+      </Section>
+      {dialog}
+    </>
   )
 }

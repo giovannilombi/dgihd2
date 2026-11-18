@@ -21,7 +21,6 @@ export function Payroll({ people, assignments, params }: { people: Person[]; ass
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-slate-50 px-4 py-2.5">
                   <span className="h-3 w-3 rounded-full" style={{ background: r.person.color }} />
                   <span className="font-semibold text-slate-900">{r.person.name}</span>
-                  <span className="text-xs text-slate-500">Liv. {r.person.level}</span>
                   <span className="num ml-auto text-sm text-slate-700">Netto garantito <strong>{fmtEur(r.totals.net)}</strong> · Costo aziendale <strong>{fmtEur(r.totals.cost)}</strong></span>
                 </div>
                 <div className="overflow-x-auto">
