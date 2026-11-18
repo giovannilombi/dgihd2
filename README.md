@@ -6,13 +6,13 @@ Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilit�
 - **A · Parametri**: ricavi, gettoni netti target, cap ore di compensazione, moltiplicatore costo aziendale, coefficienti netto/lordo, maggiorazioni e indennità CCNL.
 - **B · Team**: anagrafica (aggiungi, modifica, elimina), stato di adesione alla rotazione, import da CSV o da Excel incollato con template scaricabile, anteprima e segnalazione degli errori riga per riga.
 - **C · Calendario**: slot feriali e festivi (festività di Milano incluse), motore vincoli in tempo reale con il motivo di ogni blocco, auto-compilazione, blocco dei giorni non richiesti dal cliente (lucchetto).
-- **D · Consuntivo e P&L**: gettone di disponibilità lordo per settimana (modalità preferibile) e, in alternativa, ore di straordinario su Domenica o Sabato (cap 8h); netto, costo aziendale, KPI e grafico di marginalità.
+- **D · Consuntivo / E · Conto economico**: gettone di disponibilità lordo per settimana (modalità preferibile) e, in alternativa, ore di straordinario su Domenica o Sabato (cap 8h); netto, costo aziendale, KPI e grafico di marginalità.
 
 Salvataggio automatico in LocalStorage, export/import della configurazione JSON (validata), report CSV HR & Finance, export dei soli turni in Excel formattato (senza dati economici).
 
 ## Accesso
 
-L'app chiede utente e password. Il controllo è solo nel browser: nel bundle c'è l'hash SHA-256 delle credenziali, non le credenziali in chiaro. Basta a tenere fuori un accesso occasionale, ma non è una protezione lato server.
+L'app è divisa in pagine (Documento HR, A–E) e chiede utente e password. La pagina Anagrafica (con le RAL) richiede una seconda password; le RAL non compaiono nelle altre pagine né nel report CSV. Il controllo è solo nel browser: nel bundle c'è l'hash SHA-256 delle credenziali, non le credenziali in chiaro. Basta a tenere fuori un accesso occasionale, ma non è una protezione lato server.
 
 ## Sviluppo
 

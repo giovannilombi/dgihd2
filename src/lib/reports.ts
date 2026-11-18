@@ -103,12 +103,12 @@ export const toCsv = (rows: (string | number)[][]) => '﻿' + rows.map((r) => r.
 
 export function fullReportCsv(people: Person[], a: Assignments, p: Params, excludedDays: string[] = []) {
   const rows: (string | number)[][] = [['CONSUNTIVO CEDOLINO PER RISORSA']]
-  rows.push(['Mese', 'Risorsa', 'Livello', 'RAL', 'Settimana (lun)', 'Turni', 'Indennità CCNL lorda', 'Gettone di disponibilità lordo (preferibile)', 'Alternativa: giorno straordinario', 'Alternativa: data', 'Alternativa: ore straordinario', 'Lordo totale', 'Netto garantito', 'Costo aziendale', 'Note'])
+  rows.push(['Mese', 'Risorsa', 'Livello', 'Settimana (lun)', 'Turni', 'Indennità CCNL lorda', 'Gettone di disponibilità lordo (preferibile)', 'Alternativa: giorno straordinario', 'Alternativa: data', 'Alternativa: ore straordinario', 'Lordo totale', 'Netto garantito', 'Costo aziendale', 'Note'])
   for (const m of payroll(people, a, p)) {
     for (const r of m.rows) {
       for (const w of r.weeks) {
         rows.push([
-          m.label, r.person.name, r.person.level, r.person.ral, w.week,
+          m.label, r.person.name, r.person.level, w.week,
           w.slots.map((s) => slotTag(s.id)).join(', '),
           w.iccnl, w.lcomp, w.day === 'dom' ? 'Domenica' : 'Sabato', w.dayDate, w.hours, w.ltot, w.net, w.cost,
           [w.moveReason ?? '', w.warning ?? '', w.dayTotal > p.capHours + 1e-9 ? 'OLTRE CAP' : ''].filter(Boolean).join(' | '),

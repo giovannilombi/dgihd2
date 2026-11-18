@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Dashboard } from './components/Dashboard'
 import { HrDoc } from './components/HrDoc'
@@ -6,6 +6,7 @@ import { Login } from './components/Login'
 import { ParamsPanel } from './components/ParamsPanel'
 import { Payroll } from './components/Payroll'
 import { Planner } from './components/Planner'
+import { TeamGate } from './components/TeamGate'
 import { TeamPanel } from './components/TeamPanel'
 import { Button, Section } from './components/ui'
 import { isAuthenticated, setAuthenticated } from './lib/auth'
@@ -19,8 +20,25 @@ const NAV = [
   ['team', 'B · Team'],
   ['planner', 'C · Calendario'],
   ['payroll', 'D · Consuntivo'],
-  ['pnl', 'D · Conto economico'],
+  ['pnl', 'E · Conto economico'],
 ] as const
+type PageId = (typeof NAV)[number][0]
+
+const readPage = (): PageId => {
+  const h = location.hash.replace(/^#\/?/, '')
+  return (NAV.find(([id]) => id === h)?.[0] ?? 'doc')
+}
+
+/** Navigazione a pagine tramite hash (#/planner…): funziona anche aprendo il file in locale. */
+function usePage() {
+  const [page, setPage] = useState<PageId>(readPage)
+  useEffect(() => {
+    const on = () => { setPage(readPage()); window.scrollTo(0, 0) }
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
+  return page
+}
 
 export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated)
@@ -31,6 +49,8 @@ export default function App() {
 function Main({ onLogout }: { onLogout: () => void }) {
   const { data, setData, storageOk } = useAppData()
   const fileRef = useRef<HTMLInputElement>(null)
+  const page = usePage()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const exportJson = () => download('reperibilita-q4-2026-config.json', JSON.stringify(data, null, 2), 'application/json')
   const exportCsv = () => download('reperibilita-q4-2026-report-hr-finance.csv', fullReportCsv(data.people, data.assignments, data.params, data.excludedDays), 'text/csv;charset=utf-8')
@@ -85,68 +105,99 @@ function Main({ onLogout }: { onLogout: () => void }) {
   }
   const reset = () => confirm('Ripristinare parametri, team placeholder e calendario vuoto? I dati attuali verranno sovrascritti.') && setData(defaultData())
 
+  function openImport() { fileRef.current?.click() }
+
+  const sections: Record<PageId, React.ReactNode> = {
+    doc: (
+      <Section id="doc" title="Documentazione formale per Risorse Umane" subtitle="Abstract sempre visibile; approfondimenti normativi, matematici e legali espandibili.">
+        <HrDoc params={data.params} people={data.people} />
+      </Section>
+    ),
+    params: (
+      <Section id="params" letter="A" title="Parametri economici & ricavi" subtitle="Ogni modifica ricalcola istantaneamente vincoli, consuntivo e marginalità.">
+        <ParamsPanel params={data.params} onChange={(params) => setData((d) => ({ ...d, params }))} />
+      </Section>
+    ),
+    team: (
+      <TeamGate>
+        {(lock) => (
+          <Section id="team" letter="B" title="Anagrafica team" subtitle="Le risorse escluse non compaiono nel calendario ma conservano i dati anagrafici."
+            actions={<Button variant="ghost" onClick={lock}>Blocca anagrafica</Button>}>
+            <TeamPanel people={data.people} assignments={data.assignments} onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
+          </Section>
+        )}
+      </TeamGate>
+    ),
+    planner: (
+      <Section id="planner" letter="C" title="Pianificatore calendario Nov – Dic 2026" subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto."
+        actions={<Button onClick={exportShiftsXlsx} disabled={exporting}>{exporting ? 'Preparazione…' : 'Esporta turni (Excel)'}</Button>}>
+        <Planner people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays}
+          onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay} />
+      </Section>
+    ),
+    payroll: (
+      <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone di disponibilità e alternativa in ore."
+        actions={<Button onClick={exportCsv}>Esporta report HR &amp; Finance (CSV)</Button>}>
+        <Payroll people={data.people} assignments={data.assignments} params={data.params} />
+      </Section>
+    ),
+    pnl: (
+      <Section id="pnl" letter="E" title="Dashboard economica & marginalità (P&L)" actions={<Button onClick={exportCsv}>Esporta report HR &amp; Finance (CSV)</Button>}>
+        <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} />
+      </Section>
+    ),
+  }
+
   return (
     <div className="min-h-screen">
-      <header className="no-print sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
-          <div className="font-semibold text-slate-900">Piano Reperibilità <span className="text-blue-700">Q4 2026</span></div>
-          <nav className="flex flex-wrap gap-1 text-sm">
-            {NAV.map(([id, label]) => <a key={id} href={`#${id}`} className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900">{label}</a>)}
+          <a href="#/doc" className="font-semibold text-slate-900">Piano Reperibilità <span className="text-blue-700">Q4 2026</span></a>
+          <nav className="flex flex-wrap gap-1 text-sm" aria-label="Sezioni">
+            {NAV.map(([id, label]) => (
+              <a key={id} href={`#/${id}`} aria-current={page === id ? 'page' : undefined}
+                className={`rounded-md px-2.5 py-1.5 font-medium ${page === id ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
+                {label}
+              </a>
+            ))}
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden text-xs text-slate-400 md:inline">{storageOk ? '● Salvataggio automatico in LocalStorage' : 'Salvataggio locale non disponibile: usa Esporta JSON'}</span>
+            <span className="hidden text-xs text-slate-400 xl:inline">{storageOk ? '● Salvataggio automatico' : 'Salvataggio locale non disponibile: usa Esporta JSON'}</span>
+            <div className="relative">
+              <Button onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen} aria-haspopup="menu">Dati ▾</Button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
+                  <div role="menu" className="absolute right-0 z-50 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+                    <MenuItem onClick={() => { setMenuOpen(false); exportJson() }}>Esporta configurazione JSON</MenuItem>
+                    <MenuItem onClick={() => { setMenuOpen(false); openImport() }}>Importa configurazione JSON</MenuItem>
+                    <MenuItem danger onClick={() => { setMenuOpen(false); reset() }}>Ripristina dati iniziali</MenuItem>
+                  </div>
+                </>
+              )}
+              <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => importJson(e.target.files?.[0])} />
+            </div>
             <Button variant="ghost" onClick={onLogout}>Esci</Button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1500px] space-y-6 px-4 py-6">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-blue-700">Specifica progetto &amp; documento HR</div>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900 sm:text-3xl">Piano Reperibilità Q4 2026 (Novembre – Dicembre)</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">Documentazione HR, simulatore operativo con validazione dei vincoli in tempo reale, consuntivo cedolino e conto economico.</p>
-          <div className="no-print mt-4 flex flex-wrap gap-2">
-            <Button variant="primary" onClick={exportCsv}>Esporta report HR &amp; Finance (CSV)</Button>
-            <Button onClick={exportShiftsXlsx} disabled={exporting}>{exporting ? 'Preparazione…' : 'Esporta turni (Excel)'}</Button>
-            <Button onClick={exportJson}>Esporta configurazione JSON</Button>
-            <Button onClick={() => fileRef.current?.click()}>Importa configurazione JSON</Button>
-            <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => importJson(e.target.files?.[0])} />
-            <Button variant="ghost" onClick={reset}>Ripristina dati iniziali</Button>
+      <main className="mx-auto max-w-[1500px] space-y-4 px-4 py-6">
+        {notice && (
+          <div role={notice.tone === 'error' ? 'alert' : 'status'} className={`flex items-start gap-3 rounded-lg px-3 py-2 text-sm ${notice.tone === 'error' ? 'bg-red-50 text-red-800' : notice.tone === 'warn' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-900'}`}>
+            <span className="flex-1">{notice.text}</span>
+            <button type="button" onClick={() => setNotice(null)} className="text-xs font-medium opacity-70 hover:opacity-100" aria-label="Chiudi messaggio">Chiudi</button>
           </div>
-          {notice && (
-            <div role={notice.tone === 'error' ? 'alert' : 'status'} className={`mt-3 flex items-start gap-3 rounded-lg px-3 py-2 text-sm ${notice.tone === 'error' ? 'bg-red-50 text-red-800' : notice.tone === 'warn' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-900'}`}>
-              <span className="flex-1">{notice.text}</span>
-              <button type="button" onClick={() => setNotice(null)} className="text-xs font-medium opacity-70 hover:opacity-100" aria-label="Chiudi messaggio">Chiudi</button>
-            </div>
-          )}
-        </div>
-
-        <Section id="doc" title="Documentazione formale per Risorse Umane" subtitle="Abstract sempre visibile; approfondimenti normativi, matematici e legali espandibili.">
-          <HrDoc params={data.params} people={data.people} />
-        </Section>
-
-        <Section id="params" letter="A" title="Parametri economici & ricavi" subtitle="Ogni modifica ricalcola istantaneamente vincoli, consuntivo e marginalità.">
-          <ParamsPanel params={data.params} onChange={(params) => setData((d) => ({ ...d, params }))} />
-        </Section>
-
-        <Section id="team" letter="B" title="Anagrafica team" subtitle="Le risorse escluse non compaiono nel calendario ma conservano i dati anagrafici.">
-          <TeamPanel people={data.people} assignments={data.assignments} onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
-        </Section>
-
-        <Section id="planner" letter="C" title="Pianificatore calendario Nov – Dic 2026" subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto." actions={<Button onClick={exportShiftsXlsx} disabled={exporting}>Esporta turni (Excel)</Button>}>
-          <Planner people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays}
-            onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay} />
-        </Section>
-
-        <div className="print-break" />
-        <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, integrazione, ore di compensazione e giorno di imputazione.">
-          <Payroll people={data.people} assignments={data.assignments} params={data.params} />
-        </Section>
-
-        <Section id="pnl" letter="D" title="Dashboard economica & marginalità (P&L)" actions={<Button onClick={exportCsv}>Esporta CSV</Button>}>
-          <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} />
-        </Section>
+        )}
+        {sections[page]}
       </main>
     </div>
+  )
+}
+
+function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button role="menuitem" type="button" onClick={onClick}
+      className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-100 ${danger ? 'text-red-700' : 'text-slate-700'}`}>{children}</button>
   )
 }
