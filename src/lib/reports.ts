@@ -10,7 +10,15 @@ export interface PeriodPnl {
   /** Giornate richieste dal cliente nel periodo (escluse quelle bloccate come "non richieste"). */
   ferialiRichiesti: number
   festiviRichiesti: number
+  /** Giornate effettivamente coperte (sab/dom/festivi solo se coperti h24). */
+  ferialiCoperti: number
+  festiviCoperti: number
+  /** Ricavo stimato: tutte le giornate richieste × tariffa. */
   revenue: number
+  /** Ricavo con copertura: solo le giornate coperte (sab/dom/festivi solo se h24). */
+  revenueCovered: number
+  /** Tutti i turni richiesti del periodo sono coperti: solo allora il margine è significativo. */
+  complete: boolean
   cost: number
   margin: number
   marginPct: number
@@ -19,7 +27,7 @@ export interface PeriodPnl {
 }
 
 function emptyPeriod(key: string, label: string): PeriodPnl {
-  return { key, label, ferialiRichiesti: 0, festiviRichiesti: 0, revenue: 0, cost: 0, margin: 0, marginPct: 0, slotsTotal: 0, slotsCovered: 0 }
+  return { key, label, ferialiRichiesti: 0, festiviRichiesti: 0, ferialiCoperti: 0, festiviCoperti: 0, revenueCovered: 0, complete: false, revenue: 0, cost: 0, margin: 0, marginPct: 0, slotsTotal: 0, slotsCovered: 0 }
 }
 
 /**
@@ -27,7 +35,9 @@ function emptyPeriod(key: string, label: string): PeriodPnl {
  * - Ricavo: giornate richieste × tariffa (notte feriale, oppure giornata di sabato/domenica/festivo),
  *   indipendentemente dalla copertura dei turni.
  * - Costo: costo aziendale di quanto riconosciuto alle persone di turno (lordo × moltiplicatore).
- * - Margine = ricavo − costo; marginalità = margine / ricavo.
+ * - Ricavo con copertura: solo giornate coperte (sab/dom/festivi solo se coperti h24).
+ * - Margine = ricavo − costo; marginalità = margine / ricavo. Significativo solo se il periodo è
+ *   interamente coperto (`complete`): con turni scoperti il costo finale non è noto.
  */
 export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: string[] = [], range?: ExportRange) {
   const excluded = new Set(excludedDays)
@@ -47,13 +57,18 @@ export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: s
     for (const b of buckets) { b.slotsTotal += slots.length; b.slotsCovered += covered.length }
     const festive = isWeekendOrHoliday(day)
     const revenue = festive ? p.revenueFestivo : p.revenueFeriale
-    buckets.forEach((b) => { if (festive) b.festiviRichiesti++; else b.ferialiRichiesti++ })
+    const dayCovered = covered.length === slots.length
+    buckets.forEach((b) => {
+      if (festive) b.festiviRichiesti++; else b.ferialiRichiesti++
+      if (dayCovered) { if (festive) b.festiviCoperti++; else b.ferialiCoperti++; b.revenueCovered += revenue }
+    })
     const cost = covered.reduce((acc, s) => acc + slotEconomics(byId[a[s.id]], s, p).cost, 0)
     for (const b of buckets) { b.revenue += revenue; b.cost += cost }
   }
   const finish = (b: PeriodPnl) => {
     b.margin = b.revenue - b.cost
     b.marginPct = b.revenue > 0 ? (b.margin / b.revenue) * 100 : 0
+    b.complete = b.slotsTotal > 0 && b.slotsCovered === b.slotsTotal
     return b
   }
   return { months: [...months.values()].map(finish), weeks: [...weeks.values()].map(finish), total: finish(total) }
@@ -121,9 +136,10 @@ export function fullReportCsv(people: Person[], a: Assignments, p: Params, exclu
     }
   }
   const pl = pnl(people, a, p, excludedDays, range)
-  rows.push([], ['CONTO ECONOMICO'], ['Periodo', 'Notti feriali richieste', 'Giornate weekend/festive richieste', 'Slot coperti', 'Slot totali', 'Ricavo', 'Costo aziendale', 'Margine', 'Marginalità %'])
+  rows.push([], ['CONTO ECONOMICO'], ['Periodo', 'Notti feriali richieste', 'Giornate weekend/festive richieste', 'Turni coperti', 'Turni richiesti', 'Ricavo stimato', 'Ricavo con copertura', 'Costo aziendale', 'Margine', 'Marginalità %'])
   for (const b of [...pl.months, ...pl.weeks, pl.total]) {
-    rows.push([b.label, b.ferialiRichiesti, b.festiviRichiesti, b.slotsCovered, b.slotsTotal, b.revenue, b.cost, b.margin, b.marginPct])
+    rows.push([b.label, b.ferialiRichiesti, b.festiviRichiesti, b.slotsCovered, b.slotsTotal, b.revenue, b.revenueCovered, b.cost,
+      b.complete ? b.margin : 'non calcolabile (turni scoperti)', b.complete ? b.marginPct : 'non calcolabile'])
   }
   return toCsv(rows)
 }

@@ -353,6 +353,20 @@ describe('conto economico', () => {
     expect(one.total.cost).toBeCloseTo(125, 2)
     expect(one.total.marginPct).toBeCloseTo((one.total.revenue - 125) / one.total.revenue * 100, 6)
   })
+  it('ricavo con copertura: feriale coperto conta, sab/dom/festivo solo se h24; margine solo se il periodo è completo', () => {
+    const a = mk('a', 38000), b = mk('b', 38000)
+    const wk = { from: '2026-11-23', to: '2026-11-29' } // settimana lun 23 – dom 29
+    const r1 = pnl([a, b], { '2026-11-24|N': 'a', '2026-11-28|D': 'b' }, P, [], wk).total
+    expect(r1.revenueCovered).toBe(P.revenueFeriale) // il sabato ha solo il diurno: non conta
+    expect([r1.ferialiCoperti, r1.festiviCoperti]).toEqual([1, 0])
+    expect(r1.complete).toBe(false)
+    // tutto coperto: margine calcolabile
+    const full: Record<string, string> = {}
+    for (const s of ALL_SLOTS.filter((x) => x.date >= wk.from && x.date <= wk.to)) full[s.id] = s.date.endsWith('4') || s.date.endsWith('6') || s.date.endsWith('8') ? 'a' : 'b'
+    const r2 = pnl([a, b], full, P, [], wk).total
+    expect(r2.complete).toBe(true)
+    expect(r2.revenueCovered).toBe(r2.revenue)
+  })
 })
 
 describe('periodo esteso a gennaio–febbraio 2027', () => {
