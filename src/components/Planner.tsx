@@ -3,7 +3,8 @@ import {
   ALL_SLOTS, HOLIDAYS, HORIZON_END, HORIZON_MONTHS, HORIZON_START, SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL,
   HORIZON_LABEL, addDays, daysInRange, fmtDay, fmtDayYear, isWeekendOrHoliday, isoWeekNumber, monthKey, monthLabel, slotsForDay, toDate, weekStart,
 } from '../lib/calendar'
-import { regenerate, checkAssignment, existingViolations, personSlots, preferenceWarning, RULE_SHORT, type Violation } from '../lib/rules'
+import { checkAssignment, existingViolations, personSlots, preferenceWarning, RULE_SHORT, type Violation } from '../lib/rules'
+import { mergeConflicts, mergeViolations, type ServerChecks, type ServerChecksState } from '../lib/serverChecks'
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 
@@ -22,6 +23,11 @@ interface Props {
   readOnly?: boolean
   /** Vista essenziale (viewer): solo turni, senza pannello vincoli, ferie o disponibilità. */
   simple?: boolean
+  /** Ricalcola il periodo mantenendo i turni bloccati (in pagina o sul server se ci sono RAL non visibili). */
+  autofill: (from: string, to: string) => Promise<Assignments>
+  /** Vincoli economici calcolati dal server per le persone con RAL non visibile. */
+  serverChecks?: ServerChecks | null
+  serverChecksState?: ServerChecksState
 }
 
 function PinIcon({ filled, className = 'h-3.5 w-3.5' }: { filled?: boolean; className?: string }) {
@@ -46,13 +52,14 @@ function LockIcon({ open, className = 'h-4 w-4' }: { open?: boolean; className?:
 export type RangeMode = string
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 
-export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, onSetDaysExcluded, readOnly = false, simple = false }: Props) {
+export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, onSetDaysExcluded, readOnly = false, simple = false, autofill, serverChecks = null, serverChecksState = 'off' }: Props) {
   const pinnedSet = new Set(pinned)
   const [range, setRange] = useState<RangeMode>('all')
   const [customFrom, setCustomFrom] = useState(HORIZON_START)
   const [customTo, setCustomTo] = useState(HORIZON_END)
   const [focus, setFocus] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   // Periodo mostrato e su cui agiscono auto-compilazione e "Svuota": tutto, un mese o un intervallo Da–A
   const customOk = customFrom && customTo && customFrom <= customTo
   const [from, to] =
@@ -62,16 +69,20 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   const periodLabel = range === 'all' ? `di tutto il periodo (${HORIZON_LABEL})` : `dal ${fmtDayYear(from)} al ${fmtDayYear(to)}`
   const byId = useMemo(() => Object.fromEntries(people.map((x) => [x.id, x])), [people])
 
-  // Esito della validazione per ogni slot × persona attiva (motore vincoli in tempo reale)
+  // Esito della validazione per ogni slot × persona attiva (motore vincoli in tempo reale).
+  // Per le persone con RAL non visibile i vincoli economici arrivano dal server.
   const matrix = useMemo(() => {
     const out: Record<string, Record<string, Violation[]>> = {}
     for (const s of ALL_SLOTS) {
       out[s.id] = {}
-      for (const p of people) out[s.id][p.id] = checkAssignment(p, s.id, assignments, params)
+      for (const p of people) {
+        const local = checkAssignment(p, s.id, assignments, params)
+        out[s.id][p.id] = p.salaryHidden ? mergeViolations(local, serverChecks?.blocked[p.id]?.[s.id]) : local
+      }
     }
     return out
-  }, [people, assignments, params])
-  const conflicts = useMemo(() => existingViolations(people, assignments, params), [people, assignments, params])
+  }, [people, assignments, params, serverChecks])
+  const conflicts = useMemo(() => mergeConflicts(existingViolations(people, assignments, params), serverChecks), [people, assignments, params, serverChecks])
 
   const excluded = new Set(excludedDays)
   const visibleSlots = ALL_SLOTS.filter((s) => s.date >= from && s.date <= to && !excluded.has(s.date))
@@ -106,10 +117,20 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   const keepOnly = () => Object.fromEntries(Object.entries(assignments).filter(([sid]) => !inRange(sid) || pinnedSet.has(sid)))
   const pinnedInRange = pinned.filter(inRange).length
 
-  const runAutofill = () => {
+  const runAutofill = async () => {
     const recalculated = Object.keys(assignments).filter((sid) => inRange(sid) && !pinnedSet.has(sid)).length
     if (recalculated && !confirm(`L'auto-compilazione ricalcola ${recalculated} turni non bloccati del periodo${pinnedInRange ? ` e mantiene i ${pinnedInRange} turni bloccati` : ''}. Per conservare una scelta fatta a mano, bloccala con la puntina. Continuare?`)) return
-    const res = regenerate(people, assignments, params, from, to, excludedDays, pinned)
+    setBusy(true)
+    setNotice(null)
+    let res: Assignments
+    try {
+      res = await autofill(from, to)
+    } catch (e) {
+      setNotice(`Auto-compilazione non riuscita: ${(e as Error).message}`)
+      return
+    } finally {
+      setBusy(false)
+    }
     const assigned = Object.keys(res).filter(inRange).length - pinnedInRange
     const missing = visibleSlots.filter((s) => !res[s.id]).length
     onChange(res)
@@ -144,7 +165,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             {!customOk && <span className="text-xs text-red-700">La data di fine è precedente a quella di inizio: mostro tutto il periodo.</span>}
           </div>
         )}
-        {!readOnly && <Button variant="primary" onClick={runAutofill} disabled={!active.length}>Auto-compila (mantiene i bloccati)</Button>}
+        {!readOnly && <Button variant="primary" onClick={runAutofill} disabled={!active.length || busy}>{busy ? 'Auto-compilazione in corso…' : 'Auto-compila (mantiene i bloccati)'}</Button>}
         {!readOnly && <Button variant="danger" onClick={clearRange}>Svuota periodo</Button>}
         {!readOnly && blockedInRange > 0 && <Button onClick={() => onSetDaysExcluded(daysInRange(from, to), false)} title="Rende richiesti tutti i giorni del periodo selezionato">Sblocca giorni del periodo</Button>}
         {!readOnly && blockedInRange < daysInRange(from, to).length && <Button onClick={() => onSetDaysExcluded(daysInRange(from, to), true)} title="Segna come non richiesti tutti i giorni del periodo selezionato">Blocca giorni del periodo</Button>}
@@ -156,6 +177,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             ? <Badge tone="slate">Nessun turno richiesto</Badge>
             : <Badge tone={covered === visibleSlots.length ? 'green' : covered ? 'amber' : 'red'}>{covered}/{visibleSlots.length} slot coperti</Badge>}
           {Object.keys(conflicts).length > 0 && <Badge tone="red">{Object.keys(conflicts).length} conflitti</Badge>}
+          {!simple && serverChecksState === 'error' && <Badge tone="amber" title="Il calcolo del cap ore per le persone di altri team non è al momento disponibile: verrà ripetuto alla prossima modifica">Verifica vincoli altri team non riuscita</Badge>}
         </div>
       </div>
       {notice && <p className="no-print mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">{notice}</p>}
@@ -328,6 +350,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             </ol>
             <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-amber-700">⚠ Oltre disponibilità</span>: assegnabile a mano, ma supera il massimo mensile indicato dalla persona. L'auto-compilazione non lo fa mai.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><PinIcon filled className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" /> Con la puntina blocchi un turno assegnato: non è modificabile e l'auto-compilazione ricalcola tutti gli altri tenendolo fisso.</p>
+            {people.some((p) => p.salaryHidden) && <p className="mt-2 border-t border-slate-200 pt-2">Per le persone di altri team, di cui non vedi RAL e livello, il cap ore e la domenica di recupero sono verificati dal server: vedi solo l'esito.</p>}
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
           </div>
         </aside>}

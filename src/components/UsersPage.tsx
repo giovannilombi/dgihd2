@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ROLE_HELP, ROLE_LABEL, ROLES, type Profile, type Role } from '../lib/roles'
+import { TEAM_LABEL, USER_TEAMS, type UserTeam } from '../lib/types'
 import { adminCall } from '../lib/supabase'
 import { Badge, Button } from './ui'
 
@@ -13,7 +14,7 @@ export function UsersPage({ me }: { me: Profile }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [secret, setSecret] = useState<{ email: string; password: string; reason: string } | null>(null)
-  const [form, setForm] = useState({ email: '', display_name: '', role: 'viewer' as Role })
+  const [form, setForm] = useState({ email: '', display_name: '', role: 'viewer' as Role, team: '' as UserTeam | '' })
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -38,9 +39,9 @@ export function UsersPage({ me }: { me: Profile }) {
   const create = (e: React.FormEvent) => {
     e.preventDefault()
     void run(async () => {
-      const r = await adminCall<{ temp_password: string }>({ action: 'create', ...form })
+      const r = await adminCall<{ temp_password: string }>({ action: 'create', ...form, team: form.team || null })
       setSecret({ email: form.email.trim().toLowerCase(), password: r.temp_password, reason: 'Account creato' })
-      setForm({ email: '', display_name: '', role: 'viewer' })
+      setForm({ email: '', display_name: '', role: 'viewer', team: '' })
     })
   }
   const reset = (u: UserRow) => {
@@ -51,6 +52,7 @@ export function UsersPage({ me }: { me: Profile }) {
     })
   }
   const setRole = (u: UserRow, role: Role) => run(async () => { await adminCall({ action: 'set_role', user_id: u.id, role }) })
+  const setTeam = (u: UserRow, team: UserTeam | '') => run(async () => { await adminCall({ action: 'set_team', user_id: u.id, team: team || null }) })
   const remove = (u: UserRow) => {
     if (!confirm(`Eliminare definitivamente l'account ${u.email}? Non potrà più accedere.`)) return
     void run(async () => { await adminCall({ action: 'delete', user_id: u.id }) })
@@ -75,8 +77,15 @@ export function UsersPage({ me }: { me: Profile }) {
             {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
           </select>
         </label>
+        <label className="block">
+          <span className="text-xs font-medium text-slate-600">Team</span>
+          <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value as UserTeam | '' })} className="mt-1 block rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">
+            <option value="">— nessuno —</option>
+            {USER_TEAMS.map((t) => <option key={t} value={t}>{TEAM_LABEL[t]}</option>)}
+          </select>
+        </label>
         <Button type="submit" variant="primary" disabled={busy || !form.email}>+ Crea utente</Button>
-        <p className="w-full text-xs text-slate-500">Viene generata una password temporanea (es. giraffa-camaleonte-12), mostrata una sola volta: comunicala alla persona, che dovrà cambiarla al primo accesso.</p>
+        <p className="w-full text-xs text-slate-500">Viene generata una password temporanea (es. giraffa-camaleonte-12), mostrata una sola volta: comunicala alla persona, che dovrà cambiarla al primo accesso. Il team decide quali RAL vede: solo quelle del proprio team; HR e Governance le vedono tutte.</p>
       </form>
 
       <div className="overflow-x-auto">
@@ -85,6 +94,7 @@ export function UsersPage({ me }: { me: Profile }) {
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-2 pr-3 font-medium">Utente</th>
               <th className="py-2 pr-3 font-medium">Livello</th>
+              <th className="py-2 pr-3 font-medium" title="RAL e livello visibili: solo del proprio team; HR e Governance tutti">Team</th>
               <th className="py-2 pr-3 font-medium">Stato</th>
               <th className="py-2 pr-3 font-medium">Ultimo accesso</th>
               <th className="py-2" />
@@ -103,6 +113,14 @@ export function UsersPage({ me }: { me: Profile }) {
                   </select>
                   <div className="mt-0.5 text-[11px] text-slate-400">{ROLE_HELP[u.role]}</div>
                 </td>
+                <td className="py-2 pr-3">
+                  <select value={u.team ?? ''} disabled={busy} onChange={(e) => void setTeam(u, e.target.value as UserTeam | '')} aria-label={`Team di ${u.email}`}
+                    className={`rounded-md bg-white px-2 py-1 ring-1 ring-inset ${u.team ? 'ring-slate-200' : 'text-amber-800 ring-amber-300'}`}>
+                    <option value="">— nessuno —</option>
+                    {USER_TEAMS.map((t) => <option key={t} value={t}>{TEAM_LABEL[t]}</option>)}
+                  </select>
+                  <div className="mt-0.5 text-[11px] text-slate-400">{u.team === 'hr' || u.team === 'governance' ? 'Vede le RAL di tutti i team' : u.team ? `Vede le RAL del team ${TEAM_LABEL[u.team]}` : 'Non vede RAL'}</div>
+                </td>
                 <td className="py-2 pr-3">{u.must_change_password ? <Badge tone="amber">Deve cambiare password</Badge> : <Badge tone="green">Attivo</Badge>}</td>
                 <td className="py-2 pr-3 text-slate-600">{fmtDate(u.last_sign_in_at)}</td>
                 <td className="py-2 text-right whitespace-nowrap">
@@ -111,7 +129,7 @@ export function UsersPage({ me }: { me: Profile }) {
                 </td>
               </tr>
             ))}
-            {!users.length && <tr><td colSpan={5} className="py-6 text-center text-slate-500">{loading ? 'Caricamento…' : 'Nessun utente.'}</td></tr>}
+            {!users.length && <tr><td colSpan={6} className="py-6 text-center text-slate-500">{loading ? 'Caricamento…' : 'Nessun utente.'}</td></tr>}
           </tbody>
         </table>
       </div>

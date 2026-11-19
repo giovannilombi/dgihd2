@@ -9,17 +9,16 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: 'arm-hd2-auth' },
 })
 
-/** Chiamata alla funzione server di gestione account (usa il token della sessione corrente). */
-export async function adminCall<T = Record<string, unknown>>(body: Record<string, unknown>, retried = false): Promise<T> {
-  const { data, error } = await supabase.functions.invoke('admin-users', { body })
+/** Chiamata a una funzione server con il token della sessione corrente; il messaggio d'errore è quello leggibile restituito dalla funzione. */
+export async function callFunction<T = Record<string, unknown>>(name: string, body: Record<string, unknown>, retried = false): Promise<T> {
+  const { data, error } = await supabase.functions.invoke(name, { body })
   const status = (error as { context?: Response } | null)?.context?.status
   if (error && status === 401 && !retried) {
     // sessione chiusa lato server (es. dopo un cambio password): prova a rinnovarla una volta
     const { error: refreshErr } = await supabase.auth.refreshSession()
-    if (!refreshErr) return adminCall<T>(body, true)
+    if (!refreshErr) return callFunction<T>(name, body, true)
   }
   if (error) {
-    // l'errore HTTP contiene il messaggio leggibile restituito dalla funzione
     let message = error.message
     try {
       const ctx = (error as { context?: Response }).context
@@ -29,3 +28,6 @@ export async function adminCall<T = Record<string, unknown>>(body: Record<string
   }
   return data as T
 }
+
+/** Gestione account (super admin, cambio password). */
+export const adminCall = <T = Record<string, unknown>>(body: Record<string, unknown>) => callFunction<T>('admin-users', body)

@@ -21,7 +21,10 @@ import type { ExportRange } from './lib/exportRange'
 import { ExportDialog, type ExportFormat } from './components/ExportDialog'
 import { normalizeWithReport } from './lib/store'
 import { HORIZON_LABEL } from './lib/calendar'
-import type { Assignments, Person } from './lib/types'
+import { defaultResourceTeam, seesAllSalaries, TEAM_LABEL, type Assignments, type Person, type UserTeam } from './lib/types'
+import { regenerate } from './lib/rules'
+import { callFunction } from './lib/supabase'
+import { useServerChecks } from './lib/serverChecks'
 
 const NAV = [
   ['doc', 'Approccio'],
@@ -81,7 +84,17 @@ export default function App() {
 function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void> }) {
   const role = profile.role
   const editable = canEdit(role)
-  const { data, setData, replace, status, error: syncError } = useRemoteData(canReadFull(role), editable)
+  const { data, setData, replace, status, error: syncError, flush } = useRemoteData(canReadFull(role), editable)
+  // Import/export della configurazione completa: solo chi vede RAL e livello di tutti i team
+  const fullConfig = seesAllSalaries(profile.team)
+  const { checks: serverChecks, state: serverChecksState } = useServerChecks(data, status, canReadFull(role))
+  /** Auto-compilazione: in pagina se l'utente vede tutte le RAL, altrimenti sul server (che le conosce) dopo aver salvato le modifiche in corso. */
+  const autofill = async (from: string, to: string): Promise<Assignments> => {
+    if (!data.people.some((p) => p.salaryHidden)) return regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, data.pinned)
+    await flush()
+    const res = await callFunction<{ assignments: Assignments }>('planner', { action: 'autofill', from, to })
+    return res.assignments
+  }
   const fileRef = useRef<HTMLInputElement>(null)
   const allowed = pagesFor(role)
   const page = usePage(allowed)
@@ -180,7 +193,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       </Section>
     ),
     team: (
-      <TeamPage verify={verify} editable={editable} people={data.people} assignments={data.assignments}
+      <TeamPage verify={verify} editable={editable} myTeam={profile.team} people={data.people} assignments={data.assignments}
         onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
     ),
     planner: (
@@ -191,6 +204,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         </>}>
         <Planner readOnly={!editable} simple={role === 'viewer'} people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
           onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay}
+          autofill={autofill} serverChecks={serverChecks} serverChecksState={serverChecksState}
           onSetDaysExcluded={setDaysExcluded}
           onTogglePin={(sid) => setData((d) => ({ ...d, pinned: d.pinned.includes(sid) ? d.pinned.filter((x) => x !== sid) : [...d.pinned, sid] }))} />
       </Section>
@@ -228,7 +242,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <SyncBadge status={status} />
-            {editable && (
+            {editable && fullConfig && (
               <div className="relative">
                 <Button onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen} aria-haspopup="menu">Dati ▾</Button>
                 {menuOpen && (
@@ -249,7 +263,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
                 <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-700 text-xs font-semibold text-white">{initials(profile)}</span>
                 <span className="hidden leading-tight sm:block">
                   <span className="block max-w-40 truncate text-sm font-medium text-slate-900">{profile.display_name || profile.email}</span>
-                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-blue-700">{ROLE_LABEL[role]}</span>
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-blue-700">{ROLE_LABEL[role]}{profile.team && <span className="text-slate-500"> · {TEAM_LABEL[profile.team]}</span>}</span>
                 </span>
                 <span className="text-slate-400">▾</span>
               </button>
@@ -260,8 +274,12 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
                     <div className="px-3 py-2">
                       <div className="text-sm font-medium text-slate-900">{profile.display_name || '—'}</div>
                       <div className="truncate text-xs text-slate-500">{profile.email}</div>
-                      <div className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Livello: {ROLE_LABEL[role]}</div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="inline-flex rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Livello: {ROLE_LABEL[role]}</span>
+                        <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">Team: {profile.team ? TEAM_LABEL[profile.team] : 'non assegnato'}</span>
+                      </div>
                       <div className="mt-1 text-xs text-slate-500">{ROLE_HELP[role]}</div>
+                      {canReadFull(role) && <div className="mt-0.5 text-xs text-slate-500">{teamScope(profile.team)}</div>}
                     </div>
                     <div className="my-1 border-t border-slate-100" />
                     <MenuItem onClick={() => { setUserMenu(false); setPwdOpen(true) }}>Cambia password</MenuItem>
@@ -317,7 +335,7 @@ function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?:
 }
 
 /** Pagina anagrafica: RAL e livello oscurati finché non si reinserisce la password (lo stato si azzera cambiando pagina). */
-function TeamPage({ verify, editable, people, assignments, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; people: Person[]; assignments: Assignments; onChange: (people: Person[], assignments?: Assignments) => void }) {
+function TeamPage({ verify, editable, myTeam, people, assignments, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; myTeam: UserTeam | null; people: Person[]; assignments: Assignments; onChange: (people: Person[], assignments?: Assignments) => void }) {
   const { revealed, toggle, dialog } = useRevealSensitive(verify)
   return (
     <>
@@ -328,13 +346,20 @@ function TeamPage({ verify, editable, people, assignments, onChange }: { verify:
           </Button>
         </>}>
         <fieldset disabled={!editable} className="min-w-0">
-          <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed} />
+          <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed}
+            myTeam={myTeam} canSetTeam={editable && seesAllSalaries(myTeam)} newTeam={defaultResourceTeam(myTeam)} />
         </fieldset>
       </Section>
       {dialog}
     </>
   )
 }
+
+/** Quali RAL vede l'utente, in base al team. */
+const teamScope = (team: UserTeam | null) =>
+  seesAllSalaries(team) ? 'Vede RAL e livello di tutti i team.'
+  : team ? `Vede RAL e livello solo delle risorse del team ${TEAM_LABEL[team]}.`
+  : 'Nessun team: RAL e livello non visibili.'
 
 const initials = (p: Profile) => (p.display_name || p.email).split(/[\s.@]+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('')
 

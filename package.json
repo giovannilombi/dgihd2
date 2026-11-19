@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run --testTimeout=30000"
+    "test": "vitest run --testTimeout=30000",
+    "build:planner": "rolldown supabase/functions/planner/entry.ts --file supabase/functions/planner/index.js --format esm --platform neutral --external npm:@supabase/supabase-js@2.49.4"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.1",

@@ -1,6 +1,6 @@
 import { ALL_SLOTS, SLOT_BY_ID } from './calendar'
 import { DEFAULT_TEAM, newId, nextColor } from './team'
-import { DEFAULT_PARAMS, LEVELS, type Assignments, type Level, type Params, type Person } from './types'
+import { DEFAULT_PARAMS, LEVELS, RESOURCE_TEAMS, type Assignments, type Level, type Params, type Person, type ResourceTeam } from './types'
 
 export interface AppData {
   version: 1
@@ -63,6 +63,9 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
       availability: r.availability === 'volontario' || r.availability === 'limitato' ? r.availability : 'nessuna',
       ...(r.availability === 'limitato' ? { maxPerMonth: [1, 2, 3].includes(r.maxPerMonth as number) ? (r.maxPerMonth as number) : 1 } : {}),
       ...cleanDays(r.unavailable, r.preferredDays),
+      ...(r.ralNd === true ? { ralNd: true } : {}),
+      team: RESOURCE_TEAMS.includes(r.team as ResourceTeam) ? (r.team as ResourceTeam) : null,
+      ...(r.salaryHidden === true ? { salaryHidden: true } : {}),
       ...(r.reserve === true ? { reserve: true, reserveOrder: Number.isInteger(r.reserveOrder) && (r.reserveOrder as number) >= 1 ? (r.reserveOrder as number) : undefined } : {}),
     })
   }
@@ -77,6 +80,7 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
     if (typeof v === 'number' && Number.isFinite(v) && v >= 0) (params[k] as number) = v
   }
   if (rp.indemnitySplit === 'intera' || rp.indemnitySplit === 'proquota') params.indemnitySplit = rp.indemnitySplit
+  if (typeof rp.ndRal === 'number' && Number.isFinite(rp.ndRal) && rp.ndRal > 0) params.ndRal = rp.ndRal
   const ri = (rp.indemnity ?? {}) as Record<string, Record<string, unknown>>
   for (const g of ['g1', 'g2', 'g3'] as const) {
     for (const k of ['feriale', 'sabato', 'domenica'] as const) {

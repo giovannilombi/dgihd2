@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_SLOTS, daysInRange, toRanges, weekday } from './calendar'
-import { baseHourly, saturdayHours, slotEconomics, sundayHours } from './economics'
+import { baseHourly, calcRal, saturdayHours, slotEconomics, sundayHours } from './economics'
 import { autoFill, checkAssignment, compensationsFor, existingViolations, preferenceWarning, regenerate } from './rules'
 import { parseTeamText, TEMPLATE_CSV } from './team'
 import { normalizeWithReport, renumberReserves } from './store'
@@ -380,6 +380,27 @@ describe('periodo esteso a gennaio–febbraio 2027', () => {
     const asg = { '2027-01-04|N': 'a', '2027-01-11|N': 'a', '2027-01-18|N': 'a', '2027-01-25|N': 'a' }
     expect(checkAssignment(a, '2027-01-27|N', asg, P).map((v) => v.rule)).toContain('R4')
     expect(checkAssignment(a, '2027-02-01|N', asg, P).map((v) => v.rule)).not.toContain('R4')
+  })
+})
+
+describe('RAL N/D', () => {
+  it('nei calcoli usa la RAL media dei parametri, senza toccare la RAL della persona', () => {
+    const params = { ...P, ndRal: 41000 } // valore di prova
+    const nd = { ...mk('n', 0), ralNd: true }
+    expect(calcRal(nd, params)).toBe(41000)
+    expect(slotEconomics(nd, { date: '2026-11-24', kind: 'FN' }, params).ltot).toBeCloseTo(slotEconomics(mk('x', 41000), { date: '2026-11-24', kind: 'FN' }, params).ltot, 6)
+    const c = compensationsFor(nd, { '2026-11-24|N': 'n' }, params)
+    expect(Number.isFinite(c[0].hours)).toBe(true)
+  })
+  it('senza valore medio nei parametri si comporta come RAL da inserire', () => {
+    const nd = { ...mk('n', 0), ralNd: true }
+    expect(calcRal(nd, P)).toBe(0)
+    expect(Number.isNaN(compensationsFor(nd, { '2026-11-24|N': 'n' }, P)[0].hours)).toBe(true)
+  })
+  it('import JSON conserva N/D e il valore medio', () => {
+    const { data } = normalizeWithReport({ people: [{ id: 'a', name: 'X', level: 'B1', ral: 0, ralNd: true }], params: { ndRal: 41000 } })
+    expect(data.people[0].ralNd).toBe(true)
+    expect(data.params.ndRal).toBe(41000)
   })
 })
 

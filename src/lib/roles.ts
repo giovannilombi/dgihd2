@@ -1,3 +1,5 @@
+import type { UserTeam } from './types'
+
 export type Role = 'super_admin' | 'editor' | 'viewer_plus' | 'viewer'
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -10,7 +12,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const ROLE_HELP: Record<Role, string> = {
   super_admin: 'Legge e modifica tutto, gestisce utenti e livelli',
   editor: 'Legge e modifica tutto, senza gestione utenti',
-  viewer_plus: 'Legge tutto; RAL e livello visibili reinserendo la password',
+  viewer_plus: 'Legge tutto senza modificare; RAL e livello del proprio team reinserendo la password',
   viewer: 'Vede solo il calendario dei turni',
 }
 
@@ -26,4 +28,5 @@ export interface Profile {
   display_name: string
   role: Role
   must_change_password: boolean
+  team: UserTeam | null
 }

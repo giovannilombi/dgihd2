@@ -86,5 +86,11 @@ export function useRemoteData(readFull: boolean, editable: boolean) {
     }
   }, [reload])
 
-  return { data, setData, replace, status, error, reload }
+  /** Attende che tutte le modifiche in coda siano salvate (prima di un calcolo sul server). */
+  const flush = useCallback(async () => {
+    await queue.current
+    if (pending.current > 0) await queue.current
+  }, [])
+
+  return { data, setData, replace, status, error, reload, flush }
 }

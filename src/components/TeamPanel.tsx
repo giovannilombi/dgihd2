@@ -5,7 +5,7 @@ import { HORIZON_MONTHS, monthKey, monthShort, rangeLabel, SLOT_BY_ID, toRanges 
 import { download, slotTag } from '../lib/reports'
 import { AvailabilityDialog } from './AvailabilityDialog'
 import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
-import { availabilityLabel, availabilityOf, LEVELS, preferredMax, type Assignments, type Level, type Person } from '../lib/types'
+import { availabilityLabel, availabilityOf, canSeeSalaryOf, LEVEL_LABEL, LEVELS, preferredMax, RESOURCE_TEAMS, TEAM_LABEL, type Assignments, type Level, type Person, type ResourceTeam, type UserTeam } from '../lib/types'
 import { Badge, Button, CommitInput } from './ui'
 import { renumberReserves } from '../lib/store'
 
@@ -15,6 +15,12 @@ interface Props {
   onChange: (people: Person[], assignments?: Assignments) => void
   /** RAL e livello in chiaro e modificabili solo dopo aver reinserito la password. */
   revealed: boolean
+  /** Team dell'utente: RAL e livello delle risorse di altri team non sono mai visibili. */
+  myTeam: UserTeam | null
+  /** Solo HR e Governance possono assegnare o cambiare il team di una risorsa. */
+  canSetTeam: boolean
+  /** Team assegnato alle risorse aggiunte da chi non può sceglierlo (il proprio). */
+  newTeam: ResourceTeam | null
 }
 
 const Masked = ({ w = 'w-20' }: { w?: string }) => (
@@ -24,7 +30,15 @@ const Masked = ({ w = 'w-20' }: { w?: string }) => (
   </span>
 )
 
-export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
+/** RAL e livello di una risorsa di un altro team: mai visibili, nemmeno con la password. */
+const Reserved = ({ w = 'w-20', team }: { w?: string; team?: ResourceTeam | null }) => (
+  <span className={`inline-flex ${w} items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-400 ring-1 ring-inset ring-slate-200 select-none`}
+    title={`Riservato al ${team ? `team ${TEAM_LABEL[team]}` : 'team della risorsa'}, a HR e a Governance`}>
+    Riservata
+  </span>
+)
+
+export function TeamPanel({ people, assignments, onChange, revealed, myTeam, canSetTeam, newTeam }: Props) {
   const [importOpen, setImportOpen] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const editingPerson = people.find((x) => x.id === editing)
@@ -42,7 +56,13 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
   }
   const update = (id: string, patch: Partial<Person>) => onChange(people.map((x) => (x.id === id ? { ...x, ...patch } : x)))
 
-  const add = () => onChange([...people, { id: newId(), name: `Risorsa ${people.length + 1}`, level: 'B1', ral: 30_000, active: true, color: nextColor(people), availability: 'nessuna' }])
+  /** Le nuove risorse nascono nel team dell'utente (HR e Governance lo scelgono poi dalla tabella). */
+  const newPersonTeam = canSetTeam ? null : newTeam
+  const newHidden = !canSeeSalaryOf(myTeam, newPersonTeam)
+  const add = () => onChange([...people, {
+    id: newId(), name: `Risorsa ${people.length + 1}`, level: 'B1', ral: newHidden ? 0 : 30_000, active: true, color: nextColor(people), availability: 'nessuna',
+    team: newPersonTeam, ...(newHidden ? { salaryHidden: true } : {}),
+  }])
 
   const remove = (p: Person) => {
     const n = personSlots(assignments, p.id).length
@@ -51,7 +71,16 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
     onChange(people.filter((x) => x.id !== p.id), a)
   }
 
-  const missingRal = people.filter((x) => !(x.ral > 0)).length
+  const missingRal = people.filter((x) => !x.salaryHidden && !x.ralNd && !(x.ral > 0)).length
+  const hiddenCount = people.filter((x) => x.salaryHidden).length
+  const noTeam = people.filter((x) => !x.team).length
+
+  /** RAL Q/: la RAL eventualmente inserita viene cancellata (non resta nel database). */
+  const toggleRalNd = (p: Person) => {
+    if (p.ralNd) return update(p.id, { ralNd: false })
+    if (p.ral > 0 && !confirm(`Impostare la RAL di ${p.name} come Q/? La RAL inserita verrà cancellata e non sarà più visibile; nei calcoli verrà usato un valore medio di riferimento.`)) return
+    update(p.id, { ralNd: true, ral: 0 })
+  }
   const counts = {
     volontario: people.filter((x) => x.active && availabilityOf(x) === 'volontario').length,
     limitato: people.filter((x) => x.active && availabilityOf(x) === 'limitato').length,
@@ -76,19 +105,42 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
                       className="w-full min-w-48 rounded-md px-2 py-1 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-600 outline-none" />
                   </td>
                   <td className="py-2 pr-3">
-                    {revealed ? (
+                    {canSetTeam ? (
+                      <select aria-label={`Team di ${p.name}`} value={p.team ?? ''} onChange={(e) => update(p.id, { team: (e.target.value || null) as ResourceTeam | null })}
+                        className={`rounded-md bg-white px-2 py-1 ring-1 ring-inset ${p.team ? 'ring-slate-200' : 'text-amber-800 ring-amber-300'}`}>
+                        <option value="">— da assegnare —</option>
+                        {RESOURCE_TEAMS.map((t) => <option key={t} value={t}>{TEAM_LABEL[t]}</option>)}
+                      </select>
+                    ) : <span className="text-sm text-slate-700" title="Il team di una risorsa lo assegnano HR o Governance">{p.team ? TEAM_LABEL[p.team] : '—'}</span>}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {p.salaryHidden ? <Reserved w="w-16" team={p.team} /> : revealed ? (
                       <select value={p.level} onChange={(e) => update(p.id, { level: e.target.value as Level })} aria-label="Livello" className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
-                        {LEVELS.map((l) => <option key={l}>{l}</option>)}
+                        {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
                       </select>
                     ) : <Masked w="w-16" />}
                   </td>
                   <td className="py-2 pr-3">
-                    {revealed ? (
-                      <>
-                        <CommitInput type="number" step={500} min={0} value={p.ral} aria-label="RAL" onCommit={(v) => update(p.id, { ral: Number(v) })} validate={(v) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 1_000_000}
-                          className="num w-32 rounded-md px-2 py-1 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-600 outline-none" />
-                        <div className={`mt-0.5 text-xs ${p.ral > 0 ? 'text-slate-400' : 'font-medium text-amber-700'}`}>{p.ral > 0 ? fmtEur(p.ral) : 'Da inserire'}</div>
-                      </>
+                    {p.salaryHidden ? <Reserved w="w-32" team={p.team} /> : revealed ? (
+                      <div className="flex items-start gap-2">
+                        <div>
+                          {p.ralNd ? (
+                            <span className="inline-block w-32 rounded-md px-2 py-1 text-slate-400 ring-1 ring-inset ring-slate-200" title="RAL Q/">—</span>
+                          ) : (
+                            <CommitInput type="number" step={500} min={0} value={p.ral} aria-label="RAL" onCommit={(v) => update(p.id, { ral: Number(v) })} validate={(v) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 1_000_000}
+                              className="num w-32 rounded-md px-2 py-1 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-600 outline-none" />
+                          )}
+                          <div className={`mt-0.5 text-xs ${p.ralNd || p.ral > 0 ? 'text-slate-400' : 'font-medium text-amber-700'}`}>{p.ralNd ? 'Q/' : p.ral > 0 ? fmtEur(p.ral) : 'Da inserire'}</div>
+                        </div>
+                        <button type="button" role="switch" aria-checked={!!p.ralNd} onClick={() => toggleRalNd(p)} aria-label={`RAL Q/ per ${p.name}`}
+                          title="Q/: la RAL non viene mostrata né salvata; nei calcoli si usa un valore medio di riferimento"
+                          className="mt-1 flex items-center gap-1.5">
+                          <span className={`relative h-4 w-7 rounded-full transition-colors ${p.ralNd ? 'bg-slate-700' : 'bg-slate-300'}`}>
+                            <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${p.ralNd ? 'left-[14px]' : 'left-0.5'}`} />
+                          </span>
+                          <span className={`text-xs font-medium ${p.ralNd ? 'text-slate-800' : 'text-slate-500'}`}>Q/</span>
+                        </button>
+                      </div>
                     ) : <Masked w="w-32" />}
                   </td>
                   <td className="py-2 pr-3">
@@ -166,6 +218,8 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
         <Badge tone="slate">{counts.limitato} con limite</Badge>
         <Badge tone="slate">{counts.nessuna} senza preferenza</Badge>
         {missingRal > 0 && <Badge tone="amber" title="Con RAL a zero gli importi sono stimati e le ore di straordinario non sono calcolabili">{missingRal} RAL da inserire</Badge>}
+        {canSetTeam && noTeam > 0 && <Badge tone="amber" title="Senza team, RAL e livello sono visibili solo a HR e Governance">{noTeam} senza team</Badge>}
+        {hiddenCount > 0 && <Badge tone="slate" title="RAL e livello visibili solo al loro team, a HR e a Governance; i vincoli che ne dipendono sono verificati dal server">{hiddenCount} di altri team · RAL riservata</Badge>}
         <span className="text-xs text-slate-500">L'auto-compilazione impiega prima i volontari, poi chi ha un limite (senza superarlo), infine chi non ha espresso preferenze; le riserve solo se nessun primario è disponibile.</span>
       </div>
       <div className="overflow-x-auto">
@@ -174,6 +228,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-2 pr-3 pl-3 font-medium">Badge</th>
               <th className="py-2 pr-3 font-medium">Nome e cognome</th>
+              <th className="py-2 pr-3 font-medium">Team</th>
               <th className="py-2 pr-3 font-medium">Livello CCNL</th>
               <th className="py-2 pr-3 font-medium">RAL (€)</th>
               <th className="py-2 pr-3 font-medium" title="Primario: in rotazione. Riserva: usata solo se nessun primario è disponibile. KO: fuori rotazione">Ruolo</th>
@@ -185,7 +240,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
           </thead>
           <tbody>
             {people.map((p) => renderRow(p))}
-            {!people.length && <tr><td colSpan={9} className="py-6 text-center text-slate-500">Nessuna risorsa. Aggiungine una o importa la lista.</td></tr>}
+            {!people.length && <tr><td colSpan={10} className="py-6 text-center text-slate-500">Nessuna risorsa. Aggiungine una o importa la lista.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -224,11 +279,13 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
         ) : <p className="mt-2 text-sm text-slate-500">Nessuna riserva. Per aggiungerne una, imposta il ruolo "Riserva" nella tabella sopra.</p>}
       </div>
       {editingPerson && <AvailabilityDialog person={editingPerson} onClose={() => setEditing(null)} onSave={(u, pr) => saveAvailability(editingPerson.id, u, pr)} />}
-      {importOpen && <ImportDialog revealed={revealed} existing={people} onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
-        const base = replace ? [] : people
+      {importOpen && <ImportDialog revealed={revealed} existing={people} replaceScope={canSetTeam ? null : newTeam} onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
+        // Chi non vede tutte le RAL sostituisce solo le risorse del proprio team: le altre restano con i loro turni
+        const base = replace ? people.filter((x) => !canSetTeam && x.salaryHidden) : people
+        const keepIds = new Set(base.map((x) => x.id))
         const added: Person[] = []
-        for (const r of rows) added.push({ ...r, id: newId(), color: nextColor([...base, ...added]) })
-        onChange([...base, ...added], replace ? {} : undefined)
+        for (const r of rows) added.push({ ...r, id: newId(), color: nextColor([...base, ...added]), team: newPersonTeam, ...(newHidden ? { salaryHidden: true } : {}) })
+        onChange([...base, ...added], replace ? Object.fromEntries(Object.entries(assignments).filter(([, pid]) => keepIds.has(pid))) : undefined)
         setImportOpen(false)
       }} />}
     </div>
@@ -237,7 +294,7 @@ export function TeamPanel({ people, assignments, onChange, revealed }: Props) {
 
 const MAX_FILE_BYTES = 1_000_000
 
-function ImportDialog({ revealed, existing, onClose, onImport }: { revealed: boolean; existing: Person[]; onClose: () => void; onImport: (rows: ImportedPerson[], replace: boolean) => void }) {
+function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: { revealed: boolean; existing: Person[]; replaceScope: ResourceTeam | null; onClose: () => void; onImport: (rows: ImportedPerson[], replace: boolean) => void }) {
   const [text, setText] = useState('')
   const [fileError, setFileError] = useState('')
   const [fileName, setFileName] = useState('')
@@ -283,7 +340,7 @@ function ImportDialog({ revealed, existing, onClose, onImport }: { revealed: boo
             Carica file CSV…{fileName && <span className="ml-1 font-normal text-slate-500">({fileName})</span>}
             <input type="file" accept=".csv,.txt,.tsv,text/csv" className="hidden" onChange={(e) => { readFile(e.target.files?.[0]); e.target.value = '' }} />
           </label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Sostituisci il team attuale (azzera il calendario)</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> {replaceScope ? `Sostituisci le risorse del team ${TEAM_LABEL[replaceScope]} (e i loro turni)` : 'Sostituisci il team attuale (azzera il calendario)'}</label>
         </div>
 
         {status && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">⚠ {status}</p>}

@@ -1,6 +1,6 @@
 // Gestione account del Piano reperibilità ARM.
 // - change_password: qualsiasi utente autenticato cambia la propria password (obbligatorio al primo accesso)
-// - list / create / reset / set_role / delete: solo super admin
+// - list / create / reset / set_role / set_team / delete: solo super admin
 // - process_requests: elabora la coda public.admin_requests (chiamata firmata dal database con il token del Vault)
 // La chiave di servizio resta lato server: non è mai inviata al browser.
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
@@ -12,6 +12,11 @@ const CORS = {
 }
 const ROLES = ['super_admin', 'editor', 'viewer_plus', 'viewer'] as const
 type Role = (typeof ROLES)[number]
+const TEAMS = ['tech', 'design', 'pm', 'director', 'hr', 'governance'] as const
+type Team = (typeof TEAMS)[number]
+/** Team valido, oppure null (nessun team: RAL e livello non visibili). */
+const parseTeam = (t: unknown): Team | null | undefined =>
+  t === null || t === undefined || t === '' ? null : TEAMS.includes(t as Team) ? (t as Team) : undefined
 
 const ANIMALI = [
   'airone', 'alce', 'alpaca', 'anatra', 'antilope', 'aquila', 'armadillo', 'asino', 'balena', 'barbagianni',
@@ -91,7 +96,7 @@ Deno.serve(async (req) => {
   const validRole = (r: unknown): r is Role => ROLES.includes(r as Role)
 
   if (action === 'list') {
-    const { data: profiles, error } = await admin.from('profiles').select('id, email, display_name, role, must_change_password, created_at').order('created_at')
+    const { data: profiles, error } = await admin.from('profiles').select('id, email, display_name, role, team, must_change_password, created_at').order('created_at')
     if (error) return fail(error.message, 500)
     const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 })
     const lastSeen = new Map((users?.users ?? []).map((u) => [u.id, u.last_sign_in_at]))
@@ -103,10 +108,12 @@ Deno.serve(async (req) => {
     const displayName = String(body.display_name ?? '').trim().slice(0, 80)
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Email non valida.')
     if (!validRole(body.role)) return fail('Livello non valido.')
+    const team = parseTeam(body.team)
+    if (team === undefined) return fail('Team non valido.')
     const password = tempPassword()
     const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
     if (error || !data.user) return fail(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
-    const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, must_change_password: true })
+    const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, team, must_change_password: true })
     if (pErr) {
       await admin.auth.admin.deleteUser(data.user.id)
       return fail(`Creazione non riuscita: ${pErr.message}`, 500)
@@ -135,6 +142,14 @@ Deno.serve(async (req) => {
     return json({ ok: true })
   }
 
+  if (action === 'set_team') {
+    const team = parseTeam(body.team)
+    if (team === undefined) return fail('Team non valido.')
+    const { error } = await admin.from('profiles').update({ team }).eq('id', userId)
+    if (error) return fail(error.message, 500)
+    return json({ ok: true })
+  }
+
   if (action === 'delete') {
     if (target.role === 'super_admin' && (await superAdmins()) <= 1) return fail('Deve restare almeno un super admin.')
     if (userId === caller.id && target.role !== 'super_admin') return fail('Non puoi eliminare il tuo account.')
@@ -152,7 +167,7 @@ type Admin = ReturnType<typeof createClient>
 async function processQueue(admin: Admin) {
   const { data: pending } = await admin.from('admin_requests').select('*').eq('status', 'pending').order('id')
   let n = 0
-  for (const r of (pending ?? []) as { id: number; action: string; email: string; display_name: string; role: Role | null }[]) {
+  for (const r of (pending ?? []) as { id: number; action: string; email: string; display_name: string; role: Role | null; team: string | null }[]) {
     const done = (patch: Record<string, unknown>) =>
       admin.from('admin_requests').update({ ...patch, processed_at: new Date().toISOString() }).eq('id', r.id)
     try {
@@ -160,10 +175,12 @@ async function processQueue(admin: Admin) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email non valida.')
       if (r.action === 'create') {
         if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')
+        const team = parseTeam(r.team)
+        if (team === undefined) throw new Error('Team non valido.')
         const password = tempPassword()
         const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
         if (error || !data.user) throw new Error(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
-        const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: r.display_name.trim().slice(0, 80), role: r.role, must_change_password: true })
+        const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: r.display_name.trim().slice(0, 80), role: r.role, team, must_change_password: true })
         if (pErr) { await admin.auth.admin.deleteUser(data.user.id); throw new Error(pErr.message) }
         await done({ status: 'done', temp_password: password })
       } else {
@@ -180,6 +197,11 @@ async function processQueue(admin: Admin) {
           if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')
           if (target.role === 'super_admin' && r.role !== 'super_admin' && superAdmins <= 1) throw new Error('Deve restare almeno un super admin.')
           await admin.from('profiles').update({ role: r.role }).eq('id', target.id)
+          await done({ status: 'done' })
+        } else if (r.action === 'set_team') {
+          const team = parseTeam(r.team)
+          if (team === undefined) throw new Error('Team non valido.')
+          await admin.from('profiles').update({ team }).eq('id', target.id)
           await done({ status: 'done' })
         } else if (r.action === 'delete') {
           if (target.role === 'super_admin' && superAdmins <= 1) throw new Error('Deve restare almeno un super admin.')

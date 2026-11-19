@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { baseHourly, fmtEur, fmtNum, kNetto, slotEconomics, sundayHours } from '../lib/economics'
-import { LEVELS, type Level, type Params } from '../lib/types'
+import { LEVEL_LABEL, LEVELS, type Level, type Params } from '../lib/types'
 import { AccordionSummary } from './ui'
 
 /** Esempio guidato, calcolato dal vivo: dal netto target al gettone, all'alternativa in ore e al costo aziendale. */
@@ -37,7 +37,7 @@ export function HowItWorks({ p }: { p: Params }) {
             <label className="block">
               <span className="text-xs font-medium text-slate-600">Livello</span>
               <select value={level} onChange={(ev) => setLevel(ev.target.value as Level)} className="mt-1 block rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">
-                {LEVELS.map((l) => <option key={l}>{l}</option>)}
+                {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
               </select>
             </label>
           </div>

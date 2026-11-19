@@ -1,5 +1,5 @@
 import { ALL_SLOTS, SLOT_BY_ID, addDays, monthKey, weekSaturday, weekStart, weekSunday } from './calendar'
-import { hasRal, saturdayHours, slotEconomics, sundayHours } from './economics'
+import { calcRal, hasRal, saturdayHours, slotEconomics, sundayHours } from './economics'
 import { availabilityOf, preferredMax, type Assignments, type Params, type Person, type Slot } from './types'
 
 export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R3cap' | 'R4' | 'R5' | 'R6' | 'R7'
@@ -95,7 +95,8 @@ export function weekCompensation(person: Person, slots: Slot[], allSlotsOfPerson
     if (hasSat) needsRelocation = true // sabato e domenica entrambi a contatto con un turno
     else { day = 'sab'; moveReason = 'Spostato su Sabato (evita continuità con Lunedì)' }
   }
-  const hours = day === 'dom' ? sundayHours(lcomp, person.ral, p) : saturdayHours(lcomp, person.ral, p)
+  const ral = calcRal(person, p)
+  const hours = day === 'dom' ? sundayHours(lcomp, ral, p) : saturdayHours(lcomp, ral, p)
   return {
     week, slots, iccnl, lcomp, ltot, net, cost, day, dayDate: day === 'dom' ? sun : sat, hours,
     movedToSat: day === 'sab', dayTotal: hours, needsRelocation, moveReason,
@@ -123,9 +124,9 @@ export function allocateCompensations(person: Person, all: Slot[], p: Params): W
 
   const dates = new Set(all.map((s) => s.date))
   const free = (sun: string) => !dates.has(addDays(sun, -1)) && !dates.has(sun) && !dates.has(addDays(sun, 1))
-  const ralKnown = hasRal(person.ral)
+  const ralKnown = hasRal(calcRal(person, p))
   for (const c of comps.filter((x) => x.needsRelocation)) {
-    const h = sundayHours(c.lcomp, person.ral, p)
+    const h = sundayHours(c.lcomp, calcRal(person, p), p)
     // senza RAL le ore non sono calcolabili: conta solo che la domenica sia libera da turni
     const fits = (d: string) => free(d) && (!ralKnown || (load.get(d) ?? 0) + h <= p.capHours + 1e-9)
     const next = addDays(weekSunday(c.week), 7)
@@ -185,7 +186,7 @@ export function checkAssignment(person: Person, slotId: string, a: Assignments, 
   const week = weekStart(slot.date)
   const sameWeek = mine.filter((s) => weekStart(s.date) === week)
   if (sameWeek.length >= 2) add('R3')
-  else if (hasRal(person.ral)) {
+  else if (hasRal(calcRal(person, p))) {
     // Ricalcola l'imputazione con il nuovo turno: contano la settimana del turno e le due adiacenti
     // (un turno di lunedì sposta la settimana precedente; gli spostamenti di domenica toccano W±1).
     const near = new Set([addDays(week, -7), week, addDays(week, 7)])

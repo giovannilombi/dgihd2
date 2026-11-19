@@ -33,9 +33,12 @@ export interface SlotEcon {
   cost: number // costo aziendale pieno
 }
 
-export function slotEconomics(person: Pick<Person, 'level' | 'ral'>, slot: Pick<Slot, 'date' | 'kind'>, p: Params): SlotEcon {
+/** RAL da usare nei calcoli: per le persone con RAL "Q/" il valore medio dei parametri (mai mostrato). */
+export const calcRal = (person: Pick<Person, 'ral' | 'ralNd'>, p: Params) => (person.ralNd ? p.ndRal ?? 0 : person.ral)
+
+export function slotEconomics(person: Pick<Person, 'level' | 'ral' | 'ralNd'>, slot: Pick<Slot, 'date' | 'kind'>, p: Params): SlotEcon {
   const net = netTarget(slot.kind, p)
-  const ltot = net / kNetto(person.ral, p)
+  const ltot = net / kNetto(calcRal(person, p), p)
   const iccnl = ccnlIndemnity(person, slot, p)
   return { net, iccnl, ltot, lcomp: Math.max(0, ltot - iccnl), cost: ltot * p.costMultiplier }
 }

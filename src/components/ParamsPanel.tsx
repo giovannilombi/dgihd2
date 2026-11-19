@@ -77,7 +77,7 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
             </table>
           </fieldset>
           <div className="lg:col-span-3">
-            <Button variant="ghost" onClick={() => onChange(structuredClone(DEFAULT_PARAMS))}>Ripristina tutti i parametri di default</Button>
+            <Button variant="ghost" onClick={() => onChange({ ...structuredClone(DEFAULT_PARAMS), ndRal: p.ndRal })}>Ripristina tutti i parametri di default</Button>
           </div>
         </div>
       </details>

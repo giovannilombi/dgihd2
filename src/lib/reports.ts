@@ -17,7 +17,9 @@ export interface PeriodPnl {
   revenue: number
   /** Ricavo con copertura: solo le giornate coperte (sab/dom/festivi solo se h24). */
   revenueCovered: number
-  /** Tutti i turni richiesti del periodo sono coperti: solo allora il margine è significativo. */
+  /** Turni assegnati a persone di altri team: il loro costo non è visibile all'utente. */
+  costHidden: number
+  /** Tutti i turni richiesti sono coperti e tutti i costi sono visibili: solo allora il margine è significativo. */
   complete: boolean
   cost: number
   margin: number
@@ -27,7 +29,7 @@ export interface PeriodPnl {
 }
 
 function emptyPeriod(key: string, label: string): PeriodPnl {
-  return { key, label, ferialiRichiesti: 0, festiviRichiesti: 0, ferialiCoperti: 0, festiviCoperti: 0, revenueCovered: 0, complete: false, revenue: 0, cost: 0, margin: 0, marginPct: 0, slotsTotal: 0, slotsCovered: 0 }
+  return { key, label, ferialiRichiesti: 0, festiviRichiesti: 0, ferialiCoperti: 0, festiviCoperti: 0, revenueCovered: 0, costHidden: 0, complete: false, revenue: 0, cost: 0, margin: 0, marginPct: 0, slotsTotal: 0, slotsCovered: 0 }
 }
 
 /**
@@ -62,13 +64,15 @@ export function pnl(people: Person[], a: Assignments, p: Params, excludedDays: s
       if (festive) b.festiviRichiesti++; else b.ferialiRichiesti++
       if (dayCovered) { if (festive) b.festiviCoperti++; else b.ferialiCoperti++; b.revenueCovered += revenue }
     })
-    const cost = covered.reduce((acc, s) => acc + slotEconomics(byId[a[s.id]], s, p).cost, 0)
-    for (const b of buckets) { b.revenue += revenue; b.cost += cost }
+    const visible = covered.filter((s) => !byId[a[s.id]].salaryHidden)
+    const hidden = covered.length - visible.length
+    const cost = visible.reduce((acc, s) => acc + slotEconomics(byId[a[s.id]], s, p).cost, 0)
+    for (const b of buckets) { b.revenue += revenue; b.cost += cost; b.costHidden += hidden }
   }
   const finish = (b: PeriodPnl) => {
     b.margin = b.revenue - b.cost
     b.marginPct = b.revenue > 0 ? (b.margin / b.revenue) * 100 : 0
-    b.complete = b.slotsTotal > 0 && b.slotsCovered === b.slotsTotal
+    b.complete = b.slotsTotal > 0 && b.slotsCovered === b.slotsTotal && b.costHidden === 0
     return b
   }
   return { months: [...months.values()].map(finish), weeks: [...weeks.values()].map(finish), total: finish(total) }
@@ -87,7 +91,8 @@ export interface PersonMonthReport {
  */
 export function payroll(people: Person[], a: Assignments, p: Params) {
   const byMonth = new Map<string, PersonMonthReport[]>()
-  for (const person of people) {
+  // il consuntivo comprende solo le persone di cui l'utente vede RAL e livello
+  for (const person of people.filter((x) => !x.salaryHidden)) {
     for (const wc of compensationsFor(person, a, p)) {
       const m = monthKey(wc.slots[wc.slots.length - 1].date)
       if (!byMonth.has(m)) byMonth.set(m, [])
@@ -139,7 +144,7 @@ export function fullReportCsv(people: Person[], a: Assignments, p: Params, exclu
   rows.push([], ['CONTO ECONOMICO'], ['Periodo', 'Notti feriali richieste', 'Giornate weekend/festive richieste', 'Turni coperti', 'Turni richiesti', 'Ricavo stimato', 'Ricavo con copertura', 'Costo aziendale', 'Margine', 'Marginalità %'])
   for (const b of [...pl.months, ...pl.weeks, pl.total]) {
     rows.push([b.label, b.ferialiRichiesti, b.festiviRichiesti, b.slotsCovered, b.slotsTotal, b.revenue, b.revenueCovered, b.cost,
-      b.complete ? b.margin : 'non calcolabile (turni scoperti)', b.complete ? b.marginPct : 'non calcolabile'])
+      b.complete ? b.margin : b.costHidden ? 'non calcolabile (costi di altri team)' : 'non calcolabile (turni scoperti)', b.complete ? b.marginPct : 'non calcolabile'])
   }
   return toCsv(rows)
 }

@@ -7,7 +7,8 @@ import { Kpi } from './ui'
 export function Dashboard({ people, assignments, params, excludedDays }: { people: Person[]; assignments: Assignments; params: Params; excludedDays: string[] }) {
   const { months, weeks, total } = pnl(people, assignments, params, excludedDays)
   const assignedIds = new Set(Object.values(assignments))
-  const missingRal = people.filter((x) => assignedIds.has(x.id) && !(x.ral > 0)).length
+  const missingRal = people.filter((x) => assignedIds.has(x.id) && !x.salaryHidden && !x.ralNd && !(x.ral > 0)).length
+  const ndRal = people.filter((x) => assignedIds.has(x.id) && x.ralNd).length
   const [view, setView] = useState<'weeks' | 'months'>('weeks')
   const rows = view === 'weeks' ? weeks : months
   const uncovered = total.slotsTotal - total.slotsCovered
@@ -18,15 +19,22 @@ export function Dashboard({ people, assignments, params, excludedDays }: { peopl
           sub={`Tutte le giornate richieste: ${total.ferialiRichiesti} notti feriali × ${fmtEur(params.revenueFeriale)} + ${total.festiviRichiesti} sab/dom/festivi × ${fmtEur(params.revenueFestivo)}`} />
         <Kpi label="Ricavo con copertura turni" value={fmtEur(total.revenueCovered)}
           sub={total.revenue ? `${fmtPct(total.revenueCovered / total.revenue * 100)} dello stimato · ${total.ferialiCoperti} notti feriali + ${total.festiviCoperti} sab/dom/festivi coperti (h24)` : 'Nessuna giornata richiesta'} />
-        <Kpi label="Costo aziendale reperibilità" value={fmtEur(total.cost)}
-          sub={`Turni assegnati: lordo riconosciuto (indennità CCNL + gettone) × ${params.costMultiplier.toFixed(2).replace('.', ',')}`} />
+        <Kpi label={total.costHidden ? 'Costo aziendale (solo tuo team)' : 'Costo aziendale reperibilità'} value={fmtEur(total.cost)}
+          sub={total.costHidden
+            ? `Esclusi ${total.costHidden} turni di persone di altri team, il cui costo non è visibile al tuo profilo`
+            : `Turni assegnati: lordo riconosciuto (indennità CCNL + gettone) × ${params.costMultiplier.toFixed(2).replace('.', ',')}`} />
         {total.complete
           ? <Kpi label="Margine lordo aziendale" value={fmtEur(total.margin)} tone={total.margin < 0 ? 'bad' : undefined} sub={`Marginalità ${fmtPct(total.marginPct)} (margine / ricavo)`} />
-          : <Kpi label="Margine lordo aziendale" value="Non calcolabile" sub={uncovered > 0 ? `${uncovered} ${uncovered === 1 ? 'turno scoperto' : 'turni scoperti'}: il costo finale non è ancora noto` : 'Nessuna giornata richiesta nel periodo'} />}
+          : <Kpi label="Margine lordo aziendale" value="Non calcolabile" sub={uncovered > 0 ? `${uncovered} ${uncovered === 1 ? 'turno scoperto' : 'turni scoperti'}: il costo finale non è ancora noto` : total.costHidden ? 'Visibilità limitata al tuo team: i costi degli altri team non sono inclusi' : 'Nessuna giornata richiesta nel periodo'} />}
       </div>
       {missingRal > 0 && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
           ⚠ {missingRal === 1 ? '1 persona con turni assegnati non ha' : `${missingRal} persone con turni assegnati non hanno`} la RAL inserita: costi e margine sono stimati con il coefficiente netto/lordo della fascia più bassa e diventano definitivi inserendo le RAL nella pagina Team.
+        </p>
+      )}
+      {ndRal > 0 && (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          ℹ {ndRal === 1 ? '1 persona con turni assegnati ha' : `${ndRal} persone con turni assegnati hanno`} la RAL Q/: i loro costi sono stimati su una RAL media di riferimento.
         </p>
       )}
       {uncovered > 0 && (
@@ -79,7 +87,7 @@ export function Dashboard({ people, assignments, params, excludedDays }: { peopl
                   </>
                 ) : (
                   <td colSpan={2} className="py-2 text-right text-xs font-normal text-slate-500" title="Con turni scoperti il costo finale non è ancora noto">
-                    {b.slotsTotal ? 'n.c. · turni scoperti' : 'n.c. · nessuna giornata richiesta'}
+                    {!b.slotsTotal ? 'n.c. · nessuna giornata richiesta' : b.slotsCovered < b.slotsTotal ? 'n.c. · turni scoperti' : 'n.c. · costi di altri team'}
                   </td>
                 )}
               </tr>

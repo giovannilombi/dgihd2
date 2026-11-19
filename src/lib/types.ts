@@ -1,6 +1,11 @@
 export const LEVELS = ['D1', 'D2', 'C1', 'C2', 'C3', 'B1', 'B2', 'B3', 'A1'] as const
 export type Level = (typeof LEVELS)[number]
 
+/** Etichette dei livelli CCNL Metalmeccanici (A1 = quadri). */
+export const LEVEL_LABEL: Record<Level, string> = {
+  D1: 'D1', D2: 'D2', C1: 'C1', C2: 'C2', C3: 'C3', B1: 'B1', B2: 'B2', B3: 'B3', A1: 'A1 (quadro)',
+}
+
 /**
  * Disponibilità dichiarata (le regole di legge valgono per tutti):
  * - volontario: nessun limite oltre ai vincoli standard (2/settimana, 4/mese)
@@ -27,7 +32,27 @@ export interface Person {
   reserve?: boolean
   /** Ordine tra le riserve (1 = la prima a essere chiamata). */
   reserveOrder?: number
+  /** RAL "Q/": non mostrata né salvata; nei calcoli si usa il valore medio dei parametri. */
+  ralNd?: boolean
+  /** Team della risorsa (Tech, Design, PM, Director, Governance); null = da assegnare. */
+  team?: ResourceTeam | null
+  /** RAL e livello non visibili all'utente corrente (altro team): niente calcoli economici su questa persona. */
+  salaryHidden?: boolean
 }
+
+export const RESOURCE_TEAMS = ['tech', 'design', 'pm', 'director', 'governance'] as const
+export type ResourceTeam = (typeof RESOURCE_TEAMS)[number]
+export const USER_TEAMS = ['tech', 'design', 'pm', 'director', 'hr', 'governance'] as const
+export type UserTeam = (typeof USER_TEAMS)[number]
+export const TEAM_LABEL: Record<UserTeam, string> = { tech: 'Tech', design: 'Design', pm: 'PM', director: 'Director', hr: 'HR', governance: 'Governance' }
+/** HR e Governance vedono RAL e livello di tutti i team. */
+export const seesAllSalaries = (team: UserTeam | null | undefined) => team === 'hr' || team === 'governance'
+/** Stessa regola della RLS: RAL e livello visibili a HR/Governance o a chi è dello stesso team della risorsa. */
+export const canSeeSalaryOf = (myTeam: UserTeam | null | undefined, personTeam: ResourceTeam | null | undefined) =>
+  seesAllSalaries(myTeam) || (!!myTeam && myTeam === personTeam)
+/** Team con cui un utente crea nuove risorse: il proprio, se è un team di risorse. */
+export const defaultResourceTeam = (myTeam: UserTeam | null | undefined): ResourceTeam | null =>
+  (RESOURCE_TEAMS as readonly string[]).includes(myTeam ?? '') ? (myTeam as ResourceTeam) : null
 
 export const availabilityOf = (p: Pick<Person, 'availability'>): Availability => p.availability ?? 'nessuna'
 /** Tetto mensile preferito, se espresso. */
@@ -72,6 +97,8 @@ export interface Params {
   majSab2: number // +30% dalla 3a ora
   indemnitySplit: 'intera' | 'proquota'
   indemnity: Record<'g1' | 'g2' | 'g3', IndemnityRow>
+  /** RAL media usata nei calcoli per le persone con RAL "Q/". Salvata solo nel database, mai mostrata. */
+  ndRal?: number
 }
 
 export const DEFAULT_PARAMS: Params = {

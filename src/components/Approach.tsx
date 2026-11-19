@@ -2,7 +2,7 @@ import katex from 'katex'
 import { useState, type ReactNode } from 'react'
 import { HORIZON_LABEL } from '../lib/calendar'
 import { baseHourly, fmtEur, kNetto, fmtNum, fmtPct, saturdayHours, slotEconomics, sundayHours } from '../lib/economics'
-import { GROUP_LABEL, type Params, type Person } from '../lib/types'
+import { GROUP_LABEL, LEVEL_GROUP, LEVEL_LABEL, LEVELS, type Level, type Params, type Person } from '../lib/types'
 import { Collapsible } from './ui'
 
 function Tex({ children, block }: { children: string; block?: boolean }) {
@@ -23,8 +23,9 @@ const Pillar = ({ title, children }: { title: string; children: ReactNode }) => 
 
 export function Approach({ params: p, people }: { params: Params; people: Person[] }) {
   // Incidenza del costo sul ricavo calcolata sul team attivo (riferimento dinamico per la sintesi).
-  const active = people.filter((x) => x.active)
-  const ref = active.length ? active : people
+  const visible = people.filter((x) => !x.salaryHidden)
+  const active = visible.filter((x) => x.active)
+  const ref = active.length ? active : visible
   const ferIncid = ref.map((x) => slotEconomics(x, { date: '2026-11-24', kind: 'FN' }, p).cost / p.revenueFeriale * 100)
   const festIncid = ref.map((x) => (slotEconomics(x, { date: '2026-11-29', kind: 'WD' }, p).cost + slotEconomics(x, { date: '2026-11-29', kind: 'WN' }, p).cost) / p.revenueFestivo * 100)
   const range = (a: number[]) => a.length ? (Math.min(...a).toFixed(1) === Math.max(...a).toFixed(1) ? fmtPct(Math.min(...a)) : `${fmtPct(Math.min(...a))}–${fmtPct(Math.max(...a))}`) : '–'
@@ -41,7 +42,7 @@ export function Approach({ params: p, people }: { params: Params; people: Person
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <Pillar title="Un importo netto chiaro per ogni turno">
-            Per ogni turno di sola disponibilità è riconosciuto un <strong>importo netto garantito</strong>: <strong>{eur(p.netFN)}</strong> per la notte feriale, <strong>{eur(p.netWD)}</strong> per il diurno di weekend/festivo, <strong>{eur(p.netWN)}</strong> per la notte di weekend/festivo, che dura 15 ore e pesa di più. Gli eventuali interventi effettivi sono retribuiti a parte, come da CCNL.
+            Per ogni turno di sola disponibilità è riconosciuto un <strong>importo netto garantito</strong>: <strong>{eur(p.netFN)}</strong> per la notte feriale, <strong>{eur(p.netWD)}</strong> per il diurno di weekend/festivo, <strong>{eur(p.netWN)}</strong> per la notte di weekend/festivo, con una maggiorazione di {eur(p.netWN - p.netFN)} rispetto alla notte feriale (stessa durata, 18:00–09:00) per il servizio in sabato, domenica e festivi. Gli eventuali interventi effettivi sono retribuiti a parte, come da CCNL.
           </Pillar>
           <Pillar title="Gettone di disponibilità, a consuntivo">
             L'indennità prevista dal CCNL copre pochi euro a turno: la differenza fino al netto garantito, calcolata sulla RAL e sul livello di ciascuno, viene erogata a fine mese come <strong>Gettone di disponibilità</strong>, solo per i turni effettivamente svolti. In alternativa, a parità di netto e di costo, la stessa cifra può essere liquidata come <strong>ore di straordinario</strong> su un giorno del weekend, entro {fmtNum(p.capHours)} ore.
@@ -125,22 +126,22 @@ export function Approach({ params: p, people }: { params: Params; people: Person
       </Collapsible>
 
       {/* 4. Tabella rapida – calcolata dal motore con i parametri correnti */}
-      <Collapsible title="4. Valori di riferimento per RAL (Livello B1 – CCNL Metalmeccanici)">
+      <Collapsible title="4. Valori di riferimento per RAL e livello (CCNL Metalmeccanici)">
         <RefTable p={p} />
       </Collapsible>
     </div>
   )
 }
 
-// ---------- Tabella di riferimento rapido (B1) ----------
-const REF_RALS = Array.from({ length: 9 }, (_, i) => 24_000 + i * 2_000) // 24k → 40k, passo 2k
+// ---------- Tabella di riferimento rapido (qualsiasi livello) ----------
+const REF_RALS = Array.from({ length: 24 }, (_, i) => 24_000 + i * 2_000) // 24k → 70k, passo 2k (copre anche i quadri)
 const ROW_H = 52
 const HEAD_H = 36
 const KINDS = ['FN', 'WD', 'WN'] as const
 
-function refRow(ral: number, p: Params) {
+function refRow(ral: number, level: Level, p: Params) {
   const cells = KINDS.map((kind) => {
-    const e = slotEconomics({ level: 'B1', ral }, { date: kind === 'FN' ? '2026-11-24' : '2026-11-29', kind }, p)
+    const e = slotEconomics({ level, ral }, { date: kind === 'FN' ? '2026-11-24' : '2026-11-29', kind }, p)
     return { kind, e, dom: sundayHours(e.lcomp, ral, p), sab: saturdayHours(e.lcomp, ral, p) }
   })
   return { ral, base: baseHourly(ral), k: kNetto(ral, p), cells }
@@ -159,17 +160,28 @@ const KIND_LABEL = { FN: 'Notte feriale', WD: 'Festivo diurno', WN: 'Festivo not
 
 function RefTable({ p }: { p: Params }) {
   const [custom, setCustom] = useState(32_000)
+  const [level, setLevel] = useState<Level>('B1')
   const valid = Number.isFinite(custom) && custom > 0
-  const live = valid ? refRow(custom, p) : null
+  const live = valid ? refRow(custom, level, p) : null
+  const ind = p.indemnity[LEVEL_GROUP[level]]
   const net = { FN: p.netFN, WD: p.netWD, WN: p.netWN }
 
   return (
     <div>
-      <P>Valori calcolati in tempo reale con i parametri correnti per un dipendente <strong>Livello B1</strong> (indennità feriale {fmtEur(p.indemnity.g3.feriale)}, festiva {fmtEur(p.indemnity.g3.domenica)} lordi). Il lordo corrisponde al <strong>Gettone di disponibilità</strong> (modalità preferibile). Le ore servono solo per l'alternativa in straordinario e vanno imputate <strong>o</strong> sulla Domenica <strong>oppure</strong> sul Sabato (mai su entrambi): il lordo liquidato è lo stesso, cambiano solo le ore perché cambia la maggiorazione. Ore del sabato calcolate a scaglioni esatti.</P>
+      <P>Valori calcolati in tempo reale con i parametri correnti per il livello selezionato, ora <strong>{LEVEL_LABEL[level]}</strong> (indennità CCNL feriale {fmtEur(ind.feriale)}, sabato {fmtEur(ind.sabato)}, domenica/festivo {fmtEur(ind.domenica)} lordi).
+        Il livello cambia solo l'indennità CCNL già prevista, e quindi la quota da integrare; netto garantito e costo aziendale dipendono dalla fascia di RAL. Il lordo corrisponde al <strong>Gettone di disponibilità</strong> (modalità preferibile). Le ore servono solo per l'alternativa in straordinario e vanno imputate <strong>o</strong> sulla Domenica <strong>oppure</strong> sul Sabato (mai su entrambi): il lordo liquidato è lo stesso, cambiano solo le ore perché cambia la maggiorazione. Ore del sabato calcolate a scaglioni esatti.</P>
 
       {/* Calcolo al volo per una RAL qualsiasi */}
       <div className="mt-4 flex flex-col gap-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4 lg:flex-row lg:items-start">
-        <label className="block shrink-0 lg:w-56">
+        <div className="grid shrink-0 gap-3 lg:w-56">
+        <label className="block">
+          <span className="text-xs font-semibold text-slate-700">Livello CCNL</span>
+          <select value={level} onChange={(e) => setLevel(e.target.value as Level)} aria-label="Livello CCNL"
+            className="mt-1 block w-full rounded-lg bg-white px-3 py-2 text-sm font-semibold ring-1 ring-inset ring-slate-300">
+            {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
+          </select>
+        </label>
+        <label className="block">
           <span className="text-xs font-semibold text-slate-700">Calcola per una RAL</span>
           <div className="mt-1 flex items-center rounded-lg bg-white ring-1 ring-inset ring-slate-300 focus-within:ring-2 focus-within:ring-blue-600">
             <input type="number" min={0} step={500} value={Number.isFinite(custom) ? custom : ''} onChange={(e) => setCustom(e.target.valueAsNumber)}
@@ -178,6 +190,7 @@ function RefTable({ p }: { p: Params }) {
           </div>
           {live && <span className="mt-1 block text-xs text-slate-500">Paga base {fmtEur(live.base)}/h · K netto {fmtNum(live.k)}</span>}
         </label>
+        </div>
         {live ? (
           <div className="grid flex-1 gap-3 sm:grid-cols-3">
             {live.cells.map((c) => (
@@ -210,7 +223,7 @@ function RefTable({ p }: { p: Params }) {
           </thead>
           <tbody>
             {REF_RALS.map((ral) => {
-              const r = refRow(ral, p)
+              const r = refRow(ral, level, p)
               return (
                 <tr key={ral} className="border-t border-slate-100" style={{ height: ROW_H }}>
                   <td className="px-3 font-semibold whitespace-nowrap">{fmtEur(ral).replace(',00', '')}</td>
@@ -225,7 +238,7 @@ function RefTable({ p }: { p: Params }) {
           </tbody>
         </table>
       </div>
-      <p className="mt-1.5 text-xs text-slate-500">RAL da 24.000 € a 40.000 € con passo di 2.000 € · scorri la tabella per vedere tutte le righe. Gli importi sono lordi.</p>
+      <p className="mt-1.5 text-xs text-slate-500">Livello {LEVEL_LABEL[level]} · RAL da 24.000 € a 70.000 € con passo di 2.000 € · scorri la tabella per vedere tutte le righe. Gli importi sono lordi.</p>
     </div>
   )
 }
