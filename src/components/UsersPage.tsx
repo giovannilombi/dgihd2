@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ROLE_HELP, ROLE_LABEL, ROLES, type Profile, type Role } from '../lib/roles'
+import { canReadFull, ROLE_HELP, ROLE_LABEL, roleAccess, roleRank, ROLES, type Profile, type Role } from '../lib/roles'
 import { TEAM_LABEL, USER_TEAMS, type Person, type UserTeam } from '../lib/types'
 import { adminCall, supabase } from '../lib/supabase'
-import type { NamesMode } from '../lib/shiftsView'
+import { effectiveNames, parseNamesSetting, type NamesMode, type NamesSetting } from '../lib/shiftsView'
 import { accountFor, canCreateAccount, createTurnistaAccounts, type Credential } from '../lib/accounts'
 import { Badge, Button } from './ui'
 import { CredentialsDialog } from './CredentialsDialog'
@@ -14,11 +14,19 @@ const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString('it-IT', {
 /** Gestione accessi (solo super admin): creazione, livello, reset password, eliminazione. */
 export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]; flush: () => Promise<void> }) {
   const [tab, setTab] = useState<'account' | 'turnisti'>('account')
+  const [roleFilter, setRoleFilter] = useState<Set<Role>>(new Set())
+  const [sortBy, setSortBy] = useState<'role' | 'name' | 'last' | 'created'>('role')
+  const [pending, setPending] = useState<PendingChange | null>(null)
+  const [namesMode, setNamesMode] = useState<NamesSetting>('all')
+  useEffect(() => {
+    void supabase.from('calendar_settings').select('turnista_names').eq('id', 1).maybeSingle()
+      .then(({ data }) => setNamesMode(parseNamesSetting((data as { turnista_names?: string } | null)?.turnista_names)))
+  }, [tab])
   const [users, setUsers] = useState<UserRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [secret, setSecret] = useState<{ email: string; password: string; reason: string } | null>(null)
-  const [form, setForm] = useState({ email: '', display_name: '', role: 'viewer' as Role, team: '' as UserTeam | '', person_id: '' })
+  const [form, setForm] = useState({ email: '', display_name: '', role: 'viewer' as Role, team: '' as UserTeam | '', turnista_view: 'own' as NamesMode })
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -43,9 +51,10 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
   const create = (e: React.FormEvent) => {
     e.preventDefault()
     void run(async () => {
-      const r = await adminCall<{ temp_password: string }>({ action: 'create', ...form, team: form.team || null, person_id: form.role === 'turnista' ? form.person_id || null : null })
+      // Il Turnista si collega da solo alla persona dell'anagrafica con la stessa email
+      const r = await adminCall<{ temp_password: string }>({ action: 'create', ...form, team: form.team || null, person_id: form.role === 'turnista' ? personByEmail(form.email)?.id ?? null : null })
       setSecret({ email: form.email.trim().toLowerCase(), password: r.temp_password, reason: 'Account creato' })
-      setForm({ email: '', display_name: '', role: 'viewer', team: '', person_id: '' })
+      setForm({ email: '', display_name: '', role: 'viewer', team: '', turnista_view: 'own' })
     })
   }
   const reset = (u: UserRow) => {
@@ -55,22 +64,37 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
       setSecret({ email: u.email, password: r.temp_password, reason: 'Password reimpostata' })
     })
   }
-  /** Dare o togliere il livello Super admin richiede una conferma esplicita: vede e modifica tutto. */
-  const setRole = (u: UserRow, role: Role) => {
-    if (role === u.role) return
-    if (role === 'super_admin' && !confirm(`Rendere ${u.display_name || u.email} SUPER ADMIN? Vedrà e modificherà tutto, RAL comprese, e gestirà gli utenti.`)) return
-    if (u.role === 'super_admin' && !confirm(`Togliere il livello Super admin a ${u.display_name || u.email}?`)) return
-    return run(async () => { await adminCall({ action: 'set_role', user_id: u.id, role }) })
+  /** Ogni cambio di livello passa da una conferma che dice cosa vedrà la persona (RAL comprese). */
+  const setRole = (u: UserRow, role: Role) => { if (role !== u.role) setPending({ user: u, role, team: u.team }) }
+  /** Il team decide quali RAL vede chi legge l'anagrafica: anche questo cambio va confermato. */
+  const setTeam = (u: UserRow, value: UserTeam | '') => {
+    const team = value || null
+    if (team === u.team) return
+    if (canReadFull(u.role)) return setPending({ user: u, role: u.role, team })
+    return run(async () => { await adminCall({ action: 'set_team', user_id: u.id, team }) })
   }
-  const setTeam = (u: UserRow, team: UserTeam | '') => run(async () => { await adminCall({ action: 'set_team', user_id: u.id, team: team || null }) })
-  const setPerson = (u: UserRow, personId: string) => run(async () => { await adminCall({ action: 'set_person', user_id: u.id, person_id: personId || null }) })
-  // Risorse collegabili: in ordine alfabetico; quelle già collegate ad altri account non sono selezionabili
-  const sortedPeople = [...people].sort((a, b) => a.name.localeCompare(b.name, 'it'))
-  const linkedTo = new Map(users.filter((u) => u.person_id).map((u) => [u.person_id as string, u.id]))
-  const personOptions = (selfId?: string) => sortedPeople.map((p) => {
-    const taken = linkedTo.has(p.id) && linkedTo.get(p.id) !== selfId
-    return <option key={p.id} value={p.id} disabled={taken}>{p.name}{taken ? ' (già collegata)' : ''}</option>
-  })
+  const applyPending = (c: PendingChange) => {
+    setPending(null)
+    void run(async () => {
+      if (c.role !== c.user.role) await adminCall({ action: 'set_role', user_id: c.user.id, role: c.role })
+      if (c.team !== c.user.team) await adminCall({ action: 'set_team', user_id: c.user.id, team: c.team })
+    })
+  }
+  // Filtro per livello (nessuno selezionato = tutti) e ordinamento
+  const counts = Object.fromEntries(ROLES.map((r) => [r, users.filter((u) => u.role === r).length])) as Record<Role, number>
+  const toggleRole = (r: Role) => setRoleFilter((s) => { const n = new Set(s); if (n.has(r)) n.delete(r); else n.add(r); return n })
+  const byName = (a: UserRow, b: UserRow) => (a.display_name || a.email).localeCompare(b.display_name || b.email, 'it')
+  const shownUsers = users
+    .filter((u) => !roleFilter.size || roleFilter.has(u.role))
+    .sort((a, b) =>
+      sortBy === 'role' ? roleRank(a.role) - roleRank(b.role) || byName(a, b)
+      : sortBy === 'name' ? byName(a, b)
+      : sortBy === 'last' ? (b.last_sign_in_at ?? '').localeCompare(a.last_sign_in_at ?? '') || byName(a, b)
+      : a.created_at.localeCompare(b.created_at))
+  /** Persona dell'anagrafica con la stessa email dell'account: è così che il Turnista riconosce i propri turni. */
+  const personByEmail = (email: string) => people.find((p) => p.email && p.email === email.trim().toLowerCase())
+  const personOf = (u: UserRow) => people.find((p) => p.id === u.person_id) ?? personByEmail(u.email)
+  const setView = (u: UserRow, view: NamesMode) => { if (view !== (u.turnista_view ?? 'own')) void run(async () => { await adminCall({ action: 'set_view', user_id: u.id, turnista_view: view }) }) }
   const remove = (u: UserRow) => {
     if (!confirm(`Eliminare definitivamente l'account ${u.email}? Non potrà più accedere.`)) return
     void run(async () => { await adminCall({ action: 'delete', user_id: u.id }) })
@@ -110,16 +134,40 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
         </label>
         {form.role === 'turnista' && (
           <label className="block">
-            <span className="text-xs font-medium text-slate-600">Risorsa collegata</span>
-            <select value={form.person_id} onChange={(e) => setForm({ ...form, person_id: e.target.value })} className="mt-1 block max-w-56 rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">
-              <option value="">— da collegare —</option>
-              {personOptions()}
+            <span className="text-xs font-medium text-slate-600">Visibilità</span>
+            <select value={form.turnista_view} onChange={(e) => setForm({ ...form, turnista_view: e.target.value as NamesMode })} className="mt-1 block rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">
+              <option value="own">Propri turni</option>
+              <option value="all">Tutti i turni</option>
             </select>
           </label>
+        )}
+        {form.role === 'turnista' && form.email.includes('@') && !personByEmail(form.email) && (
+          <p className="w-full text-xs text-amber-800">Nessuna persona dell'anagrafica ha questa email: il Turnista non vedrà evidenziati i propri turni finché l'email non coincide con quella della sua scheda in B · Team.</p>
         )}
         <Button type="submit" variant="primary" disabled={busy || !form.email}>+ Crea utente</Button>
         <p className="w-full text-xs text-slate-500">Viene generata una password temporanea (es. giraffa-camaleonte-12), mostrata una sola volta: comunicala alla persona, che dovrà cambiarla al primo accesso. Il team decide quali RAL vede: solo quelle del proprio team; HR e Governance le vedono tutte.</p>
       </form>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-slate-600">Livello:</span>
+        <button type="button" aria-pressed={!roleFilter.size} onClick={() => setRoleFilter(new Set())}
+          className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${!roleFilter.size ? 'bg-blue-700 text-white ring-blue-700' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>Tutti ({users.length})</button>
+        {ROLES.map((r) => (
+          <button key={r} type="button" aria-pressed={roleFilter.has(r)} onClick={() => toggleRole(r)} disabled={!counts[r] && !roleFilter.has(r)}
+            className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset disabled:opacity-40 ${roleFilter.has(r) ? 'bg-blue-50 text-blue-800 ring-blue-400' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>
+            {ROLE_LABEL[r]} ({counts[r]})
+          </button>
+        ))}
+        <label className="ml-auto flex items-center gap-2 text-xs font-medium text-slate-600">
+          Ordina per
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="rounded-md bg-white px-2 py-1 text-sm font-normal ring-1 ring-inset ring-slate-300">
+            <option value="role">Livello</option>
+            <option value="name">Nome</option>
+            <option value="last">Ultimo accesso</option>
+            <option value="created">Data di creazione</option>
+          </select>
+        </label>
+      </div>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[980px] text-sm">
@@ -128,14 +176,14 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
               <th className="py-2 pr-3 font-medium">Utente</th>
               <th className="py-2 pr-3 font-medium">Livello</th>
               <th className="py-2 pr-3 font-medium" title="RAL e livello visibili: solo del proprio team; HR e Governance tutti">Team</th>
-              <th className="py-2 pr-3 font-medium" title="Per il Turnista: la sua scheda nel Team, per riconoscere i propri turni">Risorsa</th>
+              <th className="py-2 pr-3 font-medium" title="Per i Turnisti: propri turni o tutti i turni (vale quando l'impostazione generale è Per persona)">Visibilità</th>
               <th className="py-2 pr-3 font-medium">Stato</th>
               <th className="py-2 pr-3 font-medium">Ultimo accesso</th>
               <th className="py-2" />
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {shownUsers.map((u) => (
               <tr key={u.id} className="border-b border-slate-100 align-top">
                 <td className="py-2 pr-3">
                   <div className="font-medium text-slate-900">{u.display_name || '—'}{u.id === me.id && <span className="ml-2 text-xs font-normal text-slate-500">(tu)</span>}</div>
@@ -155,17 +203,20 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                     <option value="">— nessuno —</option>
                     {USER_TEAMS.map((t) => <option key={t} value={t}>{TEAM_LABEL[t]}</option>)}
                   </select>
-                  <div className="mt-0.5 text-[11px] text-slate-400">{u.team === 'hr' || u.team === 'governance' ? 'Vede le RAL di tutti i team' : u.team ? `Vede le RAL del team ${TEAM_LABEL[u.team]}` : 'Non vede RAL'}</div>
+                  <div className={`mt-0.5 text-[11px] ${roleAccess(u.role, u.team).ral === 'all' ? 'font-medium text-red-700' : 'text-slate-400'}`}>{ralHint(u)}</div>
                 </td>
                 <td className="py-2 pr-3">
                   {u.role === 'turnista' ? (
                     <>
-                      <select value={u.person_id ?? ''} disabled={busy} onChange={(e) => void setPerson(u, e.target.value)} aria-label={`Risorsa collegata a ${u.email}`}
-                        className={`max-w-52 rounded-md bg-white px-2 py-1 ring-1 ring-inset ${u.person_id ? 'ring-slate-200' : 'text-amber-800 ring-amber-300'}`}>
-                        <option value="">— da collegare —</option>
-                        {personOptions(u.id)}
+                      <select value={u.turnista_view ?? 'own'} disabled={busy} onChange={(e) => setView(u, e.target.value as NamesMode)} aria-label={`Visibilità di ${u.email}`}
+                        className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
+                        <option value="own">Propri turni</option>
+                        <option value="all">Tutti i turni</option>
                       </select>
-                      <div className="mt-0.5 text-[11px] text-slate-400">{u.person_id ? 'Vede evidenziati i propri turni' : 'Senza collegamento non vede i propri turni'}</div>
+                      <div className="mt-0.5 max-w-52 text-[11px] text-slate-400">{viewHint(namesMode, u.turnista_view)}</div>
+                      {!personOf(u) && (
+                        <div className="mt-1 max-w-52 text-[11px] font-medium text-amber-800" title="L'email dell'account deve coincidere con quella della sua scheda in B · Team">La sua email non corrisponde a nessuna scheda dell'anagrafica: non vede evidenziati i propri turni</div>
+                      )}
                     </>
                   ) : <span className="text-slate-400">—</span>}
                 </td>
@@ -177,12 +228,13 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                 </td>
               </tr>
             ))}
-            {!users.length && <tr><td colSpan={7} className="py-6 text-center text-slate-500">{loading ? 'Caricamento…' : 'Nessun utente.'}</td></tr>}
+            {!shownUsers.length && <tr><td colSpan={7} className="py-6 text-center text-slate-500">{loading ? 'Caricamento…' : 'Nessun utente.'}</td></tr>}
           </tbody>
         </table>
       </div>
       </>}
 
+      {pending && <AccessChangeDialog change={pending} isMe={pending.user.id === me.id} namesMode={effectiveNames(namesMode, pending.user.turnista_view)} onCancel={() => setPending(null)} onConfirm={() => applyPending(pending)} />}
       {secret && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="sec-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
@@ -202,18 +254,18 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
 
 /** Impostazione del super admin: i Turnisti vedono i nomi di tutti oppure solo i propri turni. */
 function TurnistaNamesSetting() {
-  const [mode, setMode] = useState<NamesMode | null>(null)
+  const [mode, setMode] = useState<NamesSetting | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
     const { data, error: err } = await supabase.from('calendar_settings').select('turnista_names').eq('id', 1).maybeSingle()
     if (err) setError(`Impostazione non disponibile: ${err.message}`)
-    else setMode((data as { turnista_names?: string } | null)?.turnista_names === 'own' ? 'own' : 'all')
+    else setMode(parseNamesSetting((data as { turnista_names?: string } | null)?.turnista_names))
   }, [])
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 
-  const save = async (next: NamesMode) => {
+  const save = async (next: NamesSetting) => {
     const prev = mode
     setMode(next)
     setSaving(true)
@@ -223,7 +275,7 @@ function TurnistaNamesSetting() {
     if (err) { setMode(prev); setError(`Salvataggio non riuscito: ${err.message}`) }
   }
 
-  const option = (value: NamesMode, label: string, help: string) => (
+  const option = (value: NamesSetting, label: string, help: string) => (
     <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-lg px-3 py-2 ring-1 ${mode === value ? 'bg-blue-50 ring-blue-300' : 'bg-white ring-slate-200 hover:bg-slate-50'}`}>
       <input type="radio" name="turnista-names" className="mt-1" checked={mode === value} disabled={mode === null || saving} onChange={() => void save(value)} />
       <span>
@@ -235,12 +287,13 @@ function TurnistaNamesSetting() {
 
   return (
     <div className="rounded-xl border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-800">Calendario dei Turnisti: nomi visibili</h3>
-      <div role="radiogroup" aria-label="Nomi visibili ai Turnisti" className="mt-2 flex flex-col gap-2 md:flex-row">
-        {option('all', 'Tutti i nomi', 'Ogni Turnista vede chi copre ciascun turno.')}
+      <h3 className="text-sm font-semibold text-slate-800">Calendario dei Turnisti: cosa vedono</h3>
+      <div role="radiogroup" aria-label="Cosa vedono i Turnisti" className="mt-2 flex flex-col gap-2 md:flex-row">
+        {option('all', 'Tutti i turni', 'Ogni Turnista vede chi copre ciascun turno.')}
         {option('own', 'Solo i propri turni', 'I turni degli altri compaiono come "Turno coperto": i loro nomi non vengono inviati al browser.')}
+        {option('per_user', 'Per persona (ibrida)', 'Ognuno vede ciò che indica la sua Visibilità nella scheda Account: "Propri turni" oppure "Tutti i turni".')}
       </div>
-      <p className="mt-2 text-xs text-slate-500">Vale per tutti gli account con livello Turnista. Ognuno vede evidenziati i propri turni se il suo account è collegato alla sua risorsa (colonna Risorsa).</p>
+      <p className="mt-2 text-xs text-slate-500">Vale per tutti gli account con livello Turnista. Ognuno vede sempre evidenziati i propri turni (riconosciuti dall'email della sua scheda in anagrafica).</p>
       {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
     </div>
   )
@@ -365,4 +418,71 @@ function TurnistiTab({ people, users, loading, flush, reload }: { people: Person
       {result && <CredentialsDialog items={result.created} errors={result.errors} onClose={() => setResult(null)} />}
     </div>
   )
+}
+
+interface PendingChange { user: UserRow; role: Role; team: UserTeam | null }
+
+/** Breve indicazione sotto il team: cosa vede davvero, tenendo conto anche del livello. */
+const ralHint = (u: { role: Role; team: UserTeam | null }) => {
+  const a = roleAccess(u.role, u.team)
+  if (a.ral === 'all') return 'Vede le RAL di tutti i team'
+  if (a.ral === 'team' && u.team) return `Vede le RAL del team ${TEAM_LABEL[u.team]}`
+  return canReadFull(u.role) ? 'Non vede RAL (nessun team)' : `Non vede RAL (livello ${ROLE_LABEL[u.role]})`
+}
+
+/** Conferma di un cambio di livello o di team: elenca cosa vedrà la persona, RAL in evidenza. */
+function AccessChangeDialog({ change, isMe, namesMode, onCancel, onConfirm }: { change: PendingChange; isMe: boolean; namesMode: NamesMode; onCancel: () => void; onConfirm: () => void }) {
+  const { user, role, team } = change
+  const before = roleAccess(user.role, user.team, namesMode)
+  const after = roleAccess(role, team, namesMode)
+  const who = user.display_name || user.email
+  const roleChanged = role !== user.role
+  const label = (r: Role, t: UserTeam | null) => `${ROLE_LABEL[r]} · ${t ? TEAM_LABEL[t] : 'nessun team'}`
+  const ralTone = after.ral === 'all' ? 'bg-red-50 text-red-900 ring-red-200' : after.ral === 'team' ? 'bg-amber-50 text-amber-900 ring-amber-200' : 'bg-emerald-50 text-emerald-900 ring-emerald-200'
+  const ralChange = before.ral !== after.ral || (after.ral === 'team' && user.team !== team)
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="acc-title" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+      <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
+        <h3 id="acc-title" className="text-lg font-semibold text-slate-900">{roleChanged ? `Cambiare il livello di ${who}?` : `Cambiare il team di ${who}?`}</h3>
+        <p className="mt-1 text-sm text-slate-600">Da <strong>{label(user.role, user.team)}</strong> a <strong className="text-slate-900">{label(role, team)}</strong>.</p>
+
+        <div className={`mt-4 rounded-lg px-3 py-2.5 text-sm ring-1 ring-inset ${ralTone}`}>
+          <div className="font-semibold">RAL e livelli: {after.ralText}</div>
+          {ralChange && <div className="mt-0.5 text-xs opacity-90">Prima: {before.ralText}</div>}
+        </div>
+        {after.managesUsers && (
+          <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-900 ring-1 ring-inset ring-red-200">
+            <strong>Gestisce gli utenti:</strong> può cambiare livello e team di chiunque, compreso il proprio, e quindi arrivare a vedere tutte le RAL.
+          </p>
+        )}
+
+        <div className="mt-4 text-sm">
+          <div className="font-semibold text-slate-900">Con questo livello vedrà e potrà fare:</div>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-slate-700">{after.sees.map((x) => <li key={x}>{x}</li>)}</ul>
+          {after.excluded.length > 0 && (
+            <>
+              <div className="mt-3 font-semibold text-slate-900">Non vedrà né potrà fare:</div>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-slate-600">{after.excluded.map((x) => <li key={x}>{x}</li>)}</ul>
+            </>
+          )}
+        </div>
+        {isMe && user.role === 'super_admin' && role !== 'super_admin' && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Stai togliendo a te stesso il livello Super admin: non potrai più gestire gli utenti.</p>
+        )}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel}>Annulla</Button>
+          <Button variant={after.ral === 'all' || after.managesUsers ? 'danger' : 'primary'} onClick={onConfirm}>
+            {roleChanged ? `Conferma: ${ROLE_LABEL[role]}` : `Conferma: team ${team ? TEAM_LABEL[team] : 'nessuno'}`}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Cosa vede davvero il Turnista con l'impostazione generale attuale. */
+const viewHint = (setting: NamesSetting, own?: NamesMode) => {
+  if (setting === 'all') return 'Ora vede tutti i turni: impostazione generale "Tutti i turni"'
+  if (setting === 'own') return 'Ora vede solo i propri: impostazione generale "Solo i propri turni"'
+  return effectiveNames(setting, own) === 'all' ? 'Ora vede tutti i turni (impostazione Per persona)' : 'Ora vede solo i propri turni (impostazione Per persona)'
 }

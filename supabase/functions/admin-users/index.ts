@@ -1,6 +1,6 @@
 // Gestione account del Piano reperibilità ARM.
 // - change_password: qualsiasi utente autenticato cambia la propria password (obbligatorio al primo accesso)
-// - list / create / reset / set_role / set_team / set_person / delete: solo super admin
+// - list / create / reset / set_role / set_team / set_person / set_view / delete: solo super admin
 // - process_requests: elabora la coda public.admin_requests (chiamata firmata dal database con il token del Vault)
 // La chiave di servizio resta lato server: non è mai inviata al browser.
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
@@ -81,6 +81,8 @@ async function parsePerson(admin: ReturnType<typeof createClient>, v: unknown): 
   const { data } = await admin.from('people').select('id').eq('id', String(v)).maybeSingle()
   return data ? String(v) : undefined
 }
+/** Visibilità del Turnista: solo i propri turni con nome ('own', predefinita) oppure tutti ('all'). */
+const parseView = (v: unknown): 'own' | 'all' | undefined => v === undefined || v === null || v === '' ? 'own' : v === 'own' || v === 'all' ? v : undefined
 /** Messaggio leggibile se la risorsa è già collegata a un altro account (indice univoco). */
 const personError = (message: string) =>
   message.includes('profiles_person_id_key') ? 'Questa risorsa è già collegata a un altro account.' : message
@@ -136,7 +138,7 @@ Deno.serve(async (req) => {
   const validRole = (r: unknown): r is Role => ROLES.includes(r as Role)
 
   if (action === 'list') {
-    const { data: profiles, error } = await admin.from('profiles').select('id, email, display_name, role, team, person_id, must_change_password, created_at').order('created_at')
+    const { data: profiles, error } = await admin.from('profiles').select('id, email, display_name, role, team, person_id, turnista_view, must_change_password, created_at').order('created_at')
     if (error) return fail(error.message, 500)
     const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 })
     const lastSeen = new Map((users?.users ?? []).map((u) => [u.id, u.last_sign_in_at]))
@@ -152,12 +154,14 @@ Deno.serve(async (req) => {
     if (team === undefined) return fail('Team non valido.')
     const personId = await parsePerson(admin, body.person_id)
     if (personId === undefined) return fail('Risorsa non trovata.')
+    const view = parseView(body.turnista_view)
+    if (view === undefined) return fail('Visibilità non valida.')
     const password = tempPassword()
     await allowSignup(admin, email)
     const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
     await clearSignup(admin, email)
     if (error || !data.user) return fail(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
-    const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, team, person_id: personId, must_change_password: true })
+    const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, team, person_id: personId, turnista_view: view, must_change_password: true })
     if (pErr) {
       await admin.auth.admin.deleteUser(data.user.id)
       return fail(`Creazione non riuscita: ${personError(pErr.message)}`, 500)
@@ -199,6 +203,14 @@ Deno.serve(async (req) => {
     if (personId === undefined) return fail('Risorsa non trovata.')
     const { error } = await admin.from('profiles').update({ person_id: personId }).eq('id', userId)
     if (error) return fail(personError(error.message), 400)
+    return json({ ok: true })
+  }
+
+  if (action === 'set_view') {
+    const view = parseView(body.turnista_view)
+    if (view === undefined || body.turnista_view === undefined) return fail('Visibilità non valida.')
+    const { error } = await admin.from('profiles').update({ turnista_view: view }).eq('id', userId)
+    if (error) return fail(error.message, 500)
     return json({ ok: true })
   }
 

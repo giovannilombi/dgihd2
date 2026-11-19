@@ -45,3 +45,41 @@ describe('vista Turnista', () => {
     expect(canReadFull('viewer_plus')).toBe(true)
   })
 })
+
+describe('cosa vede ogni livello (conferma dei cambi di livello)', () => {
+  it('le RAL dipendono da livello e team, come nel database', async () => {
+    const { roleAccess } = await import('./roles')
+    expect(roleAccess('editor', 'tech').ral).toBe('team')
+    expect(roleAccess('editor', 'tech').ralText).toMatch(/team Tech/)
+    expect(roleAccess('viewer_plus', 'governance').ral).toBe('all')
+    expect(roleAccess('editor', 'hr').ral).toBe('all')
+    expect(roleAccess('editor', null).ral).toBe('none')
+    expect(roleAccess('super_admin', 'tech').managesUsers).toBe(true)
+  })
+  it('Viewer e Turnista non vedono RAL qualunque sia il team', async () => {
+    const { roleAccess } = await import('./roles')
+    for (const t of ['tech', 'hr', 'governance', null] as const) {
+      expect(roleAccess('turnista', t).ral).toBe('none')
+      expect(roleAccess('viewer', t).ral).toBe('none')
+    }
+    expect(roleAccess('turnista', 'tech', 'own').sees.join(' ')).toMatch(/Turno coperto/)
+    expect(roleAccess('turnista', 'tech', 'all').sees.join(' ')).toMatch(/nomi/)
+  })
+  it('ordina i livelli dal più ampio al più ristretto', async () => {
+    const { roleRank } = await import('./roles')
+    expect(['turnista', 'super_admin', 'viewer', 'editor'].sort((a, b) => roleRank(a as never) - roleRank(b as never))).toEqual(['super_admin', 'editor', 'viewer', 'turnista'])
+  })
+})
+
+describe('visibilità dei Turnisti (generale, per persona)', () => {
+  it('l\'impostazione generale vale per tutti; "per persona" usa la Visibilità di ciascuno', async () => {
+    const { effectiveNames, parseNamesSetting } = await import('./shiftsView')
+    expect(effectiveNames('all', 'own')).toBe('all')
+    expect(effectiveNames('own', 'all')).toBe('own')
+    expect(effectiveNames('per_user', 'all')).toBe('all')
+    expect(effectiveNames('per_user', 'own')).toBe('own')
+    expect(effectiveNames('per_user', undefined)).toBe('own') // in assenza di scelta: solo i propri
+    expect(parseNamesSetting('per_user')).toBe('per_user')
+    expect(parseNamesSetting('qualcosa')).toBe('all')
+  })
+})

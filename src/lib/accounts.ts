@@ -10,6 +10,7 @@ export interface AccountInfo {
   role: Role
   team: string | null
   person_id?: string | null
+  turnista_view?: 'own' | 'all'
   must_change_password: boolean
   created_at: string
   last_sign_in_at: string | null
