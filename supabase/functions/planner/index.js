@@ -107,7 +107,7 @@ const DEFAULT_PARAMS = {
 	revenueFestivo: 1080,
 	netFN: 50,
 	netWD: 50,
-	netWN: 60,
+	netWN: 70,
 	capHours: 8,
 	costMultiplier: 1.35,
 	kNetLow: .62,

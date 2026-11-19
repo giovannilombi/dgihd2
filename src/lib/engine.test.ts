@@ -26,10 +26,10 @@ describe('modello economico (tabella B1 della specifica)', () => {
     expect(e.cost).toBeCloseTo(cost, 2)
   })
 
-  it('festivo notte RAL 30k: lordo 111,11 / 4,70h dom', () => {
+  it('festivo notte RAL 30k (70 € netti): lordo 129,63 / 5,60h dom', () => {
     const e = slotEconomics(mk('x', 30000), { date: '2026-11-29', kind: 'WN' }, P)
-    expect(e.ltot).toBeCloseTo(111.11, 2)
-    expect(sundayHours(e.lcomp, 30000, P)).toBeCloseTo(4.7, 2)
+    expect(e.ltot).toBeCloseTo(129.63, 2)
+    expect(sundayHours(e.lcomp, 30000, P)).toBeCloseTo(5.6, 2)
   })
 
   it('sabato a scaglioni: le prime 2h a +25%, poi +30%', () => {

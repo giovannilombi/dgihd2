@@ -22,7 +22,7 @@ describe('database ↔ app', () => {
     expect(d.pinned).toEqual(['2026-11-24|N'])
     expect(d.excludedDays).toEqual(['2026-12-07'])
     expect(d.params.netFN).toBe(55)
-    expect(d.params.netWN).toBe(60) // default per i parametri mancanti
+    expect(d.params.netWN).toBe(70) // default per i parametri mancanti
   })
   it('team letto dal database; persona senza riga riservata visibile = dati nascosti', () => {
     const d = rowsToData(
