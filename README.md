@@ -22,6 +22,15 @@ I dati (anagrafica, ferie, turni, parametri) stanno in un database **Supabase** 
 | Full edit | tutto | tutto, senza gestione utenti |
 | Viewer esteso | tutto (RAL e livello reinserendo la propria password) | nulla |
 | Viewer | solo calendario turni | nulla |
+| Turnista | solo calendario turni, con i propri evidenziati e l'elenco "I miei turni" | nulla |
+
+### Turnista
+
+Il Turnista è pensato per chi è in rotazione: vede solo il calendario, senza regole, vincoli né spiegazioni su come è stato costruito il piano. Il super admin crea gli account dalla pagina Utenti, scheda **Turnisti** (tutte le persone dell'anagrafica con il loro account, filtro "Senza account", creazione singola o in blocco con le password temporanee mostrate una volta) oppure direttamente dall'anagrafica, cliccando "Nessun account · Crea" sotto il nome. Ogni account Turnista nasce collegato alla scheda della persona; un account esistente si riconosce anche dall'email. Il super admin sceglie, per tutti i Turnisti, se mostrare **tutti i nomi** oppure **solo i propri turni** (gli altri compaiono come "Turno coperto"). Il Turnista non legge direttamente le tabelle: il calendario arriva dalla funzione del database `turnista_calendar()`, che nella modalità "solo i propri turni" non include i nomi degli altri, quindi non raggiungono mai il browser.
+
+### Email delle risorse
+
+Ogni risorsa ha un'**email aziendale obbligatoria** (sotto il nome in B · Team, nel modulo "Aggiungi risorsa" e nella colonna Email dell'import CSV): deve essere valida e diversa per ogni persona. Serve a riconoscere l'account della persona e a creare quello da Turnista. È visibile a chi vede l'anagrafica completa; il tipo di account lo vede solo il super admin.
 
 ### Team e visibilità di RAL e livello
 

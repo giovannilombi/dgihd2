@@ -38,7 +38,14 @@ export interface Person {
   team?: ResourceTeam | null
   /** RAL e livello non visibili all'utente corrente (altro team): niente calcoli economici su questa persona. */
   salaryHidden?: boolean
+  /** Email aziendale (obbligatoria per le nuove risorse): riconosce l'account e serve a creare quello da Turnista. */
+  email?: string
 }
+
+/** Email in forma valida (una sola @, dominio con punto, senza spazi). */
+export const isEmail = (v: unknown): v is string => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
+/** Email come la salva il database: senza spazi ai lati e in minuscolo. */
+export const normalizeEmail = (v: string) => v.trim().toLowerCase()
 
 export const RESOURCE_TEAMS = ['tech', 'design', 'pm', 'director', 'governance'] as const
 export type ResourceTeam = (typeof RESOURCE_TEAMS)[number]

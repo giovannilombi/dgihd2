@@ -1,6 +1,6 @@
 // Gestione account del Piano reperibilità ARM.
 // - change_password: qualsiasi utente autenticato cambia la propria password (obbligatorio al primo accesso)
-// - list / create / reset / set_role / set_team / delete: solo super admin
+// - list / create / reset / set_role / set_team / set_person / delete: solo super admin
 // - process_requests: elabora la coda public.admin_requests (chiamata firmata dal database con il token del Vault)
 // La chiave di servizio resta lato server: non è mai inviata al browser.
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
@@ -10,7 +10,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
-const ROLES = ['super_admin', 'editor', 'viewer_plus', 'viewer'] as const
+const ROLES = ['super_admin', 'editor', 'viewer_plus', 'viewer', 'turnista'] as const
 type Role = (typeof ROLES)[number]
 const TEAMS = ['tech', 'design', 'pm', 'director', 'hr', 'governance'] as const
 type Team = (typeof TEAMS)[number]
@@ -72,6 +72,19 @@ const allowSignup = (admin: ReturnType<typeof createClient>, email: string) =>
 const clearSignup = (admin: ReturnType<typeof createClient>, email: string) =>
   admin.from('signup_allowlist').delete().eq('email', email)
 
+/**
+ * Risorsa del Team da collegare all'account (serve al Turnista per vedere i propri turni):
+ * id esistente, oppure null per nessun collegamento; undefined se la risorsa non esiste.
+ */
+async function parsePerson(admin: ReturnType<typeof createClient>, v: unknown): Promise<string | null | undefined> {
+  if (v === null || v === undefined || v === '') return null
+  const { data } = await admin.from('people').select('id').eq('id', String(v)).maybeSingle()
+  return data ? String(v) : undefined
+}
+/** Messaggio leggibile se la risorsa è già collegata a un altro account (indice univoco). */
+const personError = (message: string) =>
+  message.includes('profiles_person_id_key') ? 'Questa risorsa è già collegata a un altro account.' : message
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 const fail = (message: string, status = 400) => json({ error: message }, status)
@@ -123,7 +136,7 @@ Deno.serve(async (req) => {
   const validRole = (r: unknown): r is Role => ROLES.includes(r as Role)
 
   if (action === 'list') {
-    const { data: profiles, error } = await admin.from('profiles').select('id, email, display_name, role, team, must_change_password, created_at').order('created_at')
+    const { data: profiles, error } = await admin.from('profiles').select('id, email, display_name, role, team, person_id, must_change_password, created_at').order('created_at')
     if (error) return fail(error.message, 500)
     const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 })
     const lastSeen = new Map((users?.users ?? []).map((u) => [u.id, u.last_sign_in_at]))
@@ -137,15 +150,17 @@ Deno.serve(async (req) => {
     if (!validRole(body.role)) return fail('Livello non valido.')
     const team = parseTeam(body.team)
     if (team === undefined) return fail('Team non valido.')
+    const personId = await parsePerson(admin, body.person_id)
+    if (personId === undefined) return fail('Risorsa non trovata.')
     const password = tempPassword()
     await allowSignup(admin, email)
     const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
     await clearSignup(admin, email)
     if (error || !data.user) return fail(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
-    const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, team, must_change_password: true })
+    const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, team, person_id: personId, must_change_password: true })
     if (pErr) {
       await admin.auth.admin.deleteUser(data.user.id)
-      return fail(`Creazione non riuscita: ${pErr.message}`, 500)
+      return fail(`Creazione non riuscita: ${personError(pErr.message)}`, 500)
     }
     return json({ ok: true, user_id: data.user.id, temp_password: password })
   }
@@ -179,6 +194,14 @@ Deno.serve(async (req) => {
     return json({ ok: true })
   }
 
+  if (action === 'set_person') {
+    const personId = await parsePerson(admin, body.person_id)
+    if (personId === undefined) return fail('Risorsa non trovata.')
+    const { error } = await admin.from('profiles').update({ person_id: personId }).eq('id', userId)
+    if (error) return fail(personError(error.message), 400)
+    return json({ ok: true })
+  }
+
   if (action === 'delete') {
     if (target.role === 'super_admin' && (await superAdmins()) <= 1) return fail('Deve restare almeno un super admin.')
     if (userId === caller.id && target.role !== 'super_admin') return fail('Non puoi eliminare il tuo account.')
@@ -196,7 +219,7 @@ type Admin = ReturnType<typeof createClient>
 async function processQueue(admin: Admin) {
   const { data: pending } = await admin.from('admin_requests').select('*').eq('status', 'pending').order('id')
   let n = 0
-  for (const r of (pending ?? []) as { id: number; action: string; email: string; display_name: string; role: Role | null; team: string | null }[]) {
+  for (const r of (pending ?? []) as { id: number; action: string; email: string; display_name: string; role: Role | null; team: string | null; person_id: string | null }[]) {
     const done = (patch: Record<string, unknown>) =>
       admin.from('admin_requests').update({ ...patch, processed_at: new Date().toISOString() }).eq('id', r.id)
     try {
@@ -206,13 +229,15 @@ async function processQueue(admin: Admin) {
         if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')
         const team = parseTeam(r.team)
         if (team === undefined) throw new Error('Team non valido.')
+        const personId = await parsePerson(admin, r.person_id)
+        if (personId === undefined) throw new Error('Risorsa non trovata.')
         const password = tempPassword()
         await allowSignup(admin, email)
         const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
         await clearSignup(admin, email)
         if (error || !data.user) throw new Error(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
-        const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: r.display_name.trim().slice(0, 80), role: r.role, team, must_change_password: true })
-        if (pErr) { await admin.auth.admin.deleteUser(data.user.id); throw new Error(pErr.message) }
+        const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: r.display_name.trim().slice(0, 80), role: r.role, team, person_id: personId, must_change_password: true })
+        if (pErr) { await admin.auth.admin.deleteUser(data.user.id); throw new Error(personError(pErr.message)) }
         await done({ status: 'done', temp_password: password })
       } else {
         const { data: target } = await admin.from('profiles').select('id, role').eq('email', email).maybeSingle()
@@ -233,6 +258,12 @@ async function processQueue(admin: Admin) {
           const team = parseTeam(r.team)
           if (team === undefined) throw new Error('Team non valido.')
           await admin.from('profiles').update({ team }).eq('id', target.id)
+          await done({ status: 'done' })
+        } else if (r.action === 'set_person') {
+          const personId = await parsePerson(admin, r.person_id)
+          if (personId === undefined) throw new Error('Risorsa non trovata.')
+          const { error } = await admin.from('profiles').update({ person_id: personId }).eq('id', target.id)
+          if (error) throw new Error(personError(error.message))
           await done({ status: 'done' })
         } else if (r.action === 'delete') {
           if (target.role === 'super_admin' && superAdmins <= 1) throw new Error('Deve restare almeno un super admin.')

@@ -1,4 +1,4 @@
-import { LEVELS, type Availability, type Level, type Person } from './types'
+import { isEmail, LEVELS, normalizeEmail, type Availability, type Level, type Person } from './types'
 
 export const PALETTE = ['#2563eb', '#0d9488', '#9333ea', '#ea580c', '#db2777', '#4d7c0f', '#0891b2', '#b45309', '#4f46e5', '#be123c', '#15803d', '#7c3aed', '#a21caf', '#ca8a04', '#334155', '#65a30d']
 
@@ -42,11 +42,11 @@ export const RAL_MIN = 10_000
 export const RAL_MAX = 250_000
 
 export const TEMPLATE_CSV = '﻿' + [
-  'Nome;Livello;RAL;Disponibilità',
-  'Mario Rossi;B1;32.000;volontario',
-  'Anna Bianchi;C2;28.500;2',
-  'Luca Verdi;B2;35.000;',
-  'Sara Neri;C3;30.000;ko',
+  'Nome;Email;Livello;RAL;Disponibilità',
+  'Mario Rossi;mario.rossi@azienda.it;B1;32.000;volontario',
+  'Anna Bianchi;anna.bianchi@azienda.it;C2;28.500;2',
+  'Luca Verdi;luca.verdi@azienda.it;B2;35.000;',
+  'Sara Neri;sara.neri@azienda.it;C3;30.000;ko',
 ].join('\r\n') + '\r\n'
 
 /** Valori ammessi nella colonna Disponibilità (facoltativa). */
@@ -89,6 +89,7 @@ const HEADER_ALIASES = {
   level: ['livello', 'livelloccnl', 'level', 'inquadramento', 'liv'],
   ral: ['ral', 'ralannua', 'retribuzioneannualorda', 'ralanno', 'ralannualorda'],
   availability: ['disponibilita', 'preferenza', 'adesione', 'disponibilitamax', 'maxturni'],
+  email: ['email', 'mail', 'emailaziendale', 'indirizzoemail', 'posta'],
 } as const
 
 /** Riconosce un livello anche se scritto "b1", "Liv. B1", "livello B1". */
@@ -100,7 +101,8 @@ function parseLevel(raw: string): Level | null {
 
 /**
  * Accetta testo incollato da Excel (tab) o CSV (; o ,). Se c'è un'intestazione le colonne
- * vengono riconosciute per nome in qualunque ordine; altrimenti l'ordine atteso è Nome, Livello, RAL.
+ * vengono riconosciute per nome in qualunque ordine; altrimenti l'ordine atteso è
+ * Nome, Livello, RAL, Disponibilità, Email. L'email è obbligatoria e non può ripetersi.
  */
 export function parseTeamText(text: string): ParseResult {
   const out: ParseResult = { people: [], errors: [], warnings: [] }
@@ -117,20 +119,21 @@ export function parseTeamText(text: string): ParseResult {
   const sep = detectSeparator(lines[0].l)
   const first = splitCsvLine(lines[0].l, sep).map(norm)
   const find = (aliases: readonly string[]) => first.findIndex((c) => aliases.includes(c))
-  let cols = { name: 0, level: 1, ral: 2, availability: 3 }
+  let cols = { name: 0, level: 1, ral: 2, availability: 3, email: 4 }
   let body = lines
   const looksLikeHeader = first.some((c) => Object.values(HEADER_ALIASES).some((a) => (a as readonly string[]).includes(c)))
   if (looksLikeHeader) {
-    const idx = { name: find(HEADER_ALIASES.name), level: find(HEADER_ALIASES.level), ral: find(HEADER_ALIASES.ral), availability: find(HEADER_ALIASES.availability) }
-    const missing = [idx.name < 0 && 'Nome', idx.level < 0 && 'Livello', idx.ral < 0 && 'RAL'].filter(Boolean)
+    const idx = { name: find(HEADER_ALIASES.name), level: find(HEADER_ALIASES.level), ral: find(HEADER_ALIASES.ral), availability: find(HEADER_ALIASES.availability), email: find(HEADER_ALIASES.email) }
+    const missing = [idx.name < 0 && 'Nome', idx.email < 0 && 'Email', idx.level < 0 && 'Livello', idx.ral < 0 && 'RAL'].filter(Boolean)
     if (missing.length) {
-      out.fatal = `Intestazione riconosciuta ma mancano le colonne: ${missing.join(', ')}. Usa il template (colonne Nome, Livello, RAL).`
+      out.fatal = `Intestazione riconosciuta ma mancano le colonne: ${missing.join(', ')}. Usa il template (colonne Nome, Email, Livello, RAL).`
       return out
     }
     cols = idx
     body = lines.slice(1)
   }
   const seen = new Map<string, number>()
+  const seenEmail = new Map<string, number>()
   for (const { l, n } of body) {
     let cells = splitCsvLine(l, sep)
     if (!looksLikeHeader && sep === ',' && cells.length > 3 && /^\d{3}$/.test(cells[3] ?? '')) {
@@ -147,6 +150,11 @@ export function parseTeamText(text: string): ParseResult {
     const ral = parseAmount(ralRaw)
     if (!Number.isFinite(ral) || ral <= 0) { out.errors.push(`Riga ${n} (${name}): RAL "${ralRaw}" non è un numero`); continue }
     if (ral < RAL_MIN || ral > RAL_MAX) { out.errors.push(`Riga ${n} (${name}): RAL ${ralRaw} fuori dall'intervallo plausibile (${RAL_MIN.toLocaleString('it-IT')}–${RAL_MAX.toLocaleString('it-IT')} €)`); continue }
+    const emailRaw = cells[cols.email] ?? ''
+    if (!isEmail(emailRaw)) { out.errors.push(`Riga ${n} (${name}): email ${emailRaw ? `"${emailRaw}" non valida` : 'mancante'} – è obbligatoria`); continue }
+    const email = normalizeEmail(emailRaw)
+    if (seenEmail.has(email)) { out.errors.push(`Riga ${n} (${name}): email ${email} già usata alla riga ${seenEmail.get(email)}`); continue }
+    seenEmail.set(email, n)
     const key = name.toLowerCase()
     if (seen.has(key)) out.warnings.push(`Riga ${n}: "${name}" compare anche alla riga ${seen.get(key)}`)
     else seen.set(key, n)
@@ -156,10 +164,10 @@ export function parseTeamText(text: string): ParseResult {
       out.warnings.push(`Riga ${n} (${name}): disponibilità "${availRaw}" non riconosciuta, impostata "Nessuna preferenza"`)
       avail = { availability: 'nessuna', active: true }
     }
-    out.people.push({ name, level, ral, ...avail })
+    out.people.push({ name, email, level, ral, ...avail })
   }
   if (!out.people.length && out.errors.length && !looksLikeHeader) {
-    out.fatal = 'Nessuna riga riconosciuta. Il file deve avere le colonne Nome, Livello, RAL: scarica il template e compilalo.'
+    out.fatal = 'Nessuna riga riconosciuta. Il file deve avere le colonne Nome, Email, Livello, RAL: scarica il template e compilalo.'
   }
   return out
 }

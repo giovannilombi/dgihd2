@@ -8,21 +8,26 @@ import { Payroll } from './components/Payroll'
 import { Planner } from './components/Planner'
 import { EyeIcon, PasswordDialog } from './components/PasswordDialog'
 import { useRevealSensitive } from './components/useRevealSensitive'
-import { ChangePasswordForm, ForcedPasswordChange } from './components/ChangePassword'
+import { ForcedPasswordChange } from './components/ChangePassword'
+import { MenuItem, UserMenu } from './components/UserMenu'
+import { TurnistaApp } from './components/ShiftsView'
+import { CredentialsDialog } from './components/CredentialsDialog'
+import { createTurnistaAccount, type Credential } from './lib/accounts'
+import { useAccounts } from './lib/useAccounts'
 import { UsersPage } from './components/UsersPage'
 import { TeamPanel } from './components/TeamPanel'
 import { Button, Section } from './components/ui'
 import { useAuth, verifyOwnPassword } from './lib/useAuth'
 import { useRemoteData, type SyncStatus } from './lib/useRemoteData'
 import { useHeightVar } from './lib/useStickyBar'
-import { canEdit, canManageUsers, canReadFull, ROLE_HELP, ROLE_LABEL, type Profile, type Role } from './lib/roles'
+import { canEdit, canManageUsers, canReadFull, type Profile, type Role } from './lib/roles'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import type { ExportRange } from './lib/exportRange'
 import { ExportDialog, type ExportFormat } from './components/ExportDialog'
 import { normalizeWithReport } from './lib/store'
 import { HORIZON_LABEL } from './lib/calendar'
-import { defaultResourceTeam, seesAllSalaries, TEAM_LABEL, type Assignments, type Person, type UserTeam } from './lib/types'
+import { defaultResourceTeam, seesAllSalaries, type Assignments, type Person, type UserTeam } from './lib/types'
 import { regenerate } from './lib/rules'
 import { callFunction } from './lib/supabase'
 import { needsServerChecks, useServerChecks } from './lib/serverChecks'
@@ -79,6 +84,8 @@ export default function App() {
   }
   const { profile } = state
   if (profile.must_change_password) return <ForcedPasswordChange email={profile.email} onSubmit={changePassword} onSignOut={signOut} />
+  // Il Turnista ha una vista a sé: solo il calendario, letto tramite la funzione del database
+  if (profile.role === 'turnista') return <ErrorBoundary><TurnistaApp key={profile.id} profile={profile} onLogout={signOut} onChangePassword={changePassword} /></ErrorBoundary>
   return <ErrorBoundary><Main key={profile.id + profile.role} profile={profile} onLogout={signOut} onChangePassword={changePassword} /></ErrorBoundary>
 }
 
@@ -104,8 +111,6 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   const allowed = pagesFor(role)
   const page = usePage(allowed)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [userMenu, setUserMenu] = useState(false)
-  const [pwdOpen, setPwdOpen] = useState(false)
   const verify = (password: string) => verifyOwnPassword(profile.email, password)
 
   const [confirmExport, setConfirmExport] = useState(false)
@@ -145,6 +150,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     }
     try {
       const { data: next, warnings } = normalizeWithReport(raw)
+      const noEmail = next.people.filter((p) => !p.email)
+      if (noEmail.length) return setNotice({ tone: 'error', text: `Import non riuscito: ${noEmail.length} ${noEmail.length === 1 ? 'risorsa non ha' : 'risorse non hanno'} un'email valida (${noEmail.slice(0, 3).map((p) => p.name).join(', ')}${noEmail.length > 3 ? '…' : ''}). L'email è obbligatoria: aggiungila nel file e riprova.` })
       if (!confirm(`Importare ${next.people.length} risorse e ${Object.keys(next.assignments).length} turni? I dati condivisi attuali verranno sostituiti per tutti gli utenti.`)) return
       await replace(next)
       setNotice(warnings.length
@@ -199,6 +206,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     ),
     team: (
       <TeamPage verify={verify} editable={editable} myTeam={profile.team} people={data.people} assignments={data.assignments}
+        superAdmin={canManageUsers(role)} flush={flush}
         onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
     ),
     planner: (
@@ -227,7 +235,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     ),
     users: canManageUsers(role) ? (
       <Section id="users" title="Utenti e livelli di accesso" subtitle="Solo il super admin vede questa pagina.">
-        <UsersPage me={profile} />
+        <UsersPage me={profile} people={data.people} flush={flush} />
       </Section>
     ) : null,
   }
@@ -262,37 +270,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
                 <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => importJson(e.target.files?.[0])} />
               </div>
             )}
-            <div className="relative">
-              <button type="button" onClick={() => setUserMenu((o) => !o)} aria-expanded={userMenu} aria-haspopup="menu"
-                className="flex items-center gap-2 rounded-lg px-2 py-1 text-left ring-1 ring-slate-200 hover:bg-slate-50">
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-700 text-xs font-semibold text-white">{initials(profile)}</span>
-                <span className="hidden leading-tight sm:block">
-                  <span className="block max-w-40 truncate text-sm font-medium text-slate-900">{profile.display_name || profile.email}</span>
-                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-blue-700">{ROLE_LABEL[role]}{profile.team && <span className="text-slate-500"> · {TEAM_LABEL[profile.team]}</span>}</span>
-                </span>
-                <span className="text-slate-400">▾</span>
-              </button>
-              {userMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setUserMenu(false)} aria-hidden />
-                  <div role="menu" className="absolute right-0 z-50 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
-                    <div className="px-3 py-2">
-                      <div className="text-sm font-medium text-slate-900">{profile.display_name || '—'}</div>
-                      <div className="truncate text-xs text-slate-500">{profile.email}</div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        <span className="inline-flex rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Livello: {ROLE_LABEL[role]}</span>
-                        <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">Team: {profile.team ? TEAM_LABEL[profile.team] : 'non assegnato'}</span>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500">{ROLE_HELP[role]}</div>
-                      {canReadFull(role) && <div className="mt-0.5 text-xs text-slate-500">{teamScope(profile.team)}</div>}
-                    </div>
-                    <div className="my-1 border-t border-slate-100" />
-                    <MenuItem onClick={() => { setUserMenu(false); setPwdOpen(true) }}>Cambia password</MenuItem>
-                    <MenuItem danger onClick={() => { setUserMenu(false); onLogout() }}>Esci</MenuItem>
-                  </div>
-                </>
-              )}
-            </div>
+            <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} />
           </div>
         </div>
       </header>
@@ -307,14 +285,6 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         {syncError && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{syncError}</div>}
         {status === 'loading' ? <p className="py-10 text-center text-sm text-slate-500">Caricamento dei dati condivisi…</p> : sections[page]}
       </main>
-      {pwdOpen && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="cp-title">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-            <h3 id="cp-title" className="mb-3 text-lg font-semibold text-slate-900">Cambia password</h3>
-            <ChangePasswordForm onSubmit={onChangePassword} onCancel={() => setPwdOpen(false)} />
-          </div>
-        </div>
-      )}
       {exportFormat && (
         <ExportDialog format={exportFormat} busy={exporting} onClose={() => setExportFormat(null)}
           onExport={(range, fileName) => runExport(exportFormat, range, fileName)} />
@@ -332,16 +302,18 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   )
 }
 
-function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?: boolean; children: React.ReactNode }) {
-  return (
-    <button role="menuitem" type="button" onClick={onClick}
-      className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-100 ${danger ? 'text-red-700' : 'text-slate-700'}`}>{children}</button>
-  )
-}
-
 /** Pagina anagrafica: RAL e livello oscurati finché non si reinserisce la password (lo stato si azzera cambiando pagina). */
-function TeamPage({ verify, editable, myTeam, people, assignments, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; myTeam: UserTeam | null; people: Person[]; assignments: Assignments; onChange: (people: Person[], assignments?: Assignments) => void }) {
+function TeamPage({ verify, editable, myTeam, people, assignments, superAdmin, flush, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; myTeam: UserTeam | null; people: Person[]; assignments: Assignments; superAdmin: boolean; flush: () => Promise<void>; onChange: (people: Person[], assignments?: Assignments) => void }) {
   const { revealed, toggle, dialog } = useRevealSensitive(verify)
+  // Solo il super admin vede il tipo di account di ogni risorsa e può creare quello da Turnista
+  const { accounts, loaded, reload } = useAccounts(superAdmin)
+  const [creds, setCreds] = useState<Credential[] | null>(null)
+  const createAccount = async (p: Person) => {
+    await flush() // la scheda (e la sua email) deve essere già salvata
+    const c = await createTurnistaAccount(p)
+    await reload()
+    setCreds([c])
+  }
   return (
     <>
       <Section id="team" letter="B" title="Anagrafica team" subtitle="Chi ha dato KO resta in anagrafica ma non compare nel calendario. La disponibilità guida l'auto-compilazione."
@@ -352,21 +324,15 @@ function TeamPage({ verify, editable, myTeam, people, assignments, onChange }: {
         </>}>
         <fieldset disabled={!editable} className="min-w-0">
           <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed}
-            myTeam={myTeam} canSetTeam={editable && seesAllSalaries(myTeam)} newTeam={defaultResourceTeam(myTeam)} />
+            myTeam={myTeam} canSetTeam={editable && seesAllSalaries(myTeam)} newTeam={defaultResourceTeam(myTeam)}
+            accounts={superAdmin && loaded ? accounts : undefined} onCreateAccount={superAdmin ? createAccount : undefined} />
         </fieldset>
       </Section>
       {dialog}
+      {creds && <CredentialsDialog items={creds} onClose={() => setCreds(null)} />}
     </>
   )
 }
-
-/** Quali RAL vede l'utente, in base al team. */
-const teamScope = (team: UserTeam | null) =>
-  seesAllSalaries(team) ? 'Vede RAL e livello di tutti i team.'
-  : team ? `Vede RAL e livello solo delle risorse del team ${TEAM_LABEL[team]}.`
-  : 'Nessun team: RAL e livello non visibili.'
-
-const initials = (p: Profile) => (p.display_name || p.email).split(/[\s.@]+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('')
 
 function SyncBadge({ status }: { status: SyncStatus }) {
   const map: Record<SyncStatus, [string, string]> = {

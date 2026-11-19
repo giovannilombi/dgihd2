@@ -5,9 +5,11 @@ import { HORIZON_MONTHS, monthKey, monthShort, rangeLabel, SLOT_BY_ID, toRanges 
 import { download, slotTag } from '../lib/reports'
 import { AvailabilityDialog } from './AvailabilityDialog'
 import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
-import { availabilityLabel, availabilityOf, canSeeSalaryOf, LEVEL_LABEL, LEVELS, preferredMax, RESOURCE_TEAMS, TEAM_LABEL, type Assignments, type Level, type Person, type ResourceTeam, type UserTeam } from '../lib/types'
+import { availabilityLabel, availabilityOf, canSeeSalaryOf, isEmail, LEVEL_LABEL, LEVELS, normalizeEmail, preferredMax, RESOURCE_TEAMS, TEAM_LABEL, type Assignments, type Level, type Person, type ResourceTeam, type UserTeam } from '../lib/types'
 import { Badge, Button, CommitInput } from './ui'
 import { renumberReserves } from '../lib/store'
+import { accountFor, type AccountInfo } from '../lib/accounts'
+import { ROLE_LABEL } from '../lib/roles'
 
 interface Props {
   people: Person[]
@@ -21,6 +23,10 @@ interface Props {
   canSetTeam: boolean
   /** Team assegnato alle risorse aggiunte da chi non può sceglierlo (il proprio). */
   newTeam: ResourceTeam | null
+  /** Account esistenti: solo per il super admin, che vede il tipo di account di ogni risorsa. */
+  accounts?: AccountInfo[]
+  /** Crea l'account Turnista della risorsa (solo super admin). */
+  onCreateAccount?: (p: Person) => Promise<void>
 }
 
 const Masked = ({ w = 'w-20' }: { w?: string }) => (
@@ -38,8 +44,12 @@ const Reserved = ({ w = 'w-20', team }: { w?: string; team?: ResourceTeam | null
   </span>
 )
 
-export function TeamPanel({ people, assignments, onChange, revealed, myTeam, canSetTeam, newTeam }: Props) {
+export function TeamPanel({ people, assignments, onChange, revealed, myTeam, canSetTeam, newTeam, accounts, onCreateAccount }: Props) {
   const [importOpen, setImportOpen] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const editingPerson = people.find((x) => x.id === editing)
 
@@ -59,10 +69,28 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
   /** Le nuove risorse nascono nel team dell'utente (HR e Governance lo scelgono poi dalla tabella). */
   const newPersonTeam = canSetTeam ? null : newTeam
   const newHidden = !canSeeSalaryOf(myTeam, newPersonTeam)
-  const add = () => onChange([...people, {
-    id: newId(), name: `Risorsa ${people.length + 1}`, level: 'B1', ral: newHidden ? 0 : 30_000, active: true, color: nextColor(people), availability: 'nessuna',
+  const add = (name: string, email: string) => onChange([...people, {
+    id: newId(), name, email, level: 'B1', ral: newHidden ? 0 : 30_000, active: true, color: nextColor(people), availability: 'nessuna',
     team: newPersonTeam, ...(newHidden ? { salaryHidden: true } : {}),
   }])
+  /** Nome della risorsa che usa già quell'email (l'email identifica la persona e il suo account). */
+  const emailOwner = (email: string, exceptId?: string) => people.find((x) => x.id !== exceptId && x.email === normalizeEmail(email))?.name
+  const missingEmail = people.filter((x) => !x.email).length
+  const withoutAccount = accounts ? people.filter((x) => !accountFor(x, accounts)).length : 0
+
+  const createAccount = async (p: Person) => {
+    if (!onCreateAccount) return
+    setCreating(true)
+    setCreateError('')
+    try {
+      await onCreateAccount(p)
+      setConfirming(null)
+    } catch (e) {
+      setCreateError((e as Error).message)
+    } finally {
+      setCreating(false)
+    }
+  }
 
   const remove = (p: Person) => {
     const n = personSlots(assignments, p.id).length
@@ -94,7 +122,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
               const max = p.active ? preferredMax(p) : undefined
               return (
                 <tr key={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'}`}>
-                  <td className="py-2 pr-3 pl-3" style={p.active && p.reserve ? { boxShadow: 'inset 3px 0 0 #7c3aed' } : undefined}>
+                  <td className="py-2 pr-3 pl-3 align-middle" style={p.active && p.reserve ? { boxShadow: 'inset 3px 0 0 #7c3aed' } : undefined}>
                     <label className="relative block h-7 w-7 cursor-pointer rounded-full ring-2 ring-white shadow" style={{ background: p.color }} title="Cambia colore">
                       <input type="color" value={p.color} onChange={(e) => update(p.id, { color: e.target.value })} className="absolute inset-0 opacity-0" />
                     </label>
@@ -103,6 +131,25 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
                     <CommitInput value={p.name} onCommit={(v) => update(p.id, { name: v.replace(/\s+/g, ' ').trim() })} validate={(v) => v.trim().length >= 1 && v.trim().length <= 80}
                       aria-label="Nome e cognome" title="Il nome si salva uscendo dal campo o premendo Invio (Esc annulla)" maxLength={80}
                       className="w-full min-w-48 rounded-md px-2 py-1 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-600 outline-none" />
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-0.5">
+                      <CommitInput type="email" value={p.email ?? ''} placeholder="nome.cognome@azienda.it" aria-label={`Email di ${p.name}`} maxLength={120}
+                        onCommit={(v) => update(p.id, { email: normalizeEmail(v) })} validate={(v) => isEmail(v) && !emailOwner(v, p.id)}
+                        title="Email aziendale, obbligatoria: si salva uscendo dal campo o premendo Invio (deve essere valida e non già usata da un'altra risorsa)"
+                        className={`w-64 max-w-full rounded px-1.5 py-0.5 text-xs outline-none ring-1 ring-inset focus:ring-2 focus:ring-blue-600 ${p.email ? 'text-slate-500 ring-transparent hover:ring-slate-200' : 'bg-amber-50 text-amber-900 ring-amber-300 placeholder:text-amber-700/70'}`} />
+                      {!p.email && <Badge tone="amber">Email da inserire</Badge>}
+                      {accounts && <AccountChip person={p} accounts={accounts} canCreate={!!onCreateAccount} onCreate={() => { setCreateError(''); setConfirming(p.id) }} />}
+                    </div>
+                    {confirming === p.id && p.email && (
+                      <div role="dialog" aria-label={`Crea account Turnista per ${p.name}`} className="mt-2 max-w-sm rounded-lg bg-white p-3 text-xs text-slate-600 shadow-lg ring-1 ring-blue-200">
+                        <div className="text-sm font-semibold text-slate-900">Creare l'account Turnista per {p.name}?</div>
+                        <div className="mt-1">Accesso con {p.email}, già collegato a questa scheda. La password temporanea viene mostrata una sola volta.</div>
+                        {createError && <div role="alert" className="mt-2 rounded bg-red-50 px-2 py-1 text-red-800">{createError}</div>}
+                        <div className="mt-2.5 flex justify-end gap-2">
+                          <Button variant="ghost" disabled={creating} onClick={() => setConfirming(null)}>Annulla</Button>
+                          <Button variant="primary" disabled={creating} onClick={() => void createAccount(p)}>{creating ? 'Creazione…' : 'Crea account'}</Button>
+                        </div>
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 pr-3">
                     {canSetTeam ? (
@@ -220,6 +267,8 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
         {missingRal > 0 && <Badge tone="amber" title="Con RAL a zero gli importi sono stimati e le ore di straordinario non sono calcolabili">{missingRal} RAL da inserire</Badge>}
         {canSetTeam && noTeam > 0 && <Badge tone="amber" title="Senza team, RAL e livello sono visibili solo a HR e Governance">{noTeam} senza team</Badge>}
         {hiddenCount > 0 && <Badge tone="slate" title="RAL e livello visibili solo al loro team, a HR e a Governance; i vincoli che ne dipendono sono verificati dal server">{hiddenCount} di altri team · RAL riservata</Badge>}
+        {missingEmail > 0 && <Badge tone="amber" title="L'email è obbligatoria: serve a riconoscere l'account della persona">{missingEmail} {missingEmail === 1 ? 'email da inserire' : 'email da inserire'}</Badge>}
+        {accounts && withoutAccount > 0 && <Badge tone="slate" title="Risorse senza account: il super admin può crearlo da qui o dalla pagina Utenti, scheda Turnisti">{withoutAccount} senza account</Badge>}
         <span className="text-xs text-slate-500">L'auto-compilazione impiega prima i volontari, poi chi ha un limite (senza superarlo), infine chi non ha espresso preferenze; le riserve solo se nessun primario è disponibile.</span>
       </div>
       <div className="overflow-x-auto">
@@ -227,7 +276,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-2 pr-3 pl-3 font-medium">Badge</th>
-              <th className="py-2 pr-3 font-medium">Nome e cognome</th>
+              <th className="py-2 pr-3 font-medium">Nome e cognome{accounts ? ' · email · account' : ' · email'}</th>
               <th className="py-2 pr-3 font-medium">Team</th>
               <th className="py-2 pr-3 font-medium">Livello CCNL</th>
               <th className="py-2 pr-3 font-medium">RAL (€)</th>
@@ -245,7 +294,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
         </table>
       </div>
       <div className="no-print mt-3 flex flex-wrap gap-2">
-        <Button variant="primary" onClick={add}>+ Aggiungi risorsa</Button>
+        <Button variant="primary" onClick={() => setAdding(true)}>+ Aggiungi risorsa</Button>
         <Button onClick={() => setImportOpen(true)}>Importa CSV / Incolla da Excel</Button>
       </div>
 
@@ -278,6 +327,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
           </ol>
         ) : <p className="mt-2 text-sm text-slate-500">Nessuna riserva. Per aggiungerne una, imposta il ruolo "Riserva" nella tabella sopra.</p>}
       </div>
+      {adding && <NewPersonDialog emailOwner={emailOwner} onClose={() => setAdding(false)} onAdd={(name, email) => { add(name, email); setAdding(false) }} />}
       {editingPerson && <AvailabilityDialog person={editingPerson} onClose={() => setEditing(null)} onSave={(u, pr) => saveAvailability(editingPerson.id, u, pr)} />}
       {importOpen && <ImportDialog revealed={revealed} existing={people} replaceScope={canSetTeam ? null : newTeam} onClose={() => setImportOpen(false)} onImport={(rows, replace) => {
         // Chi non vede tutte le RAL sostituisce solo le risorse del proprio team: le altre restano con i loro turni
@@ -303,6 +353,12 @@ function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: {
   const existingNames = new Set(existing.map((x) => x.name.trim().toLowerCase()))
   const clashes = replace ? [] : parsed.people.filter((x) => existingNames.has(x.name.toLowerCase()))
   const warnings = [...parsed.warnings, ...clashes.map((x) => `"${x.name}" è già presente nel team attuale`)]
+  // Le email devono restare uniche anche rispetto alle risorse che l'import non sostituisce
+  const kept = replace ? (replaceScope ? existing.filter((x) => x.salaryHidden) : []) : existing
+  const keptEmail = new Map(kept.filter((x) => x.email).map((x) => [x.email as string, x.name]))
+  const emailClash = parsed.people.filter((x) => x.email && keptEmail.has(x.email))
+  const importable = parsed.people.filter((x) => !(x.email && keptEmail.has(x.email)))
+  const errors = [...parsed.errors, ...emailClash.map((x) => `${x.name}: email ${x.email} già usata da ${keptEmail.get(x.email as string)}`)]
 
   const readFile = async (f?: File) => {
     setFileError('')
@@ -325,7 +381,7 @@ function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h3 id="imp-title" className="text-lg font-semibold">Importa team</h3>
-            <p className="mt-1 text-sm text-slate-500">Colonne richieste: <strong>Nome, Livello, RAL</strong>; facoltativa <strong>Disponibilità</strong>. Livelli ammessi: {LEVELS.join(', ')}.</p>
+            <p className="mt-1 text-sm text-slate-500">Colonne richieste: <strong>Nome, Email, Livello, RAL</strong>; facoltativa <strong>Disponibilità</strong>. Livelli ammessi: {LEVELS.join(', ')}.</p>
             <p className="mt-0.5 text-xs text-slate-500">Disponibilità: {AVAILABILITY_HELP}.</p>
           </div>
           <Button onClick={() => download('template-team-reperibilita.csv', TEMPLATE_CSV, 'text/csv;charset=utf-8')}>↓ Scarica template CSV</Button>
@@ -334,7 +390,7 @@ function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: {
           <li>Scarica il template e compilalo in Excel, una riga per persona.</li>
           <li>Salvalo come CSV e caricalo qui, oppure copia le celle da Excel e incollale nel riquadro.</li>
         </ol>
-        <textarea value={text} onChange={(e) => { setText(e.target.value); setFileError(''); setFileName('') }} rows={6} placeholder={'Nome\tLivello\tRAL\nMario Rossi\tB1\t32.000\nAnna Bianchi\tC2\t28.500'} aria-label="Contenuto da importare" className="mt-3 w-full rounded-lg p-3 font-mono text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" />
+        <textarea value={text} onChange={(e) => { setText(e.target.value); setFileError(''); setFileName('') }} rows={6} placeholder={'Nome\tEmail\tLivello\tRAL\nMario Rossi\tmario.rossi@azienda.it\tB1\t32.000\nAnna Bianchi\tanna.bianchi@azienda.it\tC2\t28.500'} aria-label="Contenuto da importare" className="mt-3 w-full rounded-lg p-3 font-mono text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
           <label className="cursor-pointer font-medium text-blue-700 hover:underline">
             Carica file CSV…{fileName && <span className="ml-1 font-normal text-slate-500">({fileName})</span>}
@@ -348,21 +404,21 @@ function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: {
         {!status && text.trim() && (
           <div className="mt-3 space-y-2">
             <div className="flex flex-wrap gap-2">
-              <Badge tone={parsed.people.length ? 'green' : 'red'}>{parsed.people.length} righe valide</Badge>
-              {parsed.errors.length > 0 && <Badge tone="red">{parsed.errors.length} righe scartate</Badge>}
+              <Badge tone={importable.length ? 'green' : 'red'}>{importable.length} righe valide</Badge>
+              {errors.length > 0 && <Badge tone="red">{errors.length} righe scartate</Badge>}
               {warnings.length > 0 && <Badge tone="amber">{warnings.length} avvisi</Badge>}
             </div>
-            {parsed.people.length > 0 && (
+            {importable.length > 0 && (
               <div className="max-h-40 overflow-auto rounded-lg ring-1 ring-slate-200">
                 <table className="num w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-1.5 font-medium">Nome</th><th className="py-1.5 font-medium">Livello</th><th className="px-3 py-1.5 text-right font-medium">RAL</th><th className="pr-3 py-1.5 font-medium">Disponibilità</th></tr></thead>
-                  <tbody>{parsed.people.map((x, i) => <tr key={i} className="border-t border-slate-100"><td className="px-3 py-1">{x.name}</td><td className="py-1">{revealed ? x.level : '•••'}</td><td className="px-3 py-1 text-right">{revealed ? fmtEur(x.ral) : '•••••'}</td><td className="pr-3 py-1">{availabilityLabel(x)}</td></tr>)}</tbody>
+                  <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-1.5 font-medium">Nome</th><th className="py-1.5 pr-3 font-medium">Email</th><th className="py-1.5 font-medium">Livello</th><th className="px-3 py-1.5 text-right font-medium">RAL</th><th className="pr-3 py-1.5 font-medium">Disponibilità</th></tr></thead>
+                  <tbody>{importable.map((x, i) => <tr key={i} className="border-t border-slate-100"><td className="px-3 py-1">{x.name}</td><td className="py-1 pr-3 text-slate-600">{x.email}</td><td className="py-1">{revealed ? x.level : '•••'}</td><td className="px-3 py-1 text-right">{revealed ? fmtEur(x.ral) : '•••••'}</td><td className="pr-3 py-1">{availabilityLabel(x)}</td></tr>)}</tbody>
                 </table>
               </div>
             )}
-            {(parsed.errors.length > 0 || warnings.length > 0) && (
+            {(errors.length > 0 || warnings.length > 0) && (
               <ul className="max-h-32 space-y-0.5 overflow-auto rounded-lg bg-slate-50 p-2.5 text-xs">
-                {parsed.errors.map((e) => <li key={e} className="text-red-700">✕ {e}</li>)}
+                {errors.map((e) => <li key={e} className="text-red-700">✕ {e}</li>)}
                 {warnings.map((w) => <li key={w} className="text-amber-800">! {w}</li>)}
               </ul>
             )}
@@ -370,10 +426,10 @@ function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: {
         )}
 
         <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-          {!status && parsed.errors.length > 0 && parsed.people.length > 0 && <span className="mr-auto text-xs text-slate-500">Le righe scartate non verranno importate.</span>}
+          {!status && errors.length > 0 && importable.length > 0 && <span className="mr-auto text-xs text-slate-500">Le righe scartate non verranno importate.</span>}
           <Button variant="ghost" onClick={onClose}>Annulla</Button>
-          <Button variant="primary" disabled={!!status || !parsed.people.length} onClick={() => onImport(parsed.people, replace)}>
-            Importa {parsed.people.length || ''} {parsed.people.length === 1 ? 'risorsa' : 'risorse'}
+          <Button variant="primary" disabled={!!status || !importable.length} onClick={() => onImport(importable, replace)}>
+            Importa {importable.length || ''} {importable.length === 1 ? 'risorsa' : 'risorse'}
           </Button>
         </div>
       </div>
@@ -391,4 +447,66 @@ const ROLE_STYLE: Record<RoleValue, string> = {
   primary: 'bg-blue-50 text-blue-800 ring-blue-200',
   reserve: 'bg-violet-50 text-violet-800 ring-violet-200',
   ko: 'bg-red-50 text-red-700 ring-red-200',
+}
+
+/** Tipo di account della risorsa (solo super admin); senza account e con l'email, un clic lo crea. */
+function AccountChip({ person, accounts, canCreate, onCreate }: { person: Person; accounts: AccountInfo[]; canCreate: boolean; onCreate: () => void }) {
+  const acc = accountFor(person, accounts)
+  const base = 'inline-flex items-center gap-1 rounded-md px-1.5 py-px text-[11px] font-semibold whitespace-nowrap ring-1 ring-inset'
+  if (acc) {
+    const tone = acc.role === 'turnista' ? 'bg-blue-50 text-blue-800 ring-blue-200' : 'bg-indigo-50 text-indigo-800 ring-indigo-200'
+    return <span className={`${base} ${tone}`} title={acc.must_change_password ? 'Deve ancora cambiare la password temporanea' : undefined}>Account · {ROLE_LABEL[acc.role]}</span>
+  }
+  if (person.email && canCreate) {
+    return (
+      <button type="button" onClick={onCreate} title={`Crea un account Turnista per ${person.name}`}
+        className={`${base} cursor-pointer bg-slate-100 text-slate-600 ring-slate-300 hover:bg-blue-50 hover:ring-blue-300`}>
+        Nessun account · <span className="text-blue-700">Crea</span>
+      </button>
+    )
+  }
+  return <span className={`${base} bg-slate-100 text-slate-600 ring-slate-200`} title={person.email ? undefined : "Inserisci prima l'email"}>Nessun account</span>
+}
+
+/** Nuova risorsa: nome ed email sono obbligatori (l'email riconosce la persona e il suo account). */
+function NewPersonDialog({ emailOwner, onClose, onAdd }: { emailOwner: (email: string) => string | undefined; onClose: () => void; onAdd: (name: string, email: string) => void }) {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [tried, setTried] = useState(false)
+  const n = name.replace(/\s+/g, ' ').trim()
+  const owner = isEmail(email) ? emailOwner(email) : undefined
+  const problem = !n ? 'Inserisci nome e cognome.'
+    : n.length > 80 ? 'Nome troppo lungo (massimo 80 caratteri).'
+    : !email.trim() ? "Inserisci l'email: è obbligatoria."
+    : !isEmail(email) ? 'Email non valida.'
+    : owner ? `Email già usata da ${owner}.`
+    : ''
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (problem) { setTried(true); return }
+    onAdd(n, normalizeEmail(email))
+  }
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="np-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <form onSubmit={submit} noValidate className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+        <h3 id="np-title" className="text-lg font-semibold text-slate-900">Nuova risorsa</h3>
+        <p className="mt-1 text-sm text-slate-500">Livello, RAL, ruolo e disponibilità si completano poi nella tabella.</p>
+        <label className="mt-4 block">
+          <span className="text-xs font-medium text-slate-600">Nome e cognome</span>
+          <input autoFocus required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} className="mt-1 block w-full rounded-lg px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" />
+        </label>
+        <label className="mt-3 block">
+          <span className="text-xs font-medium text-slate-600">Email aziendale <span className="text-red-700">*</span></span>
+          <input type="email" required maxLength={120} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nome.cognome@azienda.it"
+            aria-invalid={tried && !!problem && !!email} className="mt-1 block w-full rounded-lg px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" />
+          <span className="mt-1 block text-xs text-slate-500">Obbligatoria: serve a riconoscere l'account della persona e a crearne uno da Turnista.</span>
+        </label>
+        {tried && problem && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{problem}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" type="button" onClick={onClose}>Annulla</Button>
+          <Button variant="primary" type="submit">Aggiungi risorsa</Button>
+        </div>
+      </form>
+    </div>
+  )
 }

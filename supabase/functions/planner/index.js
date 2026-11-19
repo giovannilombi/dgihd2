@@ -80,6 +80,10 @@ const LEVELS = [
 	"B3",
 	"A1"
 ];
+/** Email in forma valida (una sola @, dominio con punto, senza spazi). */
+const isEmail = (v) => typeof v === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+/** Email come la salva il database: senza spazi ai lati e in minuscolo. */
+const normalizeEmail = (v) => v.trim().toLowerCase();
 const RESOURCE_TEAMS = [
 	"tech",
 	"design",
@@ -185,11 +189,11 @@ const nextColor = (people) => {
 	availability: "nessuna"
 }));
 "" + [
-	"Nome;Livello;RAL;Disponibilità",
-	"Mario Rossi;B1;32.000;volontario",
-	"Anna Bianchi;C2;28.500;2",
-	"Luca Verdi;B2;35.000;",
-	"Sara Neri;C3;30.000;ko"
+	"Nome;Email;Livello;RAL;Disponibilità",
+	"Mario Rossi;mario.rossi@azienda.it;B1;32.000;volontario",
+	"Anna Bianchi;anna.bianchi@azienda.it;C2;28.500;2",
+	"Luca Verdi;luca.verdi@azienda.it;B2;35.000;",
+	"Sara Neri;sara.neri@azienda.it;C3;30.000;ko"
 ].join("\r\n");
 // src/lib/store.ts
 /**
@@ -231,6 +235,7 @@ function normalizeWithReport(raw) {
 			].includes(r.maxPerMonth) ? r.maxPerMonth : 1 } : {},
 			...cleanDays(r.unavailable, r.preferredDays),
 			...r.ralNd === true ? { ralNd: true } : {},
+			...isEmail(r.email) ? { email: normalizeEmail(r.email) } : {},
 			team: RESOURCE_TEAMS.includes(r.team) ? r.team : null,
 			...r.salaryHidden === true ? { salaryHidden: true } : {},
 			...r.reserve === true ? {
@@ -328,7 +333,8 @@ function rowsToData(people, details, privates, assignments, excluded, params) {
 				unavailable: d?.unavailable ?? [],
 				preferredDays: d?.preferred_days ?? [],
 				reserve: d?.reserve ?? false,
-				reserveOrder: d?.reserve_order ?? void 0
+				reserveOrder: d?.reserve_order ?? void 0,
+				email: d?.email ?? void 0
 			};
 		}),
 		assignments: Object.fromEntries(assignments.map((a) => [a.slot_id, a.person_id])),

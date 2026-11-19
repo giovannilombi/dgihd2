@@ -12,6 +12,8 @@ export interface DetailsRow {
   preferred_days: string[]
   reserve: boolean
   reserve_order: number | null
+  /** Email aziendale della risorsa (assente nelle letture che non la richiedono, es. la funzione "planner"). */
+  email?: string | null
 }
 /** Dati riservati per team: livello, RAL, Q/. */
 export interface PrivateRow { person_id: string; level: string; ral: number; ral_nd: boolean }
@@ -41,6 +43,7 @@ export function rowsToData(
         availability: d?.availability ?? 'nessuna', maxPerMonth: d?.max_per_month ?? undefined,
         unavailable: d?.unavailable ?? [], preferredDays: d?.preferred_days ?? [],
         reserve: d?.reserve ?? false, reserveOrder: d?.reserve_order ?? undefined,
+        email: d?.email ?? undefined,
       }
     }),
     assignments: Object.fromEntries(assignments.map((a) => [a.slot_id, a.person_id])),
@@ -56,6 +59,7 @@ export const detailsRow = (p: Person): DetailsRow => ({
   max_per_month: p.availability === 'limitato' ? p.maxPerMonth ?? 1 : null,
   unavailable: p.unavailable ?? [], preferred_days: p.preferredDays ?? [],
   reserve: !!p.reserve, reserve_order: p.reserve ? p.reserveOrder ?? null : null,
+  email: p.email ?? null,
 })
 export const privateRow = (p: Person): PrivateRow => ({ person_id: p.id, level: p.level, ral: p.ralNd ? 0 : p.ral, ral_nd: !!p.ralNd })
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)

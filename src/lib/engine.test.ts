@@ -113,8 +113,17 @@ describe('motore vincoli', () => {
 
 describe('import team – robustezza', () => {
   it('colonne in ordine diverso riconosciute dall\'intestazione', () => {
-    const r = parseTeamText('RAL;Nome e cognome;Livello\n"32.000,00";Mario Rossi;Liv. B1')
-    expect(r.people).toMatchObject([{ name: 'Mario Rossi', level: 'B1', ral: 32000, active: true }])
+    const r = parseTeamText('RAL;Nome e cognome;E-mail;Livello\n"32.000,00";Mario Rossi; Mario.Rossi@Azienda.it ;Liv. B1')
+    expect(r.people).toMatchObject([{ name: 'Mario Rossi', email: 'mario.rossi@azienda.it', level: 'B1', ral: 32000, active: true }])
+  })
+  it('email obbligatoria, valida e non ripetuta', () => {
+    expect(parseTeamText('Nome;Livello;RAL\nA;B1;30000').fatal).toMatch(/Email/)
+    const r = parseTeamText('Nome;Email;Livello;RAL\nA;;B1;30000\nB;b-at-x.it;B1;30000\nC;c@x.it;B1;30000\nD;C@X.it;B1;30000')
+    expect(r.people.map((x) => x.name)).toEqual(['C'])
+    expect(r.errors).toHaveLength(3)
+    expect(r.errors[0]).toMatch(/mancante/)
+    expect(r.errors[1]).toMatch(/non valida/)
+    expect(r.errors[2]).toMatch(/già usata/)
   })
   it('intestazione senza colonna RAL → errore bloccante', () => {
     expect(parseTeamText('Nome;Livello;Email\nMario;B1;m@x.it').fatal).toMatch(/RAL/)
@@ -128,7 +137,7 @@ describe('import team – robustezza', () => {
     expect(parseTeamText('PK\u0003\u0004xxxx').fatal).toMatch(/Excel/)
   })
   it('RAL fuori range e duplicati', () => {
-    const r = parseTeamText('Nome;Livello;RAL\nA;B1;300\nB;B1;30000\nB;C1;31000')
+    const r = parseTeamText('Nome;Livello;RAL;Email\nA;B1;300;a@x.it\nB;B1;30000;b@x.it\nB;C1;31000;b2@x.it')
     expect(r.errors[0]).toMatch(/fuori/)
     expect(r.people).toHaveLength(2)
     expect(r.warnings).toHaveLength(1)
@@ -208,7 +217,7 @@ describe('disponibilità', () => {
     expect(r.people.map((x) => [x.availability, x.maxPerMonth, x.active])).toEqual([
       ['volontario', undefined, true], ['limitato', 2, true], ['nessuna', undefined, true], ['nessuna', undefined, false],
     ])
-    expect(parseTeamText('Nome;Livello;RAL;Disponibilità\nA;B1;30000;forse').warnings[0]).toMatch(/non riconosciuta/)
+    expect(parseTeamText('Nome;Livello;RAL;Disponibilità;Email\nA;B1;30000;forse;a@x.it').warnings[0]).toMatch(/non riconosciuta/)
   })
 })
 
@@ -410,7 +419,7 @@ describe('RAL N/D', () => {
 
 describe('import team', () => {
   it('Excel/CSV con intestazione e RAL italiana', () => {
-    const r = parseTeamText('Nome\tLivello\tRAL\nMario Rossi\tb1\t26.000\nAnna Bianchi\tC2\t31.500,00\nX\tZZ\t1')
+    const r = parseTeamText('Nome\tLivello\tRAL\tEmail\nMario Rossi\tb1\t26.000\tm@x.it\nAnna Bianchi\tC2\t31.500,00\ta@x.it\nX\tZZ\t1\tx@x.it')
     expect(r.people).toMatchObject([
       { name: 'Mario Rossi', level: 'B1', ral: 26000, active: true },
       { name: 'Anna Bianchi', level: 'C2', ral: 31500, active: true },

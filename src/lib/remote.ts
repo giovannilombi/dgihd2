@@ -28,7 +28,7 @@ export async function loadAll(readFull: boolean): Promise<AppData> {
   const none = Promise.resolve({ data: null, error: null })
   const [people, details, privates, assignments, excluded, settings] = await Promise.all([
     supabase.from('people').select('id, name, color, active, sort, team'),
-    readFull ? supabase.from('people_details').select('person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order') : none,
+    readFull ? supabase.from('people_details').select('person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order, email') : none,
     readFull ? supabase.from('people_private').select('person_id, level, ral, ral_nd') : none,
     supabase.from('assignments').select('slot_id, person_id, pinned'),
     supabase.from('excluded_days').select('day'),
