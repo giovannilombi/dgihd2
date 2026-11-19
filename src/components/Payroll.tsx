@@ -1,15 +1,18 @@
 import { Fragment } from 'react'
 import { fmtDay } from '../lib/calendar'
-import { fmtEur, fmtHours, fmtNum, slotEconomics } from '../lib/economics'
-import { payroll, slotTag } from '../lib/reports'
+import { fmtEur, fmtHours, fmtNum } from '../lib/economics'
+import { payroll, slotTag, type NdData } from '../lib/reports'
 import type { Assignments, Params, Person } from '../lib/types'
 import { Badge } from './ui'
 
-export function Payroll({ people, assignments, params }: { people: Person[]; assignments: Assignments; params: Params }) {
-  const months = payroll(people, assignments, params)
-  if (!months.length) return <p className="text-sm text-slate-500">Nessun turno assegnato: compila il calendario (Sezione C) per generare il consuntivo.</p>
+export function Payroll({ people, assignments, params, nd }: { people: Person[]; assignments: Assignments; params: Params; nd?: NdData }) {
+  const months = payroll(people, assignments, params, nd)
+  const pendingNd = people.filter((x) => x.ralNd && !x.salaryHidden && !nd?.[x.id] && Object.values(assignments).includes(x.id)).length
+  const pendingNote = pendingNd > 0 && <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">Calcolo in corso per {pendingNd === 1 ? '1 persona' : `${pendingNd} persone`} con RAL Q/: i loro importi vengono calcolati dal server.</p>
+  if (!months.length) return pendingNote || <p className="text-sm text-slate-500">Nessun turno assegnato: compila il calendario (Sezione C) per generare il consuntivo.</p>
   return (
     <div className="space-y-8">
+      {pendingNote}
       <p className="text-sm text-slate-600">
         Per ogni turno: <em>Indennità CCNL</em> (dovuta per contratto) + <em>Gettone</em> (da erogare come <strong>Gettone di disponibilità</strong>, modalità preferibile) = <em>Totale lordo</em>, che al netto delle trattenute stimate garantisce il <em>Netto</em> della fascia. Ogni settimana confluisce nel consuntivo del mese in cui è stato svolto il suo ultimo turno. Le colonne <em>Alternativa</em> riportano, per la settimana e a parità di importo del gettone, il giorno (Domenica o Sabato della stessa settimana, anche nel mese adiacente) e le ore di straordinario da caricare se si sceglie la liquidazione in ore.
       </p>
@@ -53,7 +56,7 @@ export function Payroll({ people, assignments, params }: { people: Person[]; ass
                         return (
                           <Fragment key={w.week}>
                             {w.slots.map((s, i) => {
-                              const e = slotEconomics(r.person, s, params)
+                              const e = w.days[i]
                               const last = !multi && i === w.slots.length - 1
                               return (
                                 <tr key={s.id} className={`align-top ${last ? 'border-b border-slate-200' : ''}`}>

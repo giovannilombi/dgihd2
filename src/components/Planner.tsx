@@ -4,7 +4,7 @@ import {
   HORIZON_LABEL, addDays, daysInRange, fmtDay, fmtDayYear, isWeekendOrHoliday, isoWeekNumber, monthKey, monthLabel, slotsForDay, toDate, weekStart,
 } from '../lib/calendar'
 import { checkAssignment, existingViolations, personSlots, preferenceWarning, RULE_SHORT, type Violation } from '../lib/rules'
-import { mergeConflicts, mergeViolations, type ServerChecks, type ServerChecksState } from '../lib/serverChecks'
+import { mergeConflicts, mergeViolations, needsServerChecks, type ServerChecks, type ServerChecksState } from '../lib/serverChecks'
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 
@@ -77,7 +77,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
       out[s.id] = {}
       for (const p of people) {
         const local = checkAssignment(p, s.id, assignments, params)
-        out[s.id][p.id] = p.salaryHidden ? mergeViolations(local, serverChecks?.blocked[p.id]?.[s.id]) : local
+        out[s.id][p.id] = needsServerChecks(p) ? mergeViolations(local, serverChecks?.blocked[p.id]?.[s.id]) : local
       }
     }
     return out
@@ -350,7 +350,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             </ol>
             <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-amber-700">⚠ Oltre disponibilità</span>: assegnabile a mano, ma supera il massimo mensile indicato dalla persona. L'auto-compilazione non lo fa mai.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><PinIcon filled className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" /> Con la puntina blocchi un turno assegnato: non è modificabile e l'auto-compilazione ricalcola tutti gli altri tenendolo fisso.</p>
-            {people.some((p) => p.salaryHidden) && <p className="mt-2 border-t border-slate-200 pt-2">Per le persone di altri team, di cui non vedi RAL e livello, il cap ore e la domenica di recupero sono verificati dal server: vedi solo l'esito.</p>}
+            {people.some(needsServerChecks) && <p className="mt-2 border-t border-slate-200 pt-2">Per le persone di altri team e per quelle con RAL Q/ il cap ore e la domenica di recupero sono verificati dal server: vedi solo l'esito.</p>}
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
           </div>
         </aside>}

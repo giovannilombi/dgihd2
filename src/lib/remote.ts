@@ -35,14 +35,21 @@ export async function loadAll(readFull: boolean): Promise<AppData> {
     readFull ? supabase.from('settings').select('params').eq('id', 1).maybeSingle() : none,
   ])
   for (const r of [people, details, privates, assignments, excluded, settings]) if (r.error) throw new Error(r.error.message)
-  return rowsToData(
+  return withoutServerParams(rowsToData(
     (people.data ?? []) as PersonRow[],
     details.data as DetailsRow[] | null,
     (privates.data ?? []) as PrivateRow[],
     (assignments.data ?? []) as AssignmentRow[],
     ((excluded.data ?? []) as { day: string }[]).map((x) => x.day),
     (settings.data as { params?: unknown } | null)?.params,
-  )
+  ))
+}
+
+/** La RAL media di riferimento per le RAL Q/ vive solo sul server: il browser non la conserva mai. */
+function withoutServerParams(d: AppData): AppData {
+  const { ndRal: _omit, ...params } = d.params
+  void _omit
+  return { ...d, params }
 }
 
 /** Sostituisce l'intero contenuto del database (import di una configurazione JSON). */

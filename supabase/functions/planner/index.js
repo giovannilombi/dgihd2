@@ -509,6 +509,9 @@ function allocateCompensations(person, all, p) {
 	for (const c of comps) c.dayTotal = load.get(c.dayDate) ?? c.hours;
 	return comps;
 }
+function compensationsFor(person, a, p) {
+	return allocateCompensations(person, personSlots(a, person.id), p);
+}
 /**
 * Verifica se `person` può essere assegnata a `slotId`, considerando tutte le altre
 * assegnazioni (l'eventuale assegnazione attuale dello slot viene ignorata).
@@ -631,9 +634,9 @@ function regenerate(people, a, p, from, to, excludedDays, pinned) {
 // src/lib/salaryChecks.ts
 /** Regole che dipendono da RAL e livello: le uniche che il browser non può verificare da solo. */
 const SALARY_RULES = /* @__PURE__ */ new Set(["R3cap", "R6"]);
-/** Calcolo lato server (dati completi) per le persone nascoste all'utente del team indicato. */
+/** Calcolo lato server (dati completi, RAL media inclusa) per le persone che il browser non può calcolare. */
 function salaryRuleChecks(data, myTeam) {
-	const hidden = data.people.filter((p) => !canSeeSalaryOf(myTeam, p.team));
+	const hidden = data.people.filter((p) => !canSeeSalaryOf(myTeam, p.team) || p.ralNd);
 	const onlySalary = (rules) => rules.filter((r) => SALARY_RULES.has(r));
 	const blocked = {};
 	for (const p of hidden) {
@@ -650,9 +653,19 @@ function salaryRuleChecks(data, myTeam) {
 		const rules = onlySalary(vs.map((v) => v.rule));
 		if (rules.length) conflicts[sid] = rules;
 	}
+	const nd = {};
+	for (const p of data.people.filter((x) => x.ralNd && canSeeSalaryOf(myTeam, x.team))) {
+		const mine = personSlots(data.assignments, p.id);
+		if (!mine.length) continue;
+		nd[p.id] = {
+			weeks: compensationsFor(p, data.assignments, data.params),
+			slots: Object.fromEntries(mine.map((s) => [s.id, slotEconomics(p, s, data.params)]))
+		};
+	}
 	return {
 		blocked,
-		conflicts
+		conflicts,
+		nd
 	};
 }
 // supabase/functions/planner/entry.ts
@@ -691,13 +704,14 @@ Deno.serve(async (req) => {
 	} catch {
 		return fail("Richiesta non valida");
 	}
-	const [people, details, privates, assignments, excluded, settings] = await Promise.all([
+	const [people, details, privates, assignments, excluded, settings, serverParams] = await Promise.all([
 		db.from("people").select("id, name, color, active, sort, team"),
 		db.from("people_details").select("person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order"),
 		db.from("people_private").select("person_id, level, ral, ral_nd"),
 		db.from("assignments").select("slot_id, person_id, pinned"),
 		db.from("excluded_days").select("day"),
-		db.from("settings").select("params").eq("id", 1).maybeSingle()
+		db.from("settings").select("params").eq("id", 1).maybeSingle(),
+		db.from("server_params").select("nd_ral").eq("id", 1).maybeSingle()
 	]);
 	for (const r of [
 		people,
@@ -705,9 +719,13 @@ Deno.serve(async (req) => {
 		privates,
 		assignments,
 		excluded,
-		settings
+		settings,
+		serverParams
 	]) if (r.error) return fail(r.error.message, 500);
 	const data = rowsToData(people.data, details.data, privates.data, assignments.data, excluded.data.map((x) => x.day), settings.data?.params);
+	const ndRal = Number(serverParams.data?.nd_ral);
+	if (Number.isFinite(ndRal) && ndRal > 0) data.params.ndRal = ndRal;
+	else delete data.params.ndRal;
 	if (body.action === "violations") {
 		const myTeam = USER_TEAMS.includes(me.team) ? me.team : null;
 		return json(salaryRuleChecks(data, myTeam));

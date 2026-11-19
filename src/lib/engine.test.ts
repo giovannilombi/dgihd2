@@ -441,3 +441,29 @@ describe('consuntivo: dettaglio per giorno', () => {
     }
   })
 })
+
+describe('report CSV: dettaglio per giorno', () => {
+  const lines = (csv: string) => csv.replace(/^﻿/, '').split('\r\n').map((l) => l.split(';'))
+  it('una riga per turno, poi totale settimana e totale mese', () => {
+    const x = mk('x', 30000)
+    const csv = fullReportCsv([x], { '2026-11-26|N': 'x', '2026-11-29|D': 'x' }, P)
+    const rows = lines(csv).filter((r) => r[1] === 'x')
+    expect(rows.map((r) => r[3])).toEqual(['Turno', 'Turno', 'Totale settimana', 'Totale mese'])
+    const header = lines(csv).find((r) => r[3] === 'Riga')!
+    const col = (name: string) => header.indexOf(name)
+    const num = (v: string) => Number(v.replace(/\./g, '').replace(',', '.'))
+    const [t1, t2, week] = rows
+    for (const k of ['Indennità CCNL lorda', 'Gettone di disponibilità lordo (preferibile)', 'Lordo totale', 'Netto garantito']) {
+      expect(num(t1[col(k)]) + num(t2[col(k)])).toBeCloseTo(num(week[col(k)]), 1)
+    }
+    expect(num(t1[col('Indennità CCNL lorda')]) + num(t1[col('Gettone di disponibilità lordo (preferibile)')])).toBeCloseTo(num(t1[col('Lordo totale')]), 1)
+  })
+  it('senza RAL nessun NaN; le persone di altri team non compaiono nel consuntivo', () => {
+    const noRal = mk('n', 0)
+    const hidden = { ...mk('h', 0), salaryHidden: true }
+    const csv = fullReportCsv([noRal, hidden], { '2026-11-24|N': 'n', '2026-11-26|N': 'h' }, P)
+    expect(csv).not.toContain('NaN')
+    expect(csv).toContain('non calcolabile (RAL da inserire)')
+    expect(lines(csv).some((r) => r[1] === 'h')).toBe(false)
+  })
+})

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { RULE_MESSAGES, type RuleId, type Violation } from './rules'
-import type { ServerChecks } from './salaryChecks'
+import { needsServerChecks, type ServerChecks } from './salaryChecks'
 import { callFunction } from './supabase'
 import type { AppData } from './store'
 import type { SyncStatus } from './useRemoteData'
 
 export type { ServerChecks }
+export { needsServerChecks }
 
 export type ServerChecksState = 'off' | 'loading' | 'ok' | 'error'
 
@@ -33,7 +34,8 @@ export function useServerChecks(data: AppData, status: SyncStatus, enabled: bool
   const [checks, setChecks] = useState<ServerChecks | null>(null)
   const [state, setState] = useState<ServerChecksState>('off')
   const seq = useRef(0)
-  const active = enabled && data.people.some((p) => p.salaryHidden && p.active)
+  // persone di altri team in rotazione, o con RAL Q/ (vincoli e importi calcolati dal server)
+  const active = enabled && data.people.some((p) => (p.salaryHidden && p.active) || p.ralNd)
 
   useEffect(() => {
     if (!active || status !== 'synced') return

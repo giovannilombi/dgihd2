@@ -104,7 +104,11 @@ export function diff(prev: AppData, next: AppData): Ops {
   const exNext = new Set(next.excludedDays)
   ops.excludedAdd = next.excludedDays.filter((d) => !exPrev.has(d))
   ops.excludedRemove = prev.excludedDays.filter((d) => !exNext.has(d))
-  if (!same(prev.params, next.params)) ops.params = next.params
+  if (!same(prev.params, next.params)) {
+    const { ndRal: _omit, ...params } = next.params
+    void _omit
+    ops.params = params // la RAL media di riferimento non si scrive mai dal browser
+  }
   return ops
 }
 

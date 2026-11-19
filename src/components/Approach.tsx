@@ -23,7 +23,8 @@ const Pillar = ({ title, children }: { title: string; children: ReactNode }) => 
 
 export function Approach({ params: p, people }: { params: Params; people: Person[] }) {
   // Incidenza del costo sul ricavo calcolata sul team attivo (riferimento dinamico per la sintesi).
-  const visible = people.filter((x) => !x.salaryHidden)
+  // escluse le persone di altri team e quelle con RAL Q/ (la RAL media di riferimento resta sul server)
+  const visible = people.filter((x) => !x.salaryHidden && !x.ralNd)
   const active = visible.filter((x) => x.active)
   const ref = active.length ? active : visible
   const ferIncid = ref.map((x) => slotEconomics(x, { date: '2026-11-24', kind: 'FN' }, p).cost / p.revenueFeriale * 100)

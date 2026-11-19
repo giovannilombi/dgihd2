@@ -46,6 +46,32 @@ function tempPassword() {
   return `${a}-${b}-${String(rnd(100)).padStart(2, '0')}`
 }
 
+/**
+ * Password presente in elenchi di password rubate? (servizio Pwned Passwords, k-anonimato:
+ * si inviano solo i primi 5 caratteri dell'impronta SHA-1, mai la password).
+ * null = servizio non raggiungibile: il controllo viene saltato.
+ */
+async function isPwned(password: string): Promise<boolean | null> {
+  const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(password))
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase()
+  try {
+    const r = await fetch(`https://api.pwnedpasswords.com/range/${hex.slice(0, 5)}`, { headers: { 'Add-Padding': 'true' } })
+    if (!r.ok) return null
+    return (await r.text()).split('\n').some((line) => {
+      const [suffix, count] = line.trim().split(':')
+      return suffix === hex.slice(5) && Number(count) > 0
+    })
+  } catch {
+    return null
+  }
+}
+
+/** Autorizza per 10 minuti la creazione dell'account (il database rifiuta ogni altra registrazione). */
+const allowSignup = (admin: ReturnType<typeof createClient>, email: string) =>
+  admin.from('signup_allowlist').upsert({ email, created_at: new Date().toISOString() })
+const clearSignup = (admin: ReturnType<typeof createClient>, email: string) =>
+  admin.from('signup_allowlist').delete().eq('email', email)
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 const fail = (message: string, status = 400) => json({ error: message }, status)
@@ -83,6 +109,7 @@ Deno.serve(async (req) => {
     const password = String(body.password ?? '')
     if (password.length < 10) return fail('La nuova password deve avere almeno 10 caratteri.')
     if (/^[a-z]+-[a-z]+-\d{2}$/.test(password)) return fail('Scegli una password diversa da quella temporanea.')
+    if (await isPwned(password)) return fail('Questa password compare in elenchi di password rubate in altri siti: scegline un\'altra.')
     const { error } = await admin.auth.admin.updateUserById(caller.id, { password })
     if (error) return fail(`Cambio password non riuscito: ${error.message}`)
     await admin.from('profiles').update({ must_change_password: false }).eq('id', caller.id)
@@ -111,7 +138,9 @@ Deno.serve(async (req) => {
     const team = parseTeam(body.team)
     if (team === undefined) return fail('Team non valido.')
     const password = tempPassword()
+    await allowSignup(admin, email)
     const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
+    await clearSignup(admin, email)
     if (error || !data.user) return fail(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
     const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, team, must_change_password: true })
     if (pErr) {
@@ -178,7 +207,9 @@ async function processQueue(admin: Admin) {
         const team = parseTeam(r.team)
         if (team === undefined) throw new Error('Team non valido.')
         const password = tempPassword()
+        await allowSignup(admin, email)
         const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
+        await clearSignup(admin, email)
         if (error || !data.user) throw new Error(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
         const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: r.display_name.trim().slice(0, 80), role: r.role, team, must_change_password: true })
         if (pErr) { await admin.auth.admin.deleteUser(data.user.id); throw new Error(pErr.message) }

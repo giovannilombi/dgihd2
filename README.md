@@ -29,7 +29,9 @@ Ogni risorsa appartiene a un team (Tech, Design, PM, Director, Governance) e ogn
 
 Vincoli e auto-compilazione restano corretti per tutti: le regole che dipendono dalla RAL (cap ore di compensazione e domenica di recupero) sono calcolate dalla funzione server `supabase/functions/planner`, che restituisce solo l'esito (regola violata, assegnazioni), mai importi, ore o RAL. Il team di una risorsa può essere cambiato solo da HR e Governance (controllo nel database).
 
-I permessi sono applicati dal database (Row Level Security, `supabase/migrations`); la gestione account passa dalla funzione server `supabase/functions/admin-users`, che usa la chiave di servizio senza esporla al browser.
+Per le risorse con RAL **Q/** i calcoli usano una RAL media di riferimento che sta solo sul server (tabella `server_params`, non leggibile dagli utenti): vincoli, importi e ore di queste persone li calcola la funzione `planner` e il browser riceve solo i risultati.
+
+I permessi sono applicati dal database (Row Level Security, `supabase/migrations`); la gestione account passa dalla funzione server `supabase/functions/admin-users`, che usa la chiave di servizio senza esporla al browser. Gli account li crea solo il super admin: il database rifiuta ogni iscrizione libera (anche via link magico). Al cambio password vengono rifiutate le password presenti in elenchi di password rubate (servizio Pwned Passwords, inviando solo i primi 5 caratteri dell'impronta SHA-1).
 
 ### Accesso (versione precedente)
 

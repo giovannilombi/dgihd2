@@ -24,7 +24,7 @@ import { HORIZON_LABEL } from './lib/calendar'
 import { defaultResourceTeam, seesAllSalaries, TEAM_LABEL, type Assignments, type Person, type UserTeam } from './lib/types'
 import { regenerate } from './lib/rules'
 import { callFunction } from './lib/supabase'
-import { useServerChecks } from './lib/serverChecks'
+import { needsServerChecks, useServerChecks } from './lib/serverChecks'
 
 const NAV = [
   ['doc', 'Approccio'],
@@ -88,9 +88,12 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   // Import/export della configurazione completa: solo chi vede RAL e livello di tutti i team
   const fullConfig = seesAllSalaries(profile.team)
   const { checks: serverChecks, state: serverChecksState } = useServerChecks(data, status, canReadFull(role))
-  /** Auto-compilazione: in pagina se l'utente vede tutte le RAL, altrimenti sul server (che le conosce) dopo aver salvato le modifiche in corso. */
+  /**
+   * Auto-compilazione: in pagina se l'utente vede tutte le RAL e non ci sono RAL Q/, altrimenti sul
+   * server (che conosce RAL e media di riferimento) dopo aver salvato le modifiche in corso.
+   */
   const autofill = async (from: string, to: string): Promise<Assignments> => {
-    if (!data.people.some((p) => p.salaryHidden)) return regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, data.pinned)
+    if (!data.people.some(needsServerChecks)) return regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, data.pinned)
     await flush()
     const res = await callFunction<{ assignments: Assignments }>('planner', { action: 'autofill', from, to })
     return res.assignments
@@ -114,7 +117,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     setExporting(true)
     try {
       if (format === 'csv') {
-        download(fileName, fullReportCsv(data.people, data.assignments, data.params, data.excludedDays, range), 'text/csv;charset=utf-8')
+        download(fileName, fullReportCsv(data.people, data.assignments, data.params, data.excludedDays, range, serverChecks?.nd), 'text/csv;charset=utf-8')
       } else if (format === 'xlsx') {
         download(fileName, await buildShiftsXlsx(data.people, data.assignments, data.excludedDays, range), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       } else {
@@ -212,12 +215,12 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     payroll: (
       <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone di disponibilità e alternativa in ore."
         actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
-        <Payroll people={data.people} assignments={data.assignments} params={data.params} />
+        <Payroll people={data.people} assignments={data.assignments} params={data.params} nd={serverChecks?.nd} />
       </Section>
     ),
     pnl: (
       <Section id="pnl" letter="E" title="Dashboard economica & marginalità (P&L)" actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
-        <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} />
+        <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} nd={serverChecks?.nd} />
       </Section>
     ),
     users: canManageUsers(role) ? (

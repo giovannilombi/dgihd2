@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { rowsToData } from './mapping'
+import { slotEconomics } from './economics'
+import { diff, rowsToData } from './mapping'
+import { payroll, pnl } from './reports'
 import { checkAssignment, RULE_MESSAGES } from './rules'
 import { SALARY_RULES, salaryRuleChecks } from './salaryChecks'
 import { mergeConflicts, mergeViolations } from './serverChecks'
@@ -51,8 +53,8 @@ describe('vincoli economici calcolati dal server', () => {
     expect(r.blocked.t1).toBeUndefined()
   })
   it('per HR e Governance non serve nessun calcolo sul server', () => {
-    expect(salaryRuleChecks(full, 'governance')).toEqual({ blocked: {}, conflicts: {} })
-    expect(salaryRuleChecks(full, 'hr')).toEqual({ blocked: {}, conflicts: {} })
+    expect(salaryRuleChecks(full, 'governance')).toEqual({ blocked: {}, conflicts: {}, nd: {} })
+    expect(salaryRuleChecks(full, 'hr')).toEqual({ blocked: {}, conflicts: {}, nd: {} })
   })
   it('restituisce solo identificativi di regola: nessuna RAL, ora o importo', () => {
     const r = salaryRuleChecks(full, 'tech')
@@ -96,5 +98,56 @@ describe('vincoli economici calcolati dal server', () => {
     const c = mergeConflicts({ a: [{ rule: 'R2', message: 'y' }] }, { blocked: {}, conflicts: { a: ['R6'], b: ['R3cap'] } })
     expect(c.a.map((v) => v.rule)).toEqual(['R2', 'R6'])
     expect(c.b.map((v) => v.rule)).toEqual(['R3cap'])
+  })
+})
+
+describe('RAL Q/: la media di riferimento resta sul server', () => {
+  // 41000 è un valore di prova (quello reale vive solo nel database, tabella server_params)
+  const serverParams = { ...P, ndRal: 41000 }
+  const q = person('q1', 'tech', 0, { ralNd: true })
+  const t = person('t1', 'tech', 30000)
+  const serverData = { ...data([q, t], { '2026-11-23|N': 'q1', '2026-11-24|N': 't1' }), params: serverParams }
+
+  it('il server restituisce vincoli, importi e ore delle persone Q/ del proprio team, mai la RAL media', () => {
+    const r = salaryRuleChecks(serverData, 'tech')
+    expect(r.nd?.q1.weeks).toHaveLength(1)
+    expect(r.nd?.q1.slots['2026-11-23|N'].cost).toBeGreaterThan(0)
+    expect(r.nd?.q1.weeks[0].hours).toBeGreaterThan(0)
+    expect(r.nd?.t1).toBeUndefined() // le RAL visibili si calcolano in pagina
+    expect(JSON.stringify(r)).not.toContain('41000')
+    expect(JSON.stringify(r)).not.toMatch(/ndRal|"ral"/)
+  })
+  it('importi delle persone Q/ di altri team: mai restituiti', () => {
+    expect(salaryRuleChecks(serverData, 'pm').nd).toEqual({})
+  })
+  it('anche i vincoli economici delle persone Q/ arrivano dal server', () => {
+    const busy = { ...serverData, assignments: { '2026-11-23|N': 'q1' } }
+    // RAL bassa di prova: due notti nella stessa settimana superano il cap
+    const r = salaryRuleChecks({ ...busy, params: { ...P, ndRal: 26000 } }, 'tech')
+    expect(r.blocked.q1['2026-11-25|N']).toContain('R3cap')
+  })
+
+  it('in pagina, senza i dati del server, la persona Q/ resta "in calcolo" (nessun importo con valori inventati)', () => {
+    const local = data([q, t], { '2026-11-23|N': 'q1', '2026-11-24|N': 't1' }) // params senza ndRal, come nel browser
+    expect(payroll(local.people, local.assignments, local.params).flatMap((m) => m.rows.map((r) => r.person.id))).toEqual(['t1'])
+    const pl = pnl(local.people, local.assignments, local.params)
+    expect(pl.total.costPending).toBe(1)
+    expect(pl.total.complete).toBe(false)
+  })
+  it('con i dati del server consuntivo e conto economico usano gli importi calcolati sul server', () => {
+    const local = data([q, t], { '2026-11-23|N': 'q1', '2026-11-24|N': 't1' })
+    const nd = salaryRuleChecks(serverData, 'tech').nd
+    const rows = payroll(local.people, local.assignments, local.params, nd).flatMap((m) => m.rows)
+    const qRow = rows.find((r) => r.person.id === 'q1')!
+    expect(qRow.weeks[0].days[0].cost).toBeCloseTo(nd!.q1.slots['2026-11-23|N'].cost, 6)
+    const pl = pnl(local.people, local.assignments, local.params, [], undefined, nd)
+    expect(pl.total.costPending).toBe(0)
+    expect(pl.total.cost).toBeCloseTo(nd!.q1.slots['2026-11-23|N'].cost + slotEconomics(t, { date: '2026-11-24', kind: 'FN' }, P).cost, 6)
+  })
+  it('il browser non scrive mai la RAL media nei parametri condivisi (es. import di un vecchio JSON)', () => {
+    const prev = data([], {})
+    const ops = diff(prev, { ...prev, params: { ...P, ndRal: 41000, capHours: 7 } })
+    expect(ops.params).toBeDefined()
+    expect(JSON.stringify(ops.params)).not.toContain('ndRal')
   })
 })

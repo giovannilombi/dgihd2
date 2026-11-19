@@ -1,7 +1,9 @@
-// Funzione server "planner": vincoli che dipendono da RAL e livello, e auto-compilazione.
-// Gira con accesso completo ai dati (chiave di servizio) e restituisce SOLO esiti (regole violate,
-// assegnazioni), mai RAL, livelli, ore o importi: così chi vede solo il proprio team pianifica
-// comunque nel rispetto di tutti i vincoli. Le regole sono le stesse dell'app (src/lib).
+// Funzione server "planner": vincoli che dipendono da RAL e livello, importi delle RAL Q/ e auto-compilazione.
+// Gira con accesso completo ai dati (chiave di servizio) e restituisce solo esiti:
+// - persone di altri team: regole violate, mai RAL, livelli, ore o importi;
+// - persone Q/ del proprio team: importi e ore già calcolati, mai la RAL media di riferimento,
+//   che sta nella tabella server_params, leggibile solo dal server.
+// Le regole sono le stesse dell'app (src/lib).
 // Il file distribuito (index.js) si genera con: npm run build:planner
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
 import { rowsToData, type AssignmentRow, type DetailsRow, type PersonRow, type PrivateRow } from '../../../src/lib/mapping'
@@ -37,20 +39,25 @@ Deno.serve(async (req) => {
   try { body = await req.json() } catch { return fail('Richiesta non valida') }
 
   // Dati completi (solo in memoria sul server)
-  const [people, details, privates, assignments, excluded, settings] = await Promise.all([
+  const [people, details, privates, assignments, excluded, settings, serverParams] = await Promise.all([
     db.from('people').select('id, name, color, active, sort, team'),
     db.from('people_details').select('person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order'),
     db.from('people_private').select('person_id, level, ral, ral_nd'),
     db.from('assignments').select('slot_id, person_id, pinned'),
     db.from('excluded_days').select('day'),
     db.from('settings').select('params').eq('id', 1).maybeSingle(),
+    // RAL media di riferimento per le RAL Q/: tabella leggibile solo dal server
+    db.from('server_params').select('nd_ral').eq('id', 1).maybeSingle(),
   ])
-  for (const r of [people, details, privates, assignments, excluded, settings]) if (r.error) return fail(r.error.message, 500)
+  for (const r of [people, details, privates, assignments, excluded, settings, serverParams]) if (r.error) return fail(r.error.message, 500)
   const data = rowsToData(
     people.data as PersonRow[], details.data as DetailsRow[], privates.data as PrivateRow[],
     assignments.data as AssignmentRow[], (excluded.data as { day: string }[]).map((x) => x.day),
     (settings.data as { params?: unknown } | null)?.params,
   )
+  const ndRal = Number((serverParams.data as { nd_ral?: unknown } | null)?.nd_ral)
+  if (Number.isFinite(ndRal) && ndRal > 0) data.params.ndRal = ndRal
+  else delete data.params.ndRal
 
   if (body.action === 'violations') {
     // solo per le persone di cui l'utente NON vede RAL e livello (stessa regola della RLS)

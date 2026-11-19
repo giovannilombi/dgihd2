@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { fmtEur, fmtPct } from '../lib/economics'
-import { pnl, type PeriodPnl } from '../lib/reports'
+import { pnl, type NdData, type PeriodPnl } from '../lib/reports'
 import type { Assignments, Params, Person } from '../lib/types'
 import { Kpi } from './ui'
 
-export function Dashboard({ people, assignments, params, excludedDays }: { people: Person[]; assignments: Assignments; params: Params; excludedDays: string[] }) {
-  const { months, weeks, total } = pnl(people, assignments, params, excludedDays)
+export function Dashboard({ people, assignments, params, excludedDays, nd }: { people: Person[]; assignments: Assignments; params: Params; excludedDays: string[]; nd?: NdData }) {
+  const { months, weeks, total } = pnl(people, assignments, params, excludedDays, undefined, nd)
   const assignedIds = new Set(Object.values(assignments))
   const missingRal = people.filter((x) => assignedIds.has(x.id) && !x.salaryHidden && !x.ralNd && !(x.ral > 0)).length
   const ndRal = people.filter((x) => assignedIds.has(x.id) && x.ralNd).length
@@ -25,7 +25,7 @@ export function Dashboard({ people, assignments, params, excludedDays }: { peopl
             : `Turni assegnati: lordo riconosciuto (indennità CCNL + gettone) × ${params.costMultiplier.toFixed(2).replace('.', ',')}`} />
         {total.complete
           ? <Kpi label="Margine lordo aziendale" value={fmtEur(total.margin)} tone={total.margin < 0 ? 'bad' : undefined} sub={`Marginalità ${fmtPct(total.marginPct)} (margine / ricavo)`} />
-          : <Kpi label="Margine lordo aziendale" value="Non calcolabile" sub={uncovered > 0 ? `${uncovered} ${uncovered === 1 ? 'turno scoperto' : 'turni scoperti'}: il costo finale non è ancora noto` : total.costHidden ? 'Visibilità limitata al tuo team: i costi degli altri team non sono inclusi' : 'Nessuna giornata richiesta nel periodo'} />}
+          : <Kpi label="Margine lordo aziendale" value="Non calcolabile" sub={uncovered > 0 ? `${uncovered} ${uncovered === 1 ? 'turno scoperto' : 'turni scoperti'}: il costo finale non è ancora noto` : total.costHidden ? 'Visibilità limitata al tuo team: i costi degli altri team non sono inclusi' : total.costPending ? 'Costi delle persone con RAL Q/ in calcolo sul server' : 'Nessuna giornata richiesta nel periodo'} />}
       </div>
       {missingRal > 0 && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
