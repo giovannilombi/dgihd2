@@ -105,7 +105,7 @@ export const DEFAULT_PARAMS: Params = {
   revenueFeriale: 680,
   revenueFestivo: 1080,
   netFN: 50,
-  netWD: 50,
+  netWD: 60,
   netWN: 70,
   capHours: 8,
   costMultiplier: 1.35,

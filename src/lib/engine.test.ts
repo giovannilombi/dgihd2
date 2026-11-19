@@ -26,6 +26,10 @@ describe('modello economico (tabella B1 della specifica)', () => {
     expect(e.cost).toBeCloseTo(cost, 2)
   })
 
+  it('importi netti garantiti: notte feriale 50, diurno weekend/festivo 60, notte weekend/festivo 70', () => {
+    expect([P.netFN, P.netWD, P.netWN]).toEqual([50, 60, 70])
+  })
+
   it('festivo notte RAL 30k (70 € netti): lordo 129,63 / 5,60h dom', () => {
     const e = slotEconomics(mk('x', 30000), { date: '2026-11-29', kind: 'WN' }, P)
     expect(e.ltot).toBeCloseTo(129.63, 2)
