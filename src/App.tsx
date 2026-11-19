@@ -14,6 +14,7 @@ import { TeamPanel } from './components/TeamPanel'
 import { Button, Section } from './components/ui'
 import { useAuth, verifyOwnPassword } from './lib/useAuth'
 import { useRemoteData, type SyncStatus } from './lib/useRemoteData'
+import { useHeightVar } from './lib/useStickyBar'
 import { canEdit, canManageUsers, canReadFull, ROLE_HELP, ROLE_LABEL, type Profile, type Role } from './lib/roles'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
@@ -84,6 +85,7 @@ export default function App() {
 function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void> }) {
   const role = profile.role
   const editable = canEdit(role)
+  const headerRef = useHeightVar('--app-header-h')
   const { data, setData, replace, status, error: syncError, flush } = useRemoteData(canReadFull(role), editable)
   // Import/export della configurazione completa: solo chi vede RAL e livello di tutti i team
   const fullConfig = seesAllSalaries(profile.team)
@@ -232,7 +234,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <header ref={headerRef} className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
           <a href="#/doc" className="font-semibold text-slate-900">Piano reperibilità <span className="text-blue-700">- ARM</span></a>
           <nav className="flex flex-wrap gap-1 text-sm" aria-label="Sezioni">

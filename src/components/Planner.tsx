@@ -7,6 +7,7 @@ import { checkAssignment, existingViolations, personSlots, preferenceWarning, RU
 import { mergeConflicts, mergeViolations, needsServerChecks, type ServerChecks, type ServerChecksState } from '../lib/serverChecks'
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
+import { useStickyBar } from '../lib/useStickyBar'
 
 interface Props {
   people: Person[]
@@ -143,12 +144,14 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
     setNotice(null)
   }
 
+  const { ref: barRef, stuck: barStuck } = useStickyBar('--planner-bar-h')
   const focusSlot = focus ? SLOT_BY_ID[focus] : null
   const monthCount = (pid: string, date: string) => personSlots(assignments, pid).filter((x) => x.date.slice(0, 7) === date.slice(0, 7)).length
 
   return (
     <div>
-      <div className="no-print flex flex-wrap items-center gap-3">
+      {/* Barra del periodo: resta fissa sotto l'intestazione mentre si scorre il calendario (da schermi medi in su). */}
+      <div ref={barRef} className={`no-print -mx-5 -mt-3 flex flex-wrap items-center gap-3 bg-white px-5 py-3 lg:sticky lg:top-[var(--app-header-h,57px)] lg:z-30 ${barStuck ? 'border-b border-slate-200 shadow-sm' : ''}`}>
         <div className="inline-flex flex-wrap rounded-lg bg-slate-100 p-0.5 text-sm" role="tablist" aria-label="Periodo">
           {([['all', 'Tutto'], ...HORIZON_MONTHS.map((m) => [m, monthLabel(m)]), ['custom', 'Da – A']] as [string, string][]).map(([k, l]) => (
             <button key={k} role="tab" aria-selected={range === k} onClick={() => setRange(k)} className={`rounded-md px-3 py-1.5 font-medium ${range === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
@@ -301,7 +304,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
         </div>
 
         {/* Pannello esplicativo dei vincoli per lo slot selezionato */}
-        {!simple && <aside className="no-print xl:sticky xl:top-20 xl:self-start">
+        {!simple && <aside className="no-print xl:sticky xl:top-[calc(var(--app-header-h,57px)_+_var(--planner-bar-h,0px)_+_0.75rem)] xl:max-h-[calc(100vh_-_var(--app-header-h,57px)_-_var(--planner-bar-h,0px)_-_1.5rem)] xl:self-start xl:overflow-y-auto">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <h3 className="text-sm font-semibold text-slate-800">Disponibilità slot</h3>
             {focusSlot ? (
