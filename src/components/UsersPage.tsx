@@ -55,7 +55,13 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
       setSecret({ email: u.email, password: r.temp_password, reason: 'Password reimpostata' })
     })
   }
-  const setRole = (u: UserRow, role: Role) => run(async () => { await adminCall({ action: 'set_role', user_id: u.id, role }) })
+  /** Dare o togliere il livello Super admin richiede una conferma esplicita: vede e modifica tutto. */
+  const setRole = (u: UserRow, role: Role) => {
+    if (role === u.role) return
+    if (role === 'super_admin' && !confirm(`Rendere ${u.display_name || u.email} SUPER ADMIN? Vedrà e modificherà tutto, RAL comprese, e gestirà gli utenti.`)) return
+    if (u.role === 'super_admin' && !confirm(`Togliere il livello Super admin a ${u.display_name || u.email}?`)) return
+    return run(async () => { await adminCall({ action: 'set_role', user_id: u.id, role }) })
+  }
   const setTeam = (u: UserRow, team: UserTeam | '') => run(async () => { await adminCall({ action: 'set_team', user_id: u.id, team: team || null }) })
   const setPerson = (u: UserRow, personId: string) => run(async () => { await adminCall({ action: 'set_person', user_id: u.id, person_id: personId || null }) })
   // Risorse collegabili: in ordine alfabetico; quelle già collegate ad altri account non sono selezionabili
@@ -136,7 +142,9 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                   <div className="text-xs text-slate-500">{u.email}</div>
                 </td>
                 <td className="py-2 pr-3">
-                  <select value={u.role} disabled={busy} onChange={(e) => void setRole(u, e.target.value as Role)} aria-label={`Livello di ${u.email}`} className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
+                  <select value={u.role} disabled={busy || !ROLES.includes(u.role)} onChange={(e) => void setRole(u, e.target.value as Role)} aria-label={`Livello di ${u.email}`} className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
+                    {/* Livello non riconosciuto (pagina non aggiornata): mostrato com'è, mai sostituito dal primo dell'elenco */}
+                    {!ROLES.includes(u.role) && <option value={u.role}>{String(u.role)} · ricarica la pagina</option>}
                     {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
                   </select>
                   <div className="mt-0.5 text-[11px] text-slate-400">{ROLE_HELP[u.role]}</div>
