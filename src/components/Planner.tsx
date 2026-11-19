@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   ALL_SLOTS, HOLIDAYS, HORIZON_END, HORIZON_MONTHS, HORIZON_START, SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL,
   HORIZON_LABEL, addDays, daysInRange, fmtDay, fmtDayYear, isWeekendOrHoliday, isoWeekNumber, monthKey, monthLabel, slotsForDay, toDate, weekStart,
@@ -7,7 +7,7 @@ import { checkAssignment, existingViolations, personSlots, preferenceWarning, RU
 import { mergeConflicts, mergeViolations, needsServerChecks, type ServerChecks, type ServerChecksState } from '../lib/serverChecks'
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
-import { useStickyBar } from '../lib/useStickyBar'
+import { useHeightVar, useStickyBar, useStickyOverlay } from '../lib/useStickyBar'
 
 interface Props {
   people: Person[]
@@ -52,6 +52,18 @@ function LockIcon({ open, className = 'h-4 w-4' }: { open?: boolean; className?:
 /** 'all' = tutto il periodo, 'custom' = intervallo Da–A, altrimenti la chiave del mese (YYYY-MM). */
 export type RangeMode = string
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
+
+/** Fascia blu del mese: nel calendario e, quando si scorre, fissa sotto la barra del periodo. */
+function MonthBanner({ label, st, heading }: { label: string; st: { covered: number; total: number; blocked: number }; heading?: boolean }) {
+  const Title = heading ? 'h3' : 'span'
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg bg-blue-700 px-4 py-2.5 text-white">
+      <Title className="text-lg font-semibold tracking-wide uppercase">{label}</Title>
+      <span className="text-sm text-blue-100">{st.covered}/{st.total} slot coperti</span>
+      {st.blocked > 0 && <span className="text-sm text-blue-100">· {st.blocked} {st.blocked === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</span>}
+    </div>
+  )
+}
 
 export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, onSetDaysExcluded, readOnly = false, simple = false, autofill, serverChecks = null, serverChecksState = 'off' }: Props) {
   const pinnedSet = new Set(pinned)
@@ -145,13 +157,21 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   }
 
   const { ref: barRef, stuck: barStuck } = useStickyBar('--planner-bar-h')
+  // Fascia del mese corrente fissa sotto la barra (copia di quella del calendario, che sta in un contenitore a scorrimento orizzontale).
+  const barEl = useRef<HTMLDivElement | null>(null)
+  const calEl = useRef<HTMLDivElement | null>(null)
+  const setBar = useCallback((el: HTMLDivElement | null) => { barEl.current = el; barRef(el) }, [barRef])
+  const bandEl = useRef<HTMLDivElement | null>(null)
+  const bandHeight = useHeightVar('--planner-band-h')
+  const setBand = useCallback((el: HTMLDivElement | null) => { bandEl.current = el; bandHeight(el) }, [bandHeight])
+  const monthBand = useStickyOverlay(barEl, calEl, bandEl, months.join(','))
   const focusSlot = focus ? SLOT_BY_ID[focus] : null
   const monthCount = (pid: string, date: string) => personSlots(assignments, pid).filter((x) => x.date.slice(0, 7) === date.slice(0, 7)).length
 
   return (
     <div>
       {/* Barra del periodo: resta fissa sotto l'intestazione mentre si scorre il calendario (da schermi medi in su). */}
-      <div ref={barRef} className={`no-print -mx-5 -mt-3 flex flex-wrap items-center gap-3 bg-white px-5 py-3 lg:sticky lg:top-[var(--app-header-h,57px)] lg:z-30 ${barStuck ? 'border-b border-slate-200 shadow-sm' : ''}`}>
+      <div ref={setBar} className={`no-print -mx-5 -mt-3 flex flex-wrap items-center gap-3 bg-white px-5 py-3 lg:sticky lg:top-[var(--app-header-h,57px)] lg:z-30 ${barStuck ? 'border-b border-slate-200 shadow-sm' : ''}`}>
         <div className="inline-flex flex-wrap rounded-lg bg-slate-100 p-0.5 text-sm" role="tablist" aria-label="Periodo">
           {([['all', 'Tutto'], ...HORIZON_MONTHS.map((m) => [m, monthLabel(m)]), ['custom', 'Da – A']] as [string, string][]).map(([k, l]) => (
             <button key={k} role="tab" aria-selected={range === k} onClick={() => setRange(k)} className={`rounded-md px-3 py-1.5 font-medium ${range === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
@@ -182,21 +202,22 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
           {Object.keys(conflicts).length > 0 && <Badge tone="red">{Object.keys(conflicts).length} conflitti</Badge>}
           {!simple && serverChecksState === 'error' && <Badge tone="amber" title="Il calcolo del cap ore per le persone di altri team non è al momento disponibile: verrà ripetuto alla prossima modifica">Verifica vincoli altri team non riuscita</Badge>}
         </div>
+        {monthBand && (
+          <div ref={setBand} aria-hidden="true" className="absolute top-[calc(100%+1px)] bg-white pb-2" style={{ left: monthBand.left, width: monthBand.width }}>
+            <MonthBanner label={monthLabel(monthBand.id)} st={monthStats(monthBand.id)} />
+          </div>
+        )}
       </div>
       {notice && <p className="no-print mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">{notice}</p>}
 
       <div className={`mt-4 grid gap-4 ${simple ? '' : 'xl:grid-cols-[minmax(0,1fr)_300px]'}`}>
-        <div className="overflow-x-auto">
+        <div ref={calEl} className="overflow-x-auto">
           <div className="min-w-[980px]">
             {months.map((m, mi) => {
               const st = monthStats(m)
               return (
             <section key={m} aria-label={monthLabel(m)} className={mi > 0 ? 'mt-8 border-t-2 border-slate-200 pt-6' : ''}>
-            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-blue-700 px-4 py-2.5 text-white">
-              <h3 className="text-lg font-semibold tracking-wide uppercase">{monthLabel(m)}</h3>
-              <span className="text-sm text-blue-100">{st.covered}/{st.total} slot coperti</span>
-              {st.blocked > 0 && <span className="text-sm text-blue-100">· {st.blocked} {st.blocked === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</span>}
-            </div>
+            <div data-sticky-id={m} className="mb-3"><MonthBanner heading label={monthLabel(m)} st={st} /></div>
             <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] gap-1 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <div />
               {WEEKDAYS.map((d) => <div key={d} className="px-1">{d}</div>)}
@@ -304,7 +325,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
         </div>
 
         {/* Pannello esplicativo dei vincoli per lo slot selezionato */}
-        {!simple && <aside className="no-print xl:sticky xl:top-[calc(var(--app-header-h,57px)_+_var(--planner-bar-h,0px)_+_0.75rem)] xl:max-h-[calc(100vh_-_var(--app-header-h,57px)_-_var(--planner-bar-h,0px)_-_1.5rem)] xl:self-start xl:overflow-y-auto">
+        {!simple && <aside className="no-print xl:sticky xl:top-[calc(var(--app-header-h,57px)_+_var(--planner-bar-h,0px)_+_var(--planner-band-h,0px)_+_0.75rem)] xl:max-h-[calc(100vh_-_var(--app-header-h,57px)_-_var(--planner-bar-h,0px)_-_var(--planner-band-h,0px)_-_1.5rem)] xl:self-start xl:overflow-y-auto">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <h3 className="text-sm font-semibold text-slate-800">Disponibilità slot</h3>
             {focusSlot ? (
