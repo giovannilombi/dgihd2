@@ -6,7 +6,7 @@ import { parseTeamText, TEMPLATE_CSV } from './team'
 import { normalizeWithReport, renumberReserves } from './store'
 import { buildShiftsPdf, buildShiftsXlsx, shiftCalendar, shiftsByPerson } from './shiftsExport'
 import { exportableMonths, exportFileName, validateRange } from './exportRange'
-import { fullReportCsv, pnl } from './reports'
+import { fullReportCsv, payroll, pnl } from './reports'
 import { DEFAULT_PARAMS as P, type Person } from './types'
 
 const mk = (id: string, ral: number, level: Person['level'] = 'B1'): Person => ({ id, name: id, level, ral, active: true, color: '#000' })
@@ -412,5 +412,32 @@ describe('import team', () => {
       { name: 'Anna Bianchi', level: 'C2', ral: 31500, active: true },
     ])
     expect(r.errors).toHaveLength(1)
+  })
+})
+
+describe('consuntivo: dettaglio per giorno', () => {
+  it('le righe dei singoli turni sommano ai totali di settimana e mese (CCNL + gettone = totale lordo)', () => {
+    const x = mk('x', 30000)
+    const a = { '2026-11-23|N': 'x', '2026-11-29|D': 'x', '2026-12-02|N': 'x' }
+    const months = payroll([x], a, P)
+    for (const m of months) {
+      for (const r of m.rows) {
+        let iccnl = 0, lcomp = 0, ltot = 0, net = 0
+        for (const w of r.weeks) {
+          const days = w.slots.map((s) => slotEconomics(x, s, P))
+          const sum = (k: 'iccnl' | 'lcomp' | 'ltot' | 'net') => days.reduce((n, e) => n + e[k], 0)
+          expect(sum('iccnl')).toBeCloseTo(w.iccnl, 6)
+          expect(sum('lcomp')).toBeCloseTo(w.lcomp, 6)
+          expect(sum('ltot')).toBeCloseTo(w.ltot, 6)
+          expect(sum('net')).toBeCloseTo(w.net, 6)
+          for (const e of days) expect(e.iccnl + e.lcomp).toBeCloseTo(e.ltot, 6)
+          iccnl += w.iccnl; lcomp += w.lcomp; ltot += w.ltot; net += w.net
+        }
+        expect(r.totals.iccnl).toBeCloseTo(iccnl, 6)
+        expect(r.totals.lcomp).toBeCloseTo(lcomp, 6)
+        expect(r.totals.ltot).toBeCloseTo(ltot, 6)
+        expect(r.totals.net).toBeCloseTo(net, 6)
+      }
+    }
   })
 })
