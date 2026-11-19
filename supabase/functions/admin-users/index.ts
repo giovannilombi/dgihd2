@@ -71,6 +71,12 @@ const allowSignup = (admin: ReturnType<typeof createClient>, email: string) =>
   admin.from('signup_allowlist').upsert({ email, created_at: new Date().toISOString() })
 const clearSignup = (admin: ReturnType<typeof createClient>, email: string) =>
   admin.from('signup_allowlist').delete().eq('email', email)
+/**
+ * Password temporanea conservata finché la persona non la cambia: il super admin può ricopiarla dalla
+ * lista utenti. Tabella non leggibile dagli utenti; la riga sparisce al cambio password.
+ */
+const storeTemp = (admin: ReturnType<typeof createClient>, userId: string, password: string) =>
+  admin.from('temp_credentials').upsert({ user_id: userId, password, created_at: new Date().toISOString() })
 
 /**
  * Risorsa del Team da collegare all'account (serve al Turnista per vedere i propri turni):
@@ -128,6 +134,7 @@ Deno.serve(async (req) => {
     const { error } = await admin.auth.admin.updateUserById(caller.id, { password })
     if (error) return fail(`Cambio password non riuscito: ${error.message}`)
     await admin.from('profiles').update({ must_change_password: false }).eq('id', caller.id)
+    await admin.from('temp_credentials').delete().eq('user_id', caller.id)
     return json({ ok: true })
   }
 
@@ -142,7 +149,10 @@ Deno.serve(async (req) => {
     if (error) return fail(error.message, 500)
     const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 })
     const lastSeen = new Map((users?.users ?? []).map((u) => [u.id, u.last_sign_in_at]))
-    return json({ users: (profiles ?? []).map((p) => ({ ...p, last_sign_in_at: lastSeen.get(p.id) ?? null })) })
+    const { data: temps } = await admin.from('temp_credentials').select('user_id, password')
+    const temp = new Map((temps ?? []).map((t) => [t.user_id, t.password]))
+    // la password temporanea si vede solo finché è ancora da cambiare
+    return json({ users: (profiles ?? []).map((p) => ({ ...p, last_sign_in_at: lastSeen.get(p.id) ?? null, temp_password: p.must_change_password ? temp.get(p.id) ?? null : null })) })
   }
 
   if (action === 'create') {
@@ -166,6 +176,7 @@ Deno.serve(async (req) => {
       await admin.auth.admin.deleteUser(data.user.id)
       return fail(`Creazione non riuscita: ${personError(pErr.message)}`, 500)
     }
+    await storeTemp(admin, data.user.id, password)
     return json({ ok: true, user_id: data.user.id, temp_password: password })
   }
 
@@ -179,6 +190,7 @@ Deno.serve(async (req) => {
     if (error) return fail(`Reset non riuscito: ${error.message}`)
     // con must_change_password=true il database non restituisce più dati finché la password non viene cambiata
     await admin.from('profiles').update({ must_change_password: true }).eq('id', userId)
+    await storeTemp(admin, userId, password)
     return json({ ok: true, temp_password: password })
   }
 
@@ -250,6 +262,7 @@ async function processQueue(admin: Admin) {
         if (error || !data.user) throw new Error(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
         const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: r.display_name.trim().slice(0, 80), role: r.role, team, person_id: personId, must_change_password: true })
         if (pErr) { await admin.auth.admin.deleteUser(data.user.id); throw new Error(personError(pErr.message)) }
+        await storeTemp(admin, data.user.id, password)
         await done({ status: 'done', temp_password: password })
       } else {
         const { data: target } = await admin.from('profiles').select('id, role').eq('email', email).maybeSingle()
@@ -260,6 +273,7 @@ async function processQueue(admin: Admin) {
           const { error } = await admin.auth.admin.updateUserById(target.id, { password })
           if (error) throw new Error(error.message)
           await admin.from('profiles').update({ must_change_password: true }).eq('id', target.id)
+          await storeTemp(admin, target.id, password)
           await done({ status: 'done', temp_password: password })
         } else if (r.action === 'set_role') {
           if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')

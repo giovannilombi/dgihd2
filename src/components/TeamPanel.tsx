@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { fmtEur } from '../lib/economics'
 import { personSlots, unavailabilityReason } from '../lib/rules'
 import { HORIZON_MONTHS, monthKey, monthShort, rangeLabel, SLOT_BY_ID, toRanges } from '../lib/calendar'
@@ -47,6 +47,19 @@ const Reserved = ({ w = 'w-20', team }: { w?: string; team?: ResourceTeam | null
 export function TeamPanel({ people, assignments, onChange, revealed, myTeam, canSetTeam, newTeam, accounts, onCreateAccount }: Props) {
   const [importOpen, setImportOpen] = useState(false)
   const [adding, setAdding] = useState(false)
+  /**
+   * Risorse aggiunte in questa visita della pagina: livello e RAL subito modificabili, senza reinserire
+   * la password (li sta inserendo chi le ha create). Lo sblocco si azzera cambiando pagina.
+   */
+  const [fresh, setFresh] = useState<Set<string>>(new Set())
+  const [justAdded, setJustAdded] = useState<string | null>(null)
+  // Porta in vista la nuova riga e mette il cursore sul livello, per completarla subito
+  useEffect(() => {
+    if (!justAdded) return
+    const row = document.querySelector<HTMLElement>(`[data-person-row="${justAdded}"]`)
+    row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    row?.querySelector<HTMLElement>('select[aria-label="Livello"]')?.focus({ preventScroll: true })
+  }, [justAdded])
   const [confirming, setConfirming] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
@@ -69,10 +82,16 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
   /** Le nuove risorse nascono nel team dell'utente (HR e Governance lo scelgono poi dalla tabella). */
   const newPersonTeam = canSetTeam ? null : newTeam
   const newHidden = !canSeeSalaryOf(myTeam, newPersonTeam)
-  const add = (name: string, email: string) => onChange([...people, {
-    id: newId(), name, email, level: 'B1', ral: newHidden ? 0 : 30_000, active: true, color: nextColor(people), availability: 'nessuna',
-    team: newPersonTeam, ...(newHidden ? { salaryHidden: true } : {}),
-  }])
+  const add = (name: string, email: string) => {
+    const id = newId()
+    // RAL vuota ("Da inserire"): niente valori di comodo che potrebbero restare per errore
+    onChange([...people, {
+      id, name, email, level: 'B1', ral: 0, active: true, color: nextColor(people), availability: 'nessuna',
+      team: newPersonTeam, ...(newHidden ? { salaryHidden: true } : {}),
+    }])
+    if (!newHidden) setFresh((s) => new Set(s).add(id))
+    setJustAdded(id)
+  }
   /** Nome della risorsa che usa già quell'email (l'email identifica la persona e il suo account). */
   const emailOwner = (email: string, exceptId?: string) => people.find((x) => x.id !== exceptId && x.email === normalizeEmail(email))?.name
   const missingEmail = people.filter((x) => !x.email).length
@@ -120,8 +139,9 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
               const n = ps.length
               const perMonth = HORIZON_MONTHS.map((m) => ({ m, n: ps.filter((x) => monthKey(x.date) === m).length })).filter((x) => x.n > 0)
               const max = p.active ? preferredMax(p) : undefined
+              const open = revealed || fresh.has(p.id)
               return (
-                <tr key={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'}`}>
+                <tr key={p.id} data-person-row={p.id} className={`border-b border-slate-100 ${p.active ? '' : 'bg-slate-50 text-slate-500'} ${fresh.has(p.id) ? 'bg-blue-50/50' : ''}`}>
                   <td className="py-2 pr-3 pl-3 align-middle" style={p.active && p.reserve ? { boxShadow: 'inset 3px 0 0 #7c3aed' } : undefined}>
                     <label className="relative block h-7 w-7 cursor-pointer rounded-full ring-2 ring-white shadow" style={{ background: p.color }} title="Cambia colore">
                       <input type="color" value={p.color} onChange={(e) => update(p.id, { color: e.target.value })} className="absolute inset-0 opacity-0" />
@@ -142,7 +162,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
                     {confirming === p.id && p.email && (
                       <div role="dialog" aria-label={`Crea account Turnista per ${p.name}`} className="mt-2 max-w-sm rounded-lg bg-white p-3 text-xs text-slate-600 shadow-lg ring-1 ring-blue-200">
                         <div className="text-sm font-semibold text-slate-900">Creare l'account Turnista per {p.name}?</div>
-                        <div className="mt-1">Accesso con {p.email}, già collegato a questa scheda. La password temporanea viene mostrata una sola volta.</div>
+                        <div className="mt-1">Accesso con {p.email}, già collegato a questa scheda. La password provvisoria resta copiabile dalla pagina Utenti finché non viene cambiata.</div>
                         {createError && <div role="alert" className="mt-2 rounded bg-red-50 px-2 py-1 text-red-800">{createError}</div>}
                         <div className="mt-2.5 flex justify-end gap-2">
                           <Button variant="ghost" disabled={creating} onClick={() => setConfirming(null)}>Annulla</Button>
@@ -161,14 +181,14 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
                     ) : <span className="text-sm text-slate-700" title="Il team di una risorsa lo assegnano HR o Governance">{p.team ? TEAM_LABEL[p.team] : '—'}</span>}
                   </td>
                   <td className="py-2 pr-3">
-                    {p.salaryHidden ? <Reserved w="w-16" team={p.team} /> : revealed ? (
+                    {p.salaryHidden ? <Reserved w="w-16" team={p.team} /> : open ? (
                       <select value={p.level} onChange={(e) => update(p.id, { level: e.target.value as Level })} aria-label="Livello" className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
                         {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
                       </select>
                     ) : <Masked w="w-16" />}
                   </td>
                   <td className="py-2 pr-3">
-                    {p.salaryHidden ? <Reserved w="w-32" team={p.team} /> : revealed ? (
+                    {p.salaryHidden ? <Reserved w="w-32" team={p.team} /> : open ? (
                       <div className="flex items-start gap-2">
                         <div>
                           {p.ralNd ? (

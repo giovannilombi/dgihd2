@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export function Login({ onSignIn }: { onSignIn: (email: string, password: string) => Promise<void> }) {
+export function Login({ onSignIn, notice }: { onSignIn: (email: string, password: string) => Promise<void>; notice?: string }) {
   const [email, setEmail] = useState('')
   const [pwd, setPwd] = useState('')
   const [error, setError] = useState('')
@@ -27,6 +27,7 @@ export function Login({ onSignIn }: { onSignIn: (email: string, password: string
           <h1 className="mt-1 text-xl font-semibold text-slate-900">Piano reperibilità - ARM</h1>
           <p className="mt-1 text-sm text-slate-500">Accedi con la tua email e la tua password personale.</p>
         </div>
+        {notice && <p role="status" className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{notice}</p>}
         <label className="block">
           <span className="text-sm font-medium text-slate-700">Email</span>
           <input type="email" autoFocus autoComplete="username" value={email} onChange={(e) => { setEmail(e.target.value); setError('') }} className="mt-1 w-full rounded-lg px-3 py-2 text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" />

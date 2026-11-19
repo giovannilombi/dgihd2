@@ -70,7 +70,7 @@ function usePage(allowed: PageId[]) {
 export default function App() {
   const { state, signIn, signOut, changePassword } = useAuth()
   if (state.status === 'loading') return <div className="grid min-h-screen place-items-center text-sm text-slate-500">Caricamento…</div>
-  if (state.status === 'signed-out') return <Login onSignIn={signIn} />
+  if (state.status === 'signed-out') return <Login onSignIn={signIn} notice={state.notice} />
   if (state.status === 'no-profile') {
     return (
       <div className="grid min-h-screen place-items-center bg-slate-100 px-4">

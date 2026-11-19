@@ -5,7 +5,7 @@ import { adminCall, supabase } from './supabase'
 
 export type AuthState =
   | { status: 'loading' }
-  | { status: 'signed-out' }
+  | { status: 'signed-out'; notice?: string }
   | { status: 'no-profile'; session: Session }
   | { status: 'ready'; session: Session; profile: Profile }
 
@@ -47,7 +47,17 @@ export function useAuth() {
   const changePassword = async (password: string) => {
     const { data: before } = await supabase.auth.getSession()
     const email = before.session?.user.email
-    await adminCall({ action: 'change_password', password })
+    try {
+      await adminCall({ action: 'change_password', password })
+    } catch (e) {
+      // La sessione non esiste più (es. la password è stata reimpostata nel frattempo): si rientra da capo
+      if (/sessione non valida|accedi di nuovo/i.test((e as Error).message)) {
+        await supabase.auth.signOut({ scope: 'local' })
+        setState({ status: 'signed-out', notice: 'La sessione è scaduta, ad esempio perché la password è stata reimpostata. Accedi di nuovo con la password provvisoria più recente e scegli quella nuova.' })
+        return
+      }
+      throw e
+    }
     // il cambio password lato server chiude le sessioni esistenti: si rientra subito con la nuova password
     if (email) {
       const { error } = await supabase.auth.signInWithPassword({ email, password })

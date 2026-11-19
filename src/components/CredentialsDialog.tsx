@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Credential } from '../lib/accounts'
 import { Button } from './ui'
 
-/** Password temporanee dei nuovi account: mostrate una sola volta, da comunicare su un canale riservato. */
+/** Password provvisorie dei nuovi account, da comunicare su un canale riservato (restano copiabili dalla lista utenti finché non vengono cambiate). */
 export function CredentialsDialog({ items, errors = [], onClose }: { items: Credential[]; errors?: string[]; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
   const copyAll = () => {
@@ -16,7 +16,7 @@ export function CredentialsDialog({ items, errors = [], onClose }: { items: Cred
         <h3 id="cred-title" className="text-lg font-semibold text-slate-900">{items.length ? title : 'Nessun account creato'}</h3>
         {items.length > 0 && (
           <>
-            <p className="mt-1 text-sm text-slate-500">Password temporanee mostrate <strong className="text-slate-900">solo ora</strong>: copiale e comunicale a ciascuno su un canale riservato. Al primo accesso dovranno cambiarla.</p>
+            <p className="mt-1 text-sm text-slate-500">Copiale e comunicale a ciascuno su un canale riservato. Restano copiabili dalla lista utenti finché la persona non le cambia, cosa che dovrà fare al primo accesso.</p>
             <div className="mt-4 max-h-80 overflow-auto rounded-lg bg-slate-50">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">

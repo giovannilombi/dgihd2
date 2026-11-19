@@ -7,7 +7,7 @@ import { accountFor, canCreateAccount, createTurnistaAccounts, type Credential }
 import { Badge, Button } from './ui'
 import { CredentialsDialog } from './CredentialsDialog'
 
-interface UserRow extends Profile { created_at: string; last_sign_in_at: string | null }
+interface UserRow extends Profile { created_at: string; last_sign_in_at: string | null; temp_password?: string | null }
 
 const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
 
@@ -15,6 +15,8 @@ const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString('it-IT', {
 export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]; flush: () => Promise<void> }) {
   const [tab, setTab] = useState<'account' | 'turnisti'>('account')
   const [roleFilter, setRoleFilter] = useState<Set<Role>>(new Set())
+  /** I Turnisti sono tanti: si includono o escludono a parte, indipendentemente dal filtro dei livelli. */
+  const [withTurnisti, setWithTurnisti] = useState(false)
   const [sortBy, setSortBy] = useState<'role' | 'name' | 'last' | 'created'>('role')
   const [pending, setPending] = useState<PendingChange | null>(null)
   const [namesMode, setNamesMode] = useState<NamesSetting>('all')
@@ -85,7 +87,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
   const toggleRole = (r: Role) => setRoleFilter((s) => { const n = new Set(s); if (n.has(r)) n.delete(r); else n.add(r); return n })
   const byName = (a: UserRow, b: UserRow) => (a.display_name || a.email).localeCompare(b.display_name || b.email, 'it')
   const shownUsers = users
-    .filter((u) => !roleFilter.size || roleFilter.has(u.role))
+    .filter((u) => u.role === 'turnista' ? withTurnisti : !roleFilter.size || roleFilter.has(u.role))
     .sort((a, b) =>
       sortBy === 'role' ? roleRank(a.role) - roleRank(b.role) || byName(a, b)
       : sortBy === 'name' ? byName(a, b)
@@ -145,19 +147,27 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
           <p className="w-full text-xs text-amber-800">Nessuna persona dell'anagrafica ha questa email: il Turnista non vedrà evidenziati i propri turni finché l'email non coincide con quella della sua scheda in B · Team.</p>
         )}
         <Button type="submit" variant="primary" disabled={busy || !form.email}>+ Crea utente</Button>
-        <p className="w-full text-xs text-slate-500">Viene generata una password temporanea (es. giraffa-camaleonte-12), mostrata una sola volta: comunicala alla persona, che dovrà cambiarla al primo accesso. Il team decide quali RAL vede: solo quelle del proprio team; HR e Governance le vedono tutte.</p>
+        <p className="w-full text-xs text-slate-500">Viene generata una password provvisoria (es. giraffa-camaleonte-12), che resta copiabile dalla lista finché la persona non la cambia al primo accesso: comunicala alla persona, che dovrà cambiarla al primo accesso. Il team decide quali RAL vede: solo quelle del proprio team; HR e Governance le vedono tutte.</p>
       </form>
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-slate-600">Livello:</span>
         <button type="button" aria-pressed={!roleFilter.size} onClick={() => setRoleFilter(new Set())}
-          className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${!roleFilter.size ? 'bg-blue-700 text-white ring-blue-700' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>Tutti ({users.length})</button>
-        {ROLES.map((r) => (
+          className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${!roleFilter.size ? 'bg-blue-700 text-white ring-blue-700' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>Tutti ({users.length - counts.turnista})</button>
+        {ROLES.filter((r) => r !== 'turnista').map((r) => (
           <button key={r} type="button" aria-pressed={roleFilter.has(r)} onClick={() => toggleRole(r)} disabled={!counts[r] && !roleFilter.has(r)}
             className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset disabled:opacity-40 ${roleFilter.has(r) ? 'bg-blue-50 text-blue-800 ring-blue-400' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>
             {ROLE_LABEL[r]} ({counts[r]})
           </button>
         ))}
+        <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden />
+        <button type="button" role="switch" aria-checked={withTurnisti} onClick={() => setWithTurnisti((v) => !v)}
+          className="flex items-center gap-2 rounded-full px-1 py-0.5 text-xs font-medium text-slate-700">
+          <span className={`relative h-5 w-9 rounded-full transition-colors ${withTurnisti ? 'bg-blue-700' : 'bg-slate-300'}`}>
+            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${withTurnisti ? 'left-[18px]' : 'left-0.5'}`} />
+          </span>
+          Includi turnisti ({counts.turnista})
+        </button>
         <label className="ml-auto flex items-center gap-2 text-xs font-medium text-slate-600">
           Ordina per
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="rounded-md bg-white px-2 py-1 text-sm font-normal ring-1 ring-inset ring-slate-300">
@@ -220,15 +230,20 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                     </>
                   ) : <span className="text-slate-400">—</span>}
                 </td>
-                <td className="py-2 pr-3">{u.must_change_password ? <Badge tone="amber">Deve cambiare password</Badge> : <Badge tone="green">Attivo</Badge>}</td>
+                <td className="py-2 pr-3">
+                  {u.must_change_password ? <Badge tone="amber">Password provvisoria</Badge> : <Badge tone="green">Attivo</Badge>}
+                  {u.must_change_password && <TempPassword password={u.temp_password} />}
+                </td>
                 <td className="py-2 pr-3 text-slate-600">{fmtDate(u.last_sign_in_at)}</td>
                 <td className="py-2 text-right whitespace-nowrap">
-                  <Button variant="ghost" disabled={busy} onClick={() => reset(u)}>Reimposta password</Button>
+                  {u.id === me.id
+                    ? <span className="px-2 text-xs text-slate-400" title="Per il tuo account usa Cambia password dal menu in alto a destra: una reimpostazione chiuderebbe la tua sessione">Il tuo account</span>
+                    : <Button variant="ghost" disabled={busy} onClick={() => reset(u)}>Reimposta password</Button>}
                   {u.id !== me.id && <Button variant="ghost" className="text-red-700" disabled={busy} onClick={() => remove(u)}>Elimina</Button>}
                 </td>
               </tr>
             ))}
-            {!shownUsers.length && <tr><td colSpan={7} className="py-6 text-center text-slate-500">{loading ? 'Caricamento…' : 'Nessun utente.'}</td></tr>}
+            {!shownUsers.length && <tr><td colSpan={7} className="py-6 text-center text-slate-500">{loading ? 'Caricamento…' : users.length ? 'Nessun utente con questi filtri.' : 'Nessun utente.'}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -239,7 +254,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="sec-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
             <h3 id="sec-title" className="text-lg font-semibold text-slate-900">{secret.reason}</h3>
-            <p className="mt-1 text-sm text-slate-500">Password temporanea per <strong>{secret.email}</strong>. Viene mostrata <strong>solo ora</strong>: copiala e comunicala alla persona su un canale riservato.</p>
+            <p className="mt-1 text-sm text-slate-500">Password temporanea per <strong>{secret.email}</strong>. Copiala e comunicala alla persona su un canale riservato.</p>
             <div className="mt-4 flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2">
               <code className="flex-1 font-mono text-lg font-semibold text-slate-900 select-all">{secret.password}</code>
               <Button onClick={() => navigator.clipboard?.writeText(secret.password)}>Copia</Button>
@@ -331,7 +346,7 @@ function TurnistiTab({ people, users, loading, flush, reload }: { people: Person
 
   const create = async (list: Person[]) => {
     if (!list.length) return
-    if (list.length > 1 && !confirm(`Creare ${list.length} account Turnista? Ognuno riceve una password temporanea, mostrata una sola volta.`)) return
+    if (list.length > 1 && !confirm(`Creare ${list.length} account Turnista? Ognuno riceve una password provvisoria, copiabile dalla lista finché non la cambia.`)) return
     setBusy(true)
     try {
       await flush() // schede ed email devono essere già salvate
@@ -391,7 +406,7 @@ function TurnistiTab({ people, users, loading, flush, reload }: { people: Person
                   <td className="py-2 pr-3">
                     {acc ? <span className={`inline-flex rounded-md px-1.5 py-px text-[11px] font-semibold ring-1 ring-inset ${ACCOUNT_TONE(acc.role)}`}>{ROLE_LABEL[acc.role]}</span>
                       : <span className="inline-flex rounded-md bg-slate-100 px-1.5 py-px text-[11px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200">Nessun account</span>}
-                    {acc?.must_change_password && <div className="mt-0.5 text-[11px] text-amber-700">Password temporanea non ancora cambiata</div>}
+                    {acc?.must_change_password && <TempPassword password={(acc as UserRow).temp_password} />}
                   </td>
                   <td className="py-2 pr-3 text-slate-600">{acc ? fmtDate(acc.last_sign_in_at) : '—'}</td>
                   <td className="py-2 text-right whitespace-nowrap">
@@ -412,7 +427,7 @@ function TurnistiTab({ people, users, loading, flush, reload }: { people: Person
         <Button variant="primary" disabled={busy || !chosen.length} onClick={() => void create(chosen)}>
           {busy ? 'Creazione in corso…' : chosen.length > 1 ? `Crea ${chosen.length} account Turnista` : 'Crea account Turnista'}
         </Button>
-        <span className="text-xs text-slate-600">Account Turnista già collegati alla scheda; password temporanee mostrate una sola volta.</span>
+        <span className="text-xs text-slate-600">Account Turnista già collegati alla scheda; password provvisorie copiabili dalla lista finché non vengono cambiate.</span>
       </div>
 
       {result && <CredentialsDialog items={result.created} errors={result.errors} onClose={() => setResult(null)} />}
@@ -485,4 +500,17 @@ const viewHint = (setting: NamesSetting, own?: NamesMode) => {
   if (setting === 'all') return 'Ora vede tutti i turni: impostazione generale "Tutti i turni"'
   if (setting === 'own') return 'Ora vede solo i propri: impostazione generale "Solo i propri turni"'
   return effectiveNames(setting, own) === 'all' ? 'Ora vede tutti i turni (impostazione Per persona)' : 'Ora vede solo i propri turni (impostazione Per persona)'
+}
+
+/** Password provvisoria ancora da cambiare: copiabile per comunicarla di nuovo. Dopo il cambio resta solo "Reimposta password". */
+function TempPassword({ password }: { password?: string | null }) {
+  const [copied, setCopied] = useState(false)
+  if (!password) return <div className="mt-1 max-w-48 text-[11px] text-slate-500">Non ancora cambiata; la password provvisoria non è disponibile: usa Reimposta password.</div>
+  return (
+    <div className="mt-1 flex items-center gap-1.5">
+      <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-800 select-all">{password}</code>
+      <button type="button" onClick={() => { void navigator.clipboard?.writeText(password); setCopied(true); window.setTimeout(() => setCopied(false), 1500) }}
+        className="rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-200 hover:bg-blue-50">{copied ? 'Copiata' : 'Copia'}</button>
+    </div>
+  )
 }
