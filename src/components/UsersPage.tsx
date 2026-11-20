@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { canReadFull, ROLE_HELP, ROLE_LABEL, roleAccess, roleRank, ROLES, type Profile, type Role } from '../lib/roles'
-import { TEAM_LABEL, USER_TEAMS, type Person, type UserTeam } from '../lib/types'
+import type { Person } from '../lib/types'
+import { teamLabel, type TeamDir, type TeamId } from '../lib/teams'
+import { useTeams } from '../lib/useTeams'
+import { TeamsTab } from './TeamsTab'
 import { adminCall, supabase } from '../lib/supabase'
 import { effectiveNames, parseNamesSetting, type NamesMode, type NamesSetting } from '../lib/shiftsView'
 import { accountFor, canCreateAccount, createTurnistaAccounts, type Credential } from '../lib/accounts'
@@ -13,7 +16,8 @@ const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString('it-IT', {
 
 /** Gestione accessi (solo super admin): creazione, livello, reset password, eliminazione. */
 export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]; flush: () => Promise<void> }) {
-  const [tab, setTab] = useState<'account' | 'turnisti'>('account')
+  const teams = useTeams()
+  const [tab, setTab] = useState<'account' | 'turnisti' | 'team'>('account')
   const [roleFilter, setRoleFilter] = useState<Set<Role>>(new Set())
   /** I Turnisti sono tanti: si includono o escludono a parte, indipendentemente dal filtro dei livelli. */
   const [withTurnisti, setWithTurnisti] = useState(false)
@@ -28,7 +32,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [secret, setSecret] = useState<{ email: string; password: string; reason: string } | null>(null)
-  const [form, setForm] = useState({ email: '', display_name: '', role: 'viewer' as Role, team: '' as UserTeam | '', turnista_view: 'own' as NamesMode })
+  const [form, setForm] = useState({ email: '', display_name: '', role: 'viewer' as Role, team: '' as TeamId, turnista_view: 'own' as NamesMode })
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -69,7 +73,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
   /** Ogni cambio di livello passa da una conferma che dice cosa vedrà la persona (RAL comprese). */
   const setRole = (u: UserRow, role: Role) => { if (role !== u.role) setPending({ user: u, role, team: u.team }) }
   /** Il team decide quali RAL vede chi legge l'anagrafica: anche questo cambio va confermato. */
-  const setTeam = (u: UserRow, value: UserTeam | '') => {
+  const setTeam = (u: UserRow, value: TeamId) => {
     const team = value || null
     if (team === u.team) return
     if (canReadFull(u.role)) return setPending({ user: u, role: u.role, team })
@@ -107,10 +111,11 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
       <div role="tablist" aria-label="Viste" className="-mt-1 flex gap-6 border-b border-slate-200 text-sm font-medium">
         <TabButton active={tab === 'account'} onClick={() => setTab('account')}>Account ({users.length})</TabButton>
         <TabButton active={tab === 'turnisti'} onClick={() => setTab('turnisti')}>Turnisti ({people.length})</TabButton>
+        <TabButton active={tab === 'team'} onClick={() => setTab('team')}>Team ({teams.list.length})</TabButton>
       </div>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
-      {tab === 'turnisti' ? <TurnistiTab people={people} users={users} loading={loading} flush={flush} reload={load} /> : <>
+      {tab === 'team' ? <TeamsTab me={me} people={people} users={users} loading={loading} /> : tab === 'turnisti' ? <TurnistiTab people={people} users={users} loading={loading} flush={flush} reload={load} /> : <>
 
       <form onSubmit={create} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
         <label className="block min-w-64 flex-1">
@@ -129,9 +134,9 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
         </label>
         <label className="block">
           <span className="text-xs font-medium text-slate-600">Team</span>
-          <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value as UserTeam | '' })} className="mt-1 block rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">
+          <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} className="mt-1 block rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">
             <option value="">— nessuno —</option>
-            {USER_TEAMS.map((t) => <option key={t} value={t}>{TEAM_LABEL[t]}</option>)}
+            {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
         </label>
         {form.role === 'turnista' && (
@@ -147,7 +152,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
           <p className="w-full text-xs text-amber-800">Nessuna persona dell'anagrafica ha questa email: il Turnista non vedrà evidenziati i propri turni finché l'email non coincide con quella della sua scheda in B · Team.</p>
         )}
         <Button type="submit" variant="primary" disabled={busy || !form.email}>+ Crea utente</Button>
-        <p className="w-full text-xs text-slate-500">Viene generata una password provvisoria (es. giraffa-camaleonte-12), che resta copiabile dalla lista finché la persona non la cambia al primo accesso: comunicala alla persona, che dovrà cambiarla al primo accesso. Il team decide quali RAL vede: solo quelle del proprio team; HR e Governance le vedono tutte.</p>
+        <p className="w-full text-xs text-slate-500">Viene generata una password provvisoria (es. giraffa-camaleonte-12), che resta copiabile dalla lista finché la persona non la cambia al primo accesso: comunicala alla persona, che dovrà cambiarla al primo accesso. Il team decide quali RAL vede: solo quelle del proprio team; {seesAllText(teams)}.</p>
       </form>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -185,7 +190,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-2 pr-3 font-medium">Utente</th>
               <th className="py-2 pr-3 font-medium">Livello</th>
-              <th className="py-2 pr-3 font-medium" title="RAL e livello visibili: solo del proprio team; HR e Governance tutti">Team</th>
+              <th className="py-2 pr-3 font-medium" title={`RAL e livello visibili: solo del proprio team; ${seesAllText(teams)}`}>Team</th>
               <th className="py-2 pr-3 font-medium" title="Per i Turnisti: propri turni o tutti i turni (vale quando l'impostazione generale è Per persona)">Visibilità</th>
               <th className="py-2 pr-3 font-medium">Stato</th>
               <th className="py-2 pr-3 font-medium">Ultimo accesso</th>
@@ -208,12 +213,14 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                   <div className="mt-0.5 text-[11px] text-slate-400">{ROLE_HELP[u.role]}</div>
                 </td>
                 <td className="py-2 pr-3">
-                  <select value={u.team ?? ''} disabled={busy} onChange={(e) => void setTeam(u, e.target.value as UserTeam | '')} aria-label={`Team di ${u.email}`}
+                  <select value={u.team ?? ''} disabled={busy} onChange={(e) => void setTeam(u, e.target.value)} aria-label={`Team di ${u.email}`}
                     className={`rounded-md bg-white px-2 py-1 ring-1 ring-inset ${u.team ? 'ring-slate-200' : 'text-amber-800 ring-amber-300'}`}>
                     <option value="">— nessuno —</option>
-                    {USER_TEAMS.map((t) => <option key={t} value={t}>{TEAM_LABEL[t]}</option>)}
+                    {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    {u.team && !teams.byId[u.team] && <option value={u.team}>{u.team}</option>}
                   </select>
-                  <div className={`mt-0.5 text-[11px] ${roleAccess(u.role, u.team).ral === 'all' ? 'font-medium text-red-700' : 'text-slate-400'}`}>{ralHint(u)}</div>
+                  <div className={`mt-0.5 text-[11px] ${roleAccess(u.role, u.team, teams).ral === 'all' ? 'font-medium text-red-700' : 'text-slate-400'}`}>{ralHint(u, teams)}</div>
+                  {teams.list.some((t) => t.directorId === u.id) && <div className="mt-0.5 text-[11px] font-medium text-blue-800">Director del team</div>}
                 </td>
                 <td className="py-2 pr-3">
                   {u.role === 'turnista' ? (
@@ -249,7 +256,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
       </div>
       </>}
 
-      {pending && <AccessChangeDialog change={pending} isMe={pending.user.id === me.id} namesMode={effectiveNames(namesMode, pending.user.turnista_view)} onCancel={() => setPending(null)} onConfirm={() => applyPending(pending)} />}
+      {pending && <AccessChangeDialog change={pending} teams={teams} isMe={pending.user.id === me.id} namesMode={effectiveNames(namesMode, pending.user.turnista_view)} onCancel={() => setPending(null)} onConfirm={() => applyPending(pending)} />}
       {secret && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="sec-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
@@ -331,6 +338,7 @@ const roleOfPerson = (p: Person) => (!p.active ? 'KO' : p.reserve ? `Riserva n. 
  * il super admin crea da qui gli account Turnista, uno alla volta o in blocco.
  */
 function TurnistiTab({ people, users, loading, flush, reload }: { people: Person[]; users: UserRow[]; loading: boolean; flush: () => Promise<void>; reload: () => Promise<void> }) {
+  const teams = useTeams()
   const [onlyMissing, setOnlyMissing] = useState(false)
   const [includeKo, setIncludeKo] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -401,7 +409,7 @@ function TurnistiTab({ people, users, loading, flush, reload }: { people: Person
                     <div className={`font-medium ${p.active ? 'text-slate-900' : 'text-slate-600'}`}>{p.name}</div>
                     {p.email ? <div className="text-xs text-slate-500">{p.email}</div> : <Badge tone="amber">Email da inserire</Badge>}
                   </td>
-                  <td className="py-2 pr-3 text-slate-700">{p.team ? TEAM_LABEL[p.team] : '—'}</td>
+                  <td className="py-2 pr-3 text-slate-700">{p.team ? teamLabel(teams, p.team) : '—'}</td>
                   <td className="py-2 pr-3 text-slate-700">{roleOfPerson(p)}</td>
                   <td className="py-2 pr-3">
                     {acc ? <span className={`inline-flex rounded-md px-1.5 py-px text-[11px] font-semibold ring-1 ring-inset ${ACCOUNT_TONE(acc.role)}`}>{ROLE_LABEL[acc.role]}</span>
@@ -435,24 +443,32 @@ function TurnistiTab({ people, users, loading, flush, reload }: { people: Person
   )
 }
 
-interface PendingChange { user: UserRow; role: Role; team: UserTeam | null }
+interface PendingChange { user: UserRow; role: Role; team: TeamId | null }
+
+/** "HR e Governance le vedono tutte": i team che vedono tutto, per i testi di aiuto. */
+const seesAllText = (teams: TeamDir) => {
+  const names = teams.list.filter((t) => t.seesAll).map((t) => t.label)
+  return names.length ? `${names.join(' e ')} le ${names.length === 1 ? 'vede' : 'vedono'} tutte` : 'nessun team le vede tutte'
+}
 
 /** Breve indicazione sotto il team: cosa vede davvero, tenendo conto anche del livello. */
-const ralHint = (u: { role: Role; team: UserTeam | null }) => {
-  const a = roleAccess(u.role, u.team)
+const ralHint = (u: { role: Role; team: TeamId | null }, teams: TeamDir) => {
+  const a = roleAccess(u.role, u.team, teams)
   if (a.ral === 'all') return 'Vede le RAL di tutti i team'
-  if (a.ral === 'team' && u.team) return `Vede le RAL del team ${TEAM_LABEL[u.team]}`
+  if (a.ral === 'team' && u.team) return `Vede le RAL del team ${teamLabel(teams, u.team)}`
   return canReadFull(u.role) ? 'Non vede RAL (nessun team)' : `Non vede RAL (livello ${ROLE_LABEL[u.role]})`
 }
 
 /** Conferma di un cambio di livello o di team: elenca cosa vedrà la persona, RAL in evidenza. */
-function AccessChangeDialog({ change, isMe, namesMode, onCancel, onConfirm }: { change: PendingChange; isMe: boolean; namesMode: NamesMode; onCancel: () => void; onConfirm: () => void }) {
+function AccessChangeDialog({ change, teams, isMe, namesMode, onCancel, onConfirm }: { change: PendingChange; teams: TeamDir; isMe: boolean; namesMode: NamesMode; onCancel: () => void; onConfirm: () => void }) {
   const { user, role, team } = change
-  const before = roleAccess(user.role, user.team, namesMode)
-  const after = roleAccess(role, team, namesMode)
+  const before = roleAccess(user.role, user.team, teams, namesMode)
+  const after = roleAccess(role, team, teams, namesMode)
+  // Il director deve restare un account del team con accesso completo in lettura: altrimenti perde il ruolo
+  const lostDirector = teams.list.filter((t) => t.directorId === user.id && (t.id !== team || !canReadFull(role)))
   const who = user.display_name || user.email
   const roleChanged = role !== user.role
-  const label = (r: Role, t: UserTeam | null) => `${ROLE_LABEL[r]} · ${t ? TEAM_LABEL[t] : 'nessun team'}`
+  const label = (r: Role, t: TeamId | null) => `${ROLE_LABEL[r]} · ${t ? teamLabel(teams, t) : 'nessun team'}`
   const ralTone = after.ral === 'all' ? 'bg-red-50 text-red-900 ring-red-200' : after.ral === 'team' ? 'bg-amber-50 text-amber-900 ring-amber-200' : 'bg-emerald-50 text-emerald-900 ring-emerald-200'
   const ralChange = before.ral !== after.ral || (after.ral === 'team' && user.team !== team)
   return (
@@ -481,13 +497,16 @@ function AccessChangeDialog({ change, isMe, namesMode, onCancel, onConfirm }: { 
             </>
           )}
         </div>
+        {lostDirector.length > 0 && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Non sarà più director del team {lostDirector.map((t) => t.label).join(', ')}: finché non ne viene scelto un altro, approva il super admin.</p>
+        )}
         {isMe && user.role === 'super_admin' && role !== 'super_admin' && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Stai togliendo a te stesso il livello Super admin: non potrai più gestire gli utenti.</p>
         )}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>Annulla</Button>
           <Button variant={after.ral === 'all' || after.managesUsers ? 'danger' : 'primary'} onClick={onConfirm}>
-            {roleChanged ? `Conferma: ${ROLE_LABEL[role]}` : `Conferma: team ${team ? TEAM_LABEL[team] : 'nessuno'}`}
+            {roleChanged ? `Conferma: ${ROLE_LABEL[role]}` : `Conferma: team ${team ? teamLabel(teams, team) : 'nessuno'}`}
           </Button>
         </div>
       </div>

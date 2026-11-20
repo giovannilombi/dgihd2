@@ -221,6 +221,9 @@ Altre regole dell'art. 7 rilevanti:
 ## 9. Visibilità dei dati (privacy)
 
 - RAL e livello: solo per le risorse del proprio team; HR e Governance (team che "vedono tutto") per tutti.
+- Team gestiti dal super admin (tabella dei team): nome, "vede tutto" e director. Il director deve essere un
+  account dello stesso team con accesso completo in lettura, quindi vede già le RAL del team: gli importi
+  degli interventi non gli rivelano nulla di nuovo. Se cambia team o livello, il team resta senza director.
 - Importi degli interventi: solo HR, Governance e director del team della persona (dagli importi si
   ricaverebbe la paga oraria, quindi la RAL). Ore e fasce visibili a chi legge il consuntivo.
 - Persone con RAL "Q/": gli importi derivano da un valore medio riservato; non mostrare dati da cui

@@ -1,4 +1,4 @@
-import { TEAM_LABEL, type UserTeam } from './types'
+import { seesAllSalaries, teamLabel, type TeamDir, type TeamId } from './teams'
 
 export type Role = 'super_admin' | 'editor' | 'viewer_plus' | 'viewer' | 'turnista'
 
@@ -30,7 +30,7 @@ export interface Profile {
   display_name: string
   role: Role
   must_change_password: boolean
-  team: UserTeam | null
+  team: TeamId | null
   /** Risorsa del Team collegata all'account (serve al Turnista per riconoscere i propri turni). */
   person_id?: string | null
   /** Visibilità del Turnista quando l'impostazione generale è "per persona". */
@@ -55,12 +55,12 @@ export interface RoleAccess {
 
 /**
  * Cosa vede un utente con questo livello e questo team: le stesse regole del database
- * (RAL e livello solo per chi legge l'anagrafica completa, e solo del proprio team; HR e Governance tutti).
+ * (RAL e livello solo per chi legge l'anagrafica completa, e solo del proprio team; i team che "vedono tutto" tutti).
  */
-export function roleAccess(role: Role, team: UserTeam | null, turnistaNames: 'all' | 'own' = 'all'): RoleAccess {
+export function roleAccess(role: Role, team: TeamId | null, teams: TeamDir, turnistaNames: 'all' | 'own' = 'all'): RoleAccess {
   const readsFull = canReadFull(role)
-  const ral: RoleAccess['ral'] = !readsFull ? 'none' : team === 'hr' || team === 'governance' ? 'all' : team ? 'team' : 'none'
-  const teamName = team ? TEAM_LABEL[team] : ''
+  const ral: RoleAccess['ral'] = !readsFull ? 'none' : seesAllSalaries(teams, team) ? 'all' : team ? 'team' : 'none'
+  const teamName = teamLabel(teams, team)
   const ralText = !readsFull ? 'Nessuna RAL né livello, qualunque sia il team.'
     : ral === 'all' ? `RAL e livello di TUTTE le risorse di tutti i team (team ${teamName}).`
     : ral === 'team' ? `RAL e livello delle sole risorse del team ${teamName}.`

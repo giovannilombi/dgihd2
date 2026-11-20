@@ -36,9 +36,9 @@ Ogni risorsa ha un'**email aziendale obbligatoria** (sotto il nome in B · Team,
 
 ### Team e visibilità di RAL e livello
 
-Ogni risorsa appartiene a un team (Tech, Design, PM, Director, Governance) e ogni utente ha un team (gli stessi, più HR). RAL e livello sono visibili **solo per le risorse del proprio team**; HR e Governance li vedono per tutti. Per le risorse degli altri team l'app mostra "Riservata" e non calcola costi né ore: consuntivo e conto economico riportano solo il proprio team.
+Ogni risorsa e ogni utente appartengono a un team. I team li gestisce il super admin (Utenti → Team): crea, rinomina, elimina se non usati, sceglie il **director** (un account del team con accesso completo in lettura) e indica quali team **vedono tutto** (oggi HR e Governance). RAL e livello sono visibili **solo per le risorse del proprio team**; i team che vedono tutto li vedono per tutti. Per le risorse degli altri team l'app mostra "Riservata" e non calcola costi né ore: consuntivo e conto economico riportano solo il proprio team.
 
-Nessun vincolo di rotazione dipende dalla RAL. L'auto-compilazione, che a parità di condizioni preferisce il costo minore, gira sulla funzione server `supabase/functions/planner` quando ci sono persone di cui il browser non conosce la RAL; restituisce solo le assegnazioni, mai importi o RAL. Il team di una risorsa può essere cambiato solo da HR e Governance (controllo nel database).
+Nessun vincolo di rotazione dipende dalla RAL. L'auto-compilazione, che a parità di condizioni preferisce il costo minore, gira sulla funzione server `supabase/functions/planner` quando ci sono persone di cui il browser non conosce la RAL; restituisce solo le assegnazioni, mai importi o RAL. Il team di una risorsa può essere cambiato solo da chi appartiene a un team che vede tutto (controllo nel database).
 
 Per le risorse con RAL **Q/** i calcoli usano una RAL media di riferimento che sta solo sul server (tabella `server_params`, non leggibile dagli utenti): gli importi di queste persone li calcola la funzione `planner` e il browser riceve solo i risultati.
 

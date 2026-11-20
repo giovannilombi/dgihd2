@@ -2,7 +2,8 @@ import { ALL_SLOTS } from './calendar'
 import { slotEconomics, type SlotEcon } from './economics'
 import { checkAssignment, compensationsFor, existingViolations, personSlots, type RuleId, type WeekComp } from './rules'
 import type { AppData } from './store'
-import { canSeeSalaryOf, type Person, type UserTeam } from './types'
+import type { Person } from './types'
+import { canSeeSalaryOf, type TeamDir, type TeamId } from './teams'
 
 /**
  * Importi e ore di una persona con RAL "Q/", calcolati dal server con la RAL media di riferimento
@@ -41,8 +42,8 @@ export const SALARY_RULES: ReadonlySet<RuleId> = new Set<RuleId>()
 export const needsServerChecks = (p: Pick<Person, 'salaryHidden' | 'ralNd'>) => !!p.salaryHidden || !!p.ralNd
 
 /** Calcolo lato server (dati completi, RAL media inclusa) per le persone che il browser non può calcolare. */
-export function salaryRuleChecks(data: AppData, myTeam: UserTeam | null): ServerChecks {
-  const hidden = data.people.filter((p) => !canSeeSalaryOf(myTeam, p.team) || p.ralNd)
+export function salaryRuleChecks(data: AppData, myTeam: TeamId | null, teams: TeamDir): ServerChecks {
+  const hidden = data.people.filter((p) => !canSeeSalaryOf(teams, myTeam, p.team) || p.ralNd)
   const onlySalary = (rules: RuleId[]) => rules.filter((r) => SALARY_RULES.has(r))
   const blocked: ServerChecks['blocked'] = {}
   for (const p of SALARY_RULES.size ? hidden : []) {
@@ -61,7 +62,7 @@ export function salaryRuleChecks(data: AppData, myTeam: UserTeam | null): Server
   }
   // importi e ore delle persone Q/ del proprio team (quelle degli altri team restano riservate)
   const nd: Record<string, NdEconomics> = {}
-  for (const p of data.people.filter((x) => x.ralNd && canSeeSalaryOf(myTeam, x.team))) {
+  for (const p of data.people.filter((x) => x.ralNd && canSeeSalaryOf(teams, myTeam, x.team))) {
     const mine = personSlots(data.assignments, p.id)
     if (!mine.length) continue
     nd[p.id] = {

@@ -27,7 +27,10 @@ import type { ExportRange } from './lib/exportRange'
 import { ExportDialog, type ExportFormat } from './components/ExportDialog'
 import { normalizeWithReport } from './lib/store'
 import { HORIZON_LABEL } from './lib/calendar'
-import { defaultResourceTeam, seesAllSalaries, type Assignments, type Person, type UserTeam } from './lib/types'
+import type { Assignments, Person } from './lib/types'
+import { defaultResourceTeam, seesAllSalaries, type TeamId } from './lib/teams'
+import { useTeams } from './lib/useTeams'
+import { TeamsProvider } from './components/TeamsProvider'
 import { regenerate } from './lib/rules'
 import { callFunction } from './lib/supabase'
 import { needsServerChecks, useServerChecks } from './lib/serverChecks'
@@ -85,8 +88,8 @@ export default function App() {
   const { profile } = state
   if (profile.must_change_password) return <ForcedPasswordChange email={profile.email} onSubmit={changePassword} onSignOut={signOut} />
   // Il Turnista ha una vista a sé: solo il calendario, letto tramite la funzione del database
-  if (profile.role === 'turnista') return <ErrorBoundary><TurnistaApp key={profile.id} profile={profile} onLogout={signOut} onChangePassword={changePassword} /></ErrorBoundary>
-  return <ErrorBoundary><Main key={profile.id + profile.role} profile={profile} onLogout={signOut} onChangePassword={changePassword} /></ErrorBoundary>
+  if (profile.role === 'turnista') return <ErrorBoundary><TeamsProvider><TurnistaApp key={profile.id} profile={profile} onLogout={signOut} onChangePassword={changePassword} /></TeamsProvider></ErrorBoundary>
+  return <ErrorBoundary><TeamsProvider><Main key={profile.id + profile.role} profile={profile} onLogout={signOut} onChangePassword={changePassword} /></TeamsProvider></ErrorBoundary>
 }
 
 function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void> }) {
@@ -94,8 +97,9 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   const editable = canEdit(role)
   const headerRef = useHeightVar('--app-header-h')
   const { data, setData, replace, status, error: syncError, flush } = useRemoteData(canReadFull(role), editable)
+  const teams = useTeams()
   // Import/export della configurazione completa: solo chi vede RAL e livello di tutti i team
-  const fullConfig = seesAllSalaries(profile.team)
+  const fullConfig = seesAllSalaries(teams, profile.team)
   const { checks: serverChecks, state: serverChecksState } = useServerChecks(data, status, canReadFull(role))
   /**
    * Auto-compilazione: in pagina se l'utente vede tutte le RAL e non ci sono RAL Q/, altrimenti sul
@@ -149,7 +153,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       return setNotice({ tone: 'error', text: 'Import non riuscito: il file non contiene JSON valido (forse è danneggiato o non è una configurazione del tool).' })
     }
     try {
-      const { data: next, warnings } = normalizeWithReport(raw)
+      const { data: next, warnings } = normalizeWithReport(raw, new Set(teams.list.map((t) => t.id)))
       const noEmail = next.people.filter((p) => !p.email)
       if (noEmail.length) return setNotice({ tone: 'error', text: `Import non riuscito: ${noEmail.length} ${noEmail.length === 1 ? 'risorsa non ha' : 'risorse non hanno'} un'email valida (${noEmail.slice(0, 3).map((p) => p.name).join(', ')}${noEmail.length > 3 ? '…' : ''}). L'email è obbligatoria: aggiungila nel file e riprova.` })
       if (!confirm(`Importare ${next.people.length} risorse e ${Object.keys(next.assignments).length} turni? I dati condivisi attuali verranno sostituiti per tutti gli utenti.`)) return
@@ -303,8 +307,9 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
 }
 
 /** Pagina anagrafica: RAL e livello oscurati finché non si reinserisce la password (lo stato si azzera cambiando pagina). */
-function TeamPage({ verify, editable, myTeam, people, assignments, superAdmin, flush, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; myTeam: UserTeam | null; people: Person[]; assignments: Assignments; superAdmin: boolean; flush: () => Promise<void>; onChange: (people: Person[], assignments?: Assignments) => void }) {
+function TeamPage({ verify, editable, myTeam, people, assignments, superAdmin, flush, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; myTeam: TeamId | null; people: Person[]; assignments: Assignments; superAdmin: boolean; flush: () => Promise<void>; onChange: (people: Person[], assignments?: Assignments) => void }) {
   const { revealed, toggle, dialog } = useRevealSensitive(verify)
+  const teams = useTeams()
   // Solo il super admin vede il tipo di account di ogni risorsa e può creare quello da Turnista
   const { accounts, loaded, reload } = useAccounts(superAdmin)
   const [creds, setCreds] = useState<Credential[] | null>(null)
@@ -324,7 +329,7 @@ function TeamPage({ verify, editable, myTeam, people, assignments, superAdmin, f
         </>}>
         <fieldset disabled={!editable} className="min-w-0">
           <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed}
-            myTeam={myTeam} canSetTeam={editable && seesAllSalaries(myTeam)} newTeam={defaultResourceTeam(myTeam)}
+            myTeam={myTeam} canSetTeam={editable && seesAllSalaries(teams, myTeam)} newTeam={defaultResourceTeam(teams, myTeam)}
             accounts={superAdmin && loaded ? accounts : undefined} onCreateAccount={superAdmin ? createAccount : undefined} />
         </fieldset>
       </Section>

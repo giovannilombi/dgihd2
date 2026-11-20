@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { canEdit, canReadFull, ROLES } from './roles'
 import { mySlots, parseTurnistaCalendar, slotCell } from './shiftsView'
+import { DEFAULT_TEAMS } from './teams'
 
 const raw = {
   mode: 'own',
@@ -49,21 +50,21 @@ describe('vista Turnista', () => {
 describe('cosa vede ogni livello (conferma dei cambi di livello)', () => {
   it('le RAL dipendono da livello e team, come nel database', async () => {
     const { roleAccess } = await import('./roles')
-    expect(roleAccess('editor', 'tech').ral).toBe('team')
-    expect(roleAccess('editor', 'tech').ralText).toMatch(/team Tech/)
-    expect(roleAccess('viewer_plus', 'governance').ral).toBe('all')
-    expect(roleAccess('editor', 'hr').ral).toBe('all')
-    expect(roleAccess('editor', null).ral).toBe('none')
-    expect(roleAccess('super_admin', 'tech').managesUsers).toBe(true)
+    expect(roleAccess('editor', 'tech', DEFAULT_TEAMS).ral).toBe('team')
+    expect(roleAccess('editor', 'tech', DEFAULT_TEAMS).ralText).toMatch(/team Tech/)
+    expect(roleAccess('viewer_plus', 'governance', DEFAULT_TEAMS).ral).toBe('all')
+    expect(roleAccess('editor', 'hr', DEFAULT_TEAMS).ral).toBe('all')
+    expect(roleAccess('editor', null, DEFAULT_TEAMS).ral).toBe('none')
+    expect(roleAccess('super_admin', 'tech', DEFAULT_TEAMS).managesUsers).toBe(true)
   })
   it('Viewer e Turnista non vedono RAL qualunque sia il team', async () => {
     const { roleAccess } = await import('./roles')
     for (const t of ['tech', 'hr', 'governance', null] as const) {
-      expect(roleAccess('turnista', t).ral).toBe('none')
-      expect(roleAccess('viewer', t).ral).toBe('none')
+      expect(roleAccess('turnista', t, DEFAULT_TEAMS).ral).toBe('none')
+      expect(roleAccess('viewer', t, DEFAULT_TEAMS).ral).toBe('none')
     }
-    expect(roleAccess('turnista', 'tech', 'own').sees.join(' ')).toMatch(/Turno coperto/)
-    expect(roleAccess('turnista', 'tech', 'all').sees.join(' ')).toMatch(/nomi/)
+    expect(roleAccess('turnista', 'tech', DEFAULT_TEAMS, 'own').sees.join(' ')).toMatch(/Turno coperto/)
+    expect(roleAccess('turnista', 'tech', DEFAULT_TEAMS, 'all').sees.join(' ')).toMatch(/nomi/)
   })
   it('ordina i livelli dal più ampio al più ristretto', async () => {
     const { roleRank } = await import('./roles')

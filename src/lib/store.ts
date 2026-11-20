@@ -1,6 +1,7 @@
 import { ALL_SLOTS, SLOT_BY_ID } from './calendar'
 import { DEFAULT_TEAM, newId, nextColor } from './team'
-import { DEFAULT_PARAMS, isEmail, LEVELS, normalizeEmail, RESOURCE_TEAMS, type Assignments, type Level, type Params, type Person, type ResourceTeam } from './types'
+import { DEFAULT_PARAMS, isEmail, LEVELS, normalizeEmail, type Assignments, type Level, type Params, type Person } from './types'
+import { isTeamId, type TeamId } from './teams'
 
 export interface AppData {
   version: 1
@@ -39,7 +40,10 @@ function cleanDays(unavailable: unknown, preferred: unknown): Pick<Person, 'unav
   return { ...(u.length ? { unavailable: u } : {}), ...(pr.length ? { preferredDays: pr } : {}) }
 }
 
-export function normalizeWithReport(raw: unknown): { data: AppData; warnings: string[] } {
+/**
+ * `knownTeams`: team esistenti (import di un file); una risorsa con un team sconosciuto resta senza team.
+ */
+export function normalizeWithReport(raw: unknown, knownTeams?: ReadonlySet<TeamId>): { data: AppData; warnings: string[] } {
   const d = raw as Record<string, unknown>
   if (!d || typeof d !== 'object' || Array.isArray(d) || !Array.isArray(d.people)) {
     throw new Error('il file non è una configurazione di questo tool (manca l\'elenco "people"). Usa un file creato con "Esporta configurazione JSON".')
@@ -47,6 +51,12 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
   const warnings: string[] = []
 
   const people: Person[] = []
+  let unknownTeam = 0
+  const teamOf = (t: unknown): TeamId | null => {
+    if (!isTeamId(t)) return null
+    if (knownTeams && !knownTeams.has(t)) { unknownTeam++; return null }
+    return t
+  }
   for (const r of d.people as Record<string, unknown>[]) {
     const ok = r && typeof r === 'object' && typeof r.name === 'string' && r.name.trim() &&
       LEVELS.includes(r.level as Level) && typeof r.ral === 'number' && Number.isFinite(r.ral) && r.ral >= 0
@@ -65,13 +75,14 @@ export function normalizeWithReport(raw: unknown): { data: AppData; warnings: st
       ...cleanDays(r.unavailable, r.preferredDays),
       ...(r.ralNd === true ? { ralNd: true } : {}),
       ...(isEmail(r.email) ? { email: normalizeEmail(r.email) } : {}),
-      team: RESOURCE_TEAMS.includes(r.team as ResourceTeam) ? (r.team as ResourceTeam) : null,
+      team: teamOf(r.team),
       ...(r.salaryHidden === true ? { salaryHidden: true } : {}),
       ...(r.reserve === true ? { reserve: true, reserveOrder: Number.isInteger(r.reserveOrder) && (r.reserveOrder as number) >= 1 ? (r.reserveOrder as number) : undefined } : {}),
     })
   }
   const dropped = (d.people as unknown[]).length - people.length
   if (dropped) warnings.push(`${dropped} risorse scartate perché incomplete o non valide`)
+  if (unknownTeam) warnings.push(`${unknownTeam} ${unknownTeam === 1 ? 'risorsa ha' : 'risorse hanno'} un team che non esiste più: ${unknownTeam === 1 ? 'resta' : 'restano'} senza team`)
 
   const params = structuredClone(DEFAULT_PARAMS)
   const rp = (d.params ?? {}) as Record<string, unknown>

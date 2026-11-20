@@ -1,9 +1,10 @@
 // Conversione tra righe del database e modello dell'app, e calcolo delle modifiche da salvare.
 // Modulo puro (nessuna dipendenza dal browser): usato sia dall'app sia dalla funzione server "planner".
 import { normalizeWithReport, type AppData } from './store'
-import type { Person, ResourceTeam } from './types'
+import type { Person } from './types'
+import type { TeamId } from './teams'
 
-export interface PersonRow { id: string; name: string; color: string; active: boolean; sort: number; team: ResourceTeam | null }
+export interface PersonRow { id: string; name: string; color: string; active: boolean; sort: number; team: TeamId | null }
 export interface DetailsRow {
   person_id: string
   availability: 'volontario' | 'limitato' | 'nessuna'

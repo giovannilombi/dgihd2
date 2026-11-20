@@ -12,11 +12,13 @@ const CORS = {
 }
 const ROLES = ['super_admin', 'editor', 'viewer_plus', 'viewer', 'turnista'] as const
 type Role = (typeof ROLES)[number]
-const TEAMS = ['tech', 'design', 'pm', 'director', 'hr', 'governance'] as const
-type Team = (typeof TEAMS)[number]
-/** Team valido, oppure null (nessun team: RAL e livello non visibili). */
-const parseTeam = (t: unknown): Team | null | undefined =>
-  t === null || t === undefined || t === '' ? null : TEAMS.includes(t as Team) ? (t as Team) : undefined
+/** Team esistente (tabella teams, gestita dal super admin), oppure null (nessun team: RAL e livello non visibili). */
+async function parseTeam(admin: ReturnType<typeof createClient>, t: unknown): Promise<string | null | undefined> {
+  if (t === null || t === undefined || t === '') return null
+  if (typeof t !== 'string' || !/^[a-z0-9][a-z0-9-]{0,31}$/.test(t)) return undefined
+  const { data } = await admin.from('teams').select('id').eq('id', t).maybeSingle()
+  return data ? t : undefined
+}
 
 const ANIMALI = [
   'airone', 'alce', 'alpaca', 'anatra', 'antilope', 'aquila', 'armadillo', 'asino', 'balena', 'barbagianni',
@@ -160,7 +162,7 @@ Deno.serve(async (req) => {
     const displayName = String(body.display_name ?? '').trim().slice(0, 80)
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Email non valida.')
     if (!validRole(body.role)) return fail('Livello non valido.')
-    const team = parseTeam(body.team)
+    const team = await parseTeam(admin, body.team)
     if (team === undefined) return fail('Team non valido.')
     const personId = await parsePerson(admin, body.person_id)
     if (personId === undefined) return fail('Risorsa non trovata.')
@@ -203,7 +205,7 @@ Deno.serve(async (req) => {
   }
 
   if (action === 'set_team') {
-    const team = parseTeam(body.team)
+    const team = await parseTeam(admin, body.team)
     if (team === undefined) return fail('Team non valido.')
     const { error } = await admin.from('profiles').update({ team }).eq('id', userId)
     if (error) return fail(error.message, 500)
@@ -251,7 +253,7 @@ async function processQueue(admin: Admin) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email non valida.')
       if (r.action === 'create') {
         if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')
-        const team = parseTeam(r.team)
+        const team = await parseTeam(admin, r.team)
         if (team === undefined) throw new Error('Team non valido.')
         const personId = await parsePerson(admin, r.person_id)
         if (personId === undefined) throw new Error('Risorsa non trovata.')
@@ -281,7 +283,7 @@ async function processQueue(admin: Admin) {
           await admin.from('profiles').update({ role: r.role }).eq('id', target.id)
           await done({ status: 'done' })
         } else if (r.action === 'set_team') {
-          const team = parseTeam(r.team)
+          const team = await parseTeam(admin, r.team)
           if (team === undefined) throw new Error('Team non valido.')
           await admin.from('profiles').update({ team }).eq('id', target.id)
           await done({ status: 'done' })

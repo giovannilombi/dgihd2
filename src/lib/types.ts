@@ -1,3 +1,5 @@
+import type { TeamId } from './teams'
+
 export const LEVELS = ['D1', 'D2', 'C1', 'C2', 'C3', 'B1', 'B2', 'B3', 'A1'] as const
 export type Level = (typeof LEVELS)[number]
 
@@ -34,8 +36,8 @@ export interface Person {
   reserveOrder?: number
   /** RAL "Q/": non mostrata né salvata; nei calcoli si usa il valore medio dei parametri. */
   ralNd?: boolean
-  /** Team della risorsa (Tech, Design, PM, Director, Governance); null = da assegnare. */
-  team?: ResourceTeam | null
+  /** Team della risorsa (vedi tabella teams); null = da assegnare. */
+  team?: TeamId | null
   /** RAL e livello non visibili all'utente corrente (altro team): niente calcoli economici su questa persona. */
   salaryHidden?: boolean
   /** Email aziendale (obbligatoria per le nuove risorse): riconosce l'account e serve a creare quello da Turnista. */
@@ -46,20 +48,6 @@ export interface Person {
 export const isEmail = (v: unknown): v is string => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
 /** Email come la salva il database: senza spazi ai lati e in minuscolo. */
 export const normalizeEmail = (v: string) => v.trim().toLowerCase()
-
-export const RESOURCE_TEAMS = ['tech', 'design', 'pm', 'director', 'governance'] as const
-export type ResourceTeam = (typeof RESOURCE_TEAMS)[number]
-export const USER_TEAMS = ['tech', 'design', 'pm', 'director', 'hr', 'governance'] as const
-export type UserTeam = (typeof USER_TEAMS)[number]
-export const TEAM_LABEL: Record<UserTeam, string> = { tech: 'Tech', design: 'Design', pm: 'PM', director: 'Director', hr: 'HR', governance: 'Governance' }
-/** HR e Governance vedono RAL e livello di tutti i team. */
-export const seesAllSalaries = (team: UserTeam | null | undefined) => team === 'hr' || team === 'governance'
-/** Stessa regola della RLS: RAL e livello visibili a HR/Governance o a chi è dello stesso team della risorsa. */
-export const canSeeSalaryOf = (myTeam: UserTeam | null | undefined, personTeam: ResourceTeam | null | undefined) =>
-  seesAllSalaries(myTeam) || (!!myTeam && myTeam === personTeam)
-/** Team con cui un utente crea nuove risorse: il proprio, se è un team di risorse. */
-export const defaultResourceTeam = (myTeam: UserTeam | null | undefined): ResourceTeam | null =>
-  (RESOURCE_TEAMS as readonly string[]).includes(myTeam ?? '') ? (myTeam as ResourceTeam) : null
 
 export const availabilityOf = (p: Pick<Person, 'availability'>): Availability => p.availability ?? 'nessuna'
 /** Tetto mensile preferito, se espresso. */

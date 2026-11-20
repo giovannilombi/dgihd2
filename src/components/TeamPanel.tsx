@@ -5,7 +5,9 @@ import { HORIZON_MONTHS, monthKey, monthShort, rangeLabel, SLOT_BY_ID, toRanges 
 import { download, slotTag } from '../lib/reports'
 import { AvailabilityDialog } from './AvailabilityDialog'
 import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
-import { availabilityLabel, availabilityOf, canSeeSalaryOf, isEmail, LEVEL_LABEL, LEVELS, normalizeEmail, preferredMax, RESOURCE_TEAMS, TEAM_LABEL, type Assignments, type Level, type Person, type ResourceTeam, type UserTeam } from '../lib/types'
+import { availabilityLabel, availabilityOf, isEmail, LEVEL_LABEL, LEVELS, normalizeEmail, preferredMax, type Assignments, type Level, type Person } from '../lib/types'
+import { canSeeSalaryOf, teamLabel, type TeamDir, type TeamId } from '../lib/teams'
+import { useTeams } from '../lib/useTeams'
 import { Badge, Button, CommitInput } from './ui'
 import { renumberReserves } from '../lib/store'
 import { accountFor, type AccountInfo } from '../lib/accounts'
@@ -18,11 +20,11 @@ interface Props {
   /** RAL e livello in chiaro e modificabili solo dopo aver reinserito la password. */
   revealed: boolean
   /** Team dell'utente: RAL e livello delle risorse di altri team non sono mai visibili. */
-  myTeam: UserTeam | null
-  /** Solo HR e Governance possono assegnare o cambiare il team di una risorsa. */
+  myTeam: TeamId | null
+  /** Solo chi vede tutti i team (es. HR e Governance) può assegnare o cambiare il team di una risorsa. */
   canSetTeam: boolean
   /** Team assegnato alle risorse aggiunte da chi non può sceglierlo (il proprio). */
-  newTeam: ResourceTeam | null
+  newTeam: TeamId | null
   /** Account esistenti: solo per il super admin, che vede il tipo di account di ogni risorsa. */
   accounts?: AccountInfo[]
   /** Crea l'account Turnista della risorsa (solo super admin). */
@@ -37,14 +39,21 @@ const Masked = ({ w = 'w-20' }: { w?: string }) => (
 )
 
 /** RAL e livello di una risorsa di un altro team: mai visibili, nemmeno con la password. */
-const Reserved = ({ w = 'w-20', team }: { w?: string; team?: ResourceTeam | null }) => (
-  <span className={`inline-flex ${w} items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-400 ring-1 ring-inset ring-slate-200 select-none`}
-    title={`Riservato al ${team ? `team ${TEAM_LABEL[team]}` : 'team della risorsa'}, a HR e a Governance`}>
-    Riservata
-  </span>
-)
+function Reserved({ w = 'w-20', team }: { w?: string; team?: TeamId | null }) {
+  const teams = useTeams()
+  return (
+    <span className={`inline-flex ${w} items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-400 ring-1 ring-inset ring-slate-200 select-none`}
+      title={`Riservato al ${team ? `team ${teamLabel(teams, team)}` : 'team della risorsa'}${seesAllNames(teams) ? ` e a ${seesAllNames(teams)}` : ''}`}>
+      Riservata
+    </span>
+  )
+}
+
+/** Nomi dei team che vedono tutto, es. "HR e Governance". */
+const seesAllNames = (teams: TeamDir) => teams.list.filter((t) => t.seesAll).map((t) => t.label).join(' e ')
 
 export function TeamPanel({ people, assignments, onChange, revealed, myTeam, canSetTeam, newTeam, accounts, onCreateAccount }: Props) {
+  const teams = useTeams()
   const [importOpen, setImportOpen] = useState(false)
   const [adding, setAdding] = useState(false)
   /**
@@ -81,7 +90,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
 
   /** Le nuove risorse nascono nel team dell'utente (HR e Governance lo scelgono poi dalla tabella). */
   const newPersonTeam = canSetTeam ? null : newTeam
-  const newHidden = !canSeeSalaryOf(myTeam, newPersonTeam)
+  const newHidden = !canSeeSalaryOf(teams, myTeam, newPersonTeam)
   const add = (name: string, email: string) => {
     const id = newId()
     // RAL vuota ("Da inserire"): niente valori di comodo che potrebbero restare per errore
@@ -173,12 +182,13 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
                   </td>
                   <td className="py-2 pr-3">
                     {canSetTeam ? (
-                      <select aria-label={`Team di ${p.name}`} value={p.team ?? ''} onChange={(e) => update(p.id, { team: (e.target.value || null) as ResourceTeam | null })}
+                      <select aria-label={`Team di ${p.name}`} value={p.team ?? ''} onChange={(e) => update(p.id, { team: e.target.value || null })}
                         className={`rounded-md bg-white px-2 py-1 ring-1 ring-inset ${p.team ? 'ring-slate-200' : 'text-amber-800 ring-amber-300'}`}>
                         <option value="">— da assegnare —</option>
-                        {RESOURCE_TEAMS.map((t) => <option key={t} value={t}>{TEAM_LABEL[t]}</option>)}
+                        {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                        {p.team && !teams.byId[p.team] && <option value={p.team}>{p.team}</option>}
                       </select>
-                    ) : <span className="text-sm text-slate-700" title="Il team di una risorsa lo assegnano HR o Governance">{p.team ? TEAM_LABEL[p.team] : '—'}</span>}
+                    ) : <span className="text-sm text-slate-700" title={`Il team di una risorsa lo assegna chi vede tutti i team${seesAllNames(teams) ? ` (${seesAllNames(teams)})` : ''}`}>{p.team ? teamLabel(teams, p.team) : '—'}</span>}
                   </td>
                   <td className="py-2 pr-3">
                     {p.salaryHidden ? <Reserved w="w-16" team={p.team} /> : open ? (
@@ -364,7 +374,8 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
 
 const MAX_FILE_BYTES = 1_000_000
 
-function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: { revealed: boolean; existing: Person[]; replaceScope: ResourceTeam | null; onClose: () => void; onImport: (rows: ImportedPerson[], replace: boolean) => void }) {
+function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: { revealed: boolean; existing: Person[]; replaceScope: TeamId | null; onClose: () => void; onImport: (rows: ImportedPerson[], replace: boolean) => void }) {
+  const teams = useTeams()
   const [text, setText] = useState('')
   const [fileError, setFileError] = useState('')
   const [fileName, setFileName] = useState('')
@@ -416,7 +427,7 @@ function ImportDialog({ revealed, existing, replaceScope, onClose, onImport }: {
             Carica file CSV…{fileName && <span className="ml-1 font-normal text-slate-500">({fileName})</span>}
             <input type="file" accept=".csv,.txt,.tsv,text/csv" className="hidden" onChange={(e) => { readFile(e.target.files?.[0]); e.target.value = '' }} />
           </label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> {replaceScope ? `Sostituisci le risorse del team ${TEAM_LABEL[replaceScope]} (e i loro turni)` : 'Sostituisci il team attuale (azzera il calendario)'}</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> {replaceScope ? `Sostituisci le risorse del team ${teamLabel(teams, replaceScope)} (e i loro turni)` : 'Sostituisci il team attuale (azzera il calendario)'}</label>
         </div>
 
         {status && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">⚠ {status}</p>}

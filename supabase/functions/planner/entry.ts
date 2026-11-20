@@ -9,7 +9,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
 import { rowsToData, type AssignmentRow, type DetailsRow, type PersonRow, type PrivateRow } from '../../../src/lib/mapping'
 import { regenerate } from '../../../src/lib/rules'
 import { salaryRuleChecks } from '../../../src/lib/salaryChecks'
-import { USER_TEAMS, type UserTeam } from '../../../src/lib/types'
+import { rowToTeam, teamDir, type TeamRow } from '../../../src/lib/teams'
 
 declare const Deno: { env: { get(k: string): string | undefined }; serve(h: (r: Request) => Response | Promise<Response>): void }
 
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   try { body = await req.json() } catch { return fail('Richiesta non valida') }
 
   // Dati completi (solo in memoria sul server)
-  const [people, details, privates, assignments, excluded, settings, serverParams] = await Promise.all([
+  const [people, details, privates, assignments, excluded, settings, serverParams, teamRows] = await Promise.all([
     db.from('people').select('id, name, color, active, sort, team'),
     db.from('people_details').select('person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order'),
     db.from('people_private').select('person_id, level, ral, ral_nd'),
@@ -48,8 +48,10 @@ Deno.serve(async (req) => {
     db.from('settings').select('params').eq('id', 1).maybeSingle(),
     // RAL media di riferimento per le RAL Q/: tabella leggibile solo dal server
     db.from('server_params').select('nd_ral').eq('id', 1).maybeSingle(),
+    // team e quali "vedono tutto": decidono di chi l'utente vede RAL e importi
+    db.from('teams').select('id, label, sees_all, director_id, sort'),
   ])
-  for (const r of [people, details, privates, assignments, excluded, settings, serverParams]) if (r.error) return fail(r.error.message, 500)
+  for (const r of [people, details, privates, assignments, excluded, settings, serverParams, teamRows]) if (r.error) return fail(r.error.message, 500)
   const data = rowsToData(
     people.data as PersonRow[], details.data as DetailsRow[], privates.data as PrivateRow[],
     assignments.data as AssignmentRow[], (excluded.data as { day: string }[]).map((x) => x.day),
@@ -61,8 +63,9 @@ Deno.serve(async (req) => {
 
   if (body.action === 'violations') {
     // solo per le persone di cui l'utente NON vede RAL e livello (stessa regola della RLS)
-    const myTeam = (USER_TEAMS as readonly string[]).includes(me.team) ? (me.team as UserTeam) : null
-    return json(salaryRuleChecks(data, myTeam))
+    const teams = teamDir((teamRows.data as TeamRow[]).map(rowToTeam))
+    const myTeam = typeof me.team === 'string' && teams.byId[me.team] ? me.team : null
+    return json(salaryRuleChecks(data, myTeam, teams))
   }
 
   if (body.action === 'autofill') {

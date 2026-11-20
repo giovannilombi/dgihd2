@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { canReadFull, ROLE_HELP, ROLE_LABEL, type Profile } from '../lib/roles'
-import { seesAllSalaries, TEAM_LABEL, type UserTeam } from '../lib/types'
+import { seesAllSalaries, teamLabel, type TeamDir, type TeamId } from '../lib/teams'
+import { useTeams } from '../lib/useTeams'
 import { ChangePasswordForm } from './ChangePassword'
 
 /** Quali RAL vede l'utente, in base al team. */
-const teamScope = (team: UserTeam | null) =>
-  seesAllSalaries(team) ? 'Vede RAL e livello di tutti i team.'
-  : team ? `Vede RAL e livello solo delle risorse del team ${TEAM_LABEL[team]}.`
+const teamScope = (teams: TeamDir, team: TeamId | null) =>
+  seesAllSalaries(teams, team) ? 'Vede RAL e livello di tutti i team.'
+  : team ? `Vede RAL e livello solo delle risorse del team ${teamLabel(teams, team)}.`
   : 'Nessun team: RAL e livello non visibili.'
 
 const initials = (p: Profile) => (p.display_name || p.email).split(/[\s.@]+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('')
@@ -23,6 +24,7 @@ export function UserMenu({ profile, onLogout, onChangePassword }: { profile: Pro
   const [open, setOpen] = useState(false)
   const [pwdOpen, setPwdOpen] = useState(false)
   const role = profile.role
+  const teams = useTeams()
   return (
     <>
       <div className="relative">
@@ -31,7 +33,7 @@ export function UserMenu({ profile, onLogout, onChangePassword }: { profile: Pro
           <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-700 text-xs font-semibold text-white">{initials(profile)}</span>
           <span className="hidden leading-tight sm:block">
             <span className="block max-w-40 truncate text-sm font-medium text-slate-900">{profile.display_name || profile.email}</span>
-            <span className="block text-[11px] font-semibold uppercase tracking-wide text-blue-700">{ROLE_LABEL[role]}{profile.team && <span className="text-slate-500"> · {TEAM_LABEL[profile.team]}</span>}</span>
+            <span className="block text-[11px] font-semibold uppercase tracking-wide text-blue-700">{ROLE_LABEL[role]}{profile.team && <span className="text-slate-500"> · {teamLabel(teams, profile.team)}</span>}</span>
           </span>
           <span className="text-slate-400">▾</span>
         </button>
@@ -44,10 +46,10 @@ export function UserMenu({ profile, onLogout, onChangePassword }: { profile: Pro
                 <div className="truncate text-xs text-slate-500">{profile.email}</div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   <span className="inline-flex rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Livello: {ROLE_LABEL[role]}</span>
-                  <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">Team: {profile.team ? TEAM_LABEL[profile.team] : 'non assegnato'}</span>
+                  <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">Team: {profile.team ? teamLabel(teams, profile.team) : 'non assegnato'}</span>
                 </div>
                 <div className="mt-1 text-xs text-slate-500">{ROLE_HELP[role]}</div>
-                {canReadFull(role) && <div className="mt-0.5 text-xs text-slate-500">{teamScope(profile.team)}</div>}
+                {canReadFull(role) && <div className="mt-0.5 text-xs text-slate-500">{teamScope(teams, profile.team)}</div>}
               </div>
               <div className="my-1 border-t border-slate-100" />
               <MenuItem onClick={() => { setOpen(false); setPwdOpen(true) }}>Cambia password</MenuItem>
