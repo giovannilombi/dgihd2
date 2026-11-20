@@ -118,7 +118,19 @@ const DEFAULT_PARAMS = {
 			sabato: 13.23,
 			domenica: 13.92
 		}
-	}
+	},
+	otDayFirst: .25,
+	otDayFirstHours: 2,
+	otDayNext: .3,
+	otNight: .5,
+	otHoliday: .55,
+	otHolidayNight: .75,
+	otNightStart: 22,
+	otNightEnd: 6,
+	otMinHours: 1,
+	otToleranceMin: 10,
+	callFee: 5,
+	hourlyDivisor: 2249
 };
 const LEVEL_GROUP = {
 	D1: "g1",
@@ -760,7 +772,7 @@ Deno.serve(async (req) => {
 	} catch {
 		return fail("Richiesta non valida");
 	}
-	const [people, details, privates, assignments, excluded, settings, serverParams, teamRows] = await Promise.all([
+	const [people, details, privates, assignments, excluded, settings, serverParams, teamRows, erogati] = await Promise.all([
 		db.from("people").select("id, name, color, active, sort, team"),
 		db.from("people_details").select("person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order"),
 		db.from("people_private").select("person_id, level, ral, ral_nd"),
@@ -768,7 +780,8 @@ Deno.serve(async (req) => {
 		db.from("excluded_days").select("day"),
 		db.from("settings").select("params").eq("id", 1).maybeSingle(),
 		db.from("server_params").select("nd_ral").eq("id", 1).maybeSingle(),
-		db.from("teams").select("id, label, sees_all, director_id, sort")
+		db.from("teams").select("id, label, sees_all, director_id, sort"),
+		db.from("day_status").select("day")
 	]);
 	for (const r of [
 		people,
@@ -778,7 +791,8 @@ Deno.serve(async (req) => {
 		excluded,
 		settings,
 		serverParams,
-		teamRows
+		teamRows,
+		erogati
 	]) if (r.error) return fail(r.error.message, 500);
 	const data = rowsToData(people.data, details.data, privates.data, assignments.data, excluded.data.map((x) => x.day), settings.data?.params);
 	const ndRal = Number(serverParams.data?.nd_ral);
@@ -793,7 +807,9 @@ Deno.serve(async (req) => {
 		if (!canEdit) return fail("Operazione riservata a chi può modificare.", 403);
 		const from = String(body.from ?? ""), to = String(body.to ?? "");
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) return fail("Periodo non valido.");
-		const res = regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, data.pinned);
+		const locked = new Set(erogati.data.map((x) => String(x.day).slice(0, 10)));
+		const fixed = [...data.pinned, ...Object.keys(data.assignments).filter((sid) => locked.has(sid.slice(0, 10)))];
+		const res = regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, fixed);
 		return json({ assignments: res });
 	}
 	return fail("Azione sconosciuta.");

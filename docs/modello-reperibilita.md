@@ -169,7 +169,8 @@ Percentuali da aggiungere alla normale retribuzione oraria (per **lavoro non a t
 Motivazione: per l'art. 6 gli interventi in reperibilità si pagano come straordinario quando sono aggiuntivi
 al normale orario; di domenica o in un festivo non lavorato le ore sono aggiuntive, quindi si applicano le
 voci di straordinario festivo (55%) e straordinario notturno festivo (75%), non quelle di lavoro festivo in
-orario (50% / 60%). Tutte le percentuali restano parametri modificabili.
+orario (50% / 60%). Tutte le percentuali restano parametri modificabili (Parametri → blocco B "Straordinari per
+interventi": maggiorazioni, fascia notturna, minimo, tolleranza, divisore della paga oraria, compenso per chiamata).
 
 Conteggio delle soglie: le "prime 2 ore" del feriale diurno si contano per giornata (data di calendario del
 minuto lavorato), sommando in ordine di orario le ore diurne feriali di tutti gli interventi del giorno.
@@ -212,11 +213,18 @@ Altre regole dell'art. 7 rilevanti:
 
 ## 8. Erogato, consuntivato, sblocco
 
-- **Segna erogato** (director del team, Full edit, super admin): il giorno diventa definitivo; turni e
-  persone non si cambiano più; entra nel consuntivo come erogato.
-- **Consuntiva** (per giorno o per mese): chiude l'inserimento di nuovi interventi; restano quelli già
-  segnalati, che si possono ancora approvare o rifiutare.
-- **Sblocca**: solo il director del team o il super admin, con traccia di chi e quando.
+- **Segna erogato** (director di un team con un turno quel giorno, Full edit, super admin), **dal giorno
+  dopo**: il giorno diventa definitivo; turni e persone non si cambiano più (controllo nel database:
+  turni, puntine e "giorno non richiesto" rifiutati); entra nel consuntivo come erogato. Auto-compilazione e
+  "Svuota" lo trattano come bloccato.
+- **Consuntiva** (per giorno dal calendario, o per mese dal Consuntivo): chiude l'inserimento di nuovi
+  interventi; restano quelli già segnalati, che si possono ancora approvare o rifiutare. Oltre a chi segna
+  l'erogato, può consuntivare chi legge tutto in un team che "vede tutto" (es. HR).
+- **Sblocca**: solo il director del team o il super admin, un passo indietro alla volta (consuntivato →
+  erogato → aperto), con motivo facoltativo. Ogni azione resta nella traccia (chi, quando, motivo).
+- Consuntivo: si liquidano solo i turni dei giorni erogati; gli altri restano indicati con l'importo previsto.
+- Implementazione: tabelle `day_status` e `day_status_log`, scritte solo dalle funzioni del database
+  `mark_day_erogato`, `consuntiva_day`, `consuntiva_month`, `unlock_day`, che verificano i permessi.
 
 ## 9. Visibilità dei dati (privacy)
 

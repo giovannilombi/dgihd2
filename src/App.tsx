@@ -34,6 +34,9 @@ import { TeamsProvider } from './components/TeamsProvider'
 import { regenerate } from './lib/rules'
 import { callFunction } from './lib/supabase'
 import { needsServerChecks, useServerChecks } from './lib/serverChecks'
+import { dayPerms, lockedSlots } from './lib/dayStatus'
+import { consuntivaDay, consuntivaMonth, markDayErogato, unlockDay, useDayStatus } from './lib/useDayStatus'
+import type { DayActions } from './components/Planner'
 
 const NAV = [
   ['doc', 'Approccio'],
@@ -101,15 +104,30 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   // Import/export della configurazione completa: solo chi vede RAL e livello di tutti i team
   const fullConfig = seesAllSalaries(teams, profile.team)
   const { checks: serverChecks, state: serverChecksState } = useServerChecks(data, status, canReadFull(role))
+  // Giorni erogati (turni definitivi) e consuntivati; le azioni passano dalle funzioni del database
+  const { days, reload: reloadDays } = useDayStatus(true)
+  const me = { id: profile.id, role, team: profile.team }
+  const dayAction = (fn: (day: string) => Promise<unknown>) => async (day: string) => { await flush(); await fn(day); await reloadDays() }
+  const dayActions: DayActions = {
+    perms: (day) => dayPerms(day, me, teams, data.people, data.assignments),
+    mark: dayAction(markDayErogato),
+    close: dayAction(consuntivaDay),
+    unlock: async (day, note) => { await unlockDay(day, note); await reloadDays() },
+  }
+  const closeMonth = async (month: string) => { const n = await consuntivaMonth(month); await reloadDays(); return n }
   /**
    * Auto-compilazione: in pagina se l'utente vede tutte le RAL e non ci sono RAL Q/, altrimenti sul
    * server (che conosce RAL e media di riferimento) dopo aver salvato le modifiche in corso.
    */
   const autofill = async (from: string, to: string): Promise<Assignments> => {
-    if (!data.people.some(needsServerChecks)) return regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, data.pinned)
+    // i turni dei giorni erogati restano come sono (il database rifiuterebbe ogni modifica)
+    const locked = lockedSlots(days, data.assignments)
+    if (!data.people.some(needsServerChecks)) return regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, [...data.pinned, ...locked])
     await flush()
     const res = await callFunction<{ assignments: Assignments }>('planner', { action: 'autofill', from, to })
-    return res.assignments
+    const out = Object.fromEntries(Object.entries(res.assignments).filter(([sid]) => !days[sid.slice(0, 10)]))
+    for (const sid of locked) out[sid] = data.assignments[sid]
+    return out
   }
   const fileRef = useRef<HTMLInputElement>(null)
   const allowed = pagesFor(role)
@@ -167,6 +185,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   }
   /** Blocca/sblocca un giorno non richiesto dal cliente; bloccandolo si rimuovono i turni già assegnati. */
   const toggleDay = (day: string) => {
+    if (days[day]) return // giorno erogato: definitivo
     if (data.excludedDays.includes(day)) {
       setData((d) => ({ ...d, excludedDays: d.excludedDays.filter((x) => x !== day) }))
       return
@@ -180,17 +199,19 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     }))
   }
   /** Blocca/sblocca in blocco i giorni di un periodo; bloccando si liberano i turni già assegnati in quei giorni. */
-  const setDaysExcluded = (days: string[], excluded: boolean) => {
-    const set = new Set(days)
+  const setDaysExcluded = (list: string[], excluded: boolean) => {
+    // i giorni erogati sono definitivi: non diventano "non richiesti"
+    const targets = excluded ? list.filter((d) => !days[d]) : list
+    const set = new Set(targets)
     if (!excluded) {
       setData((d) => ({ ...d, excludedDays: d.excludedDays.filter((x) => !set.has(x)) }))
       return
     }
     const assigned = Object.keys(data.assignments).filter((sid) => set.has(sid.slice(0, 10)))
-    if (!confirm(`Segnare come non richiesti ${days.length} giorni?${assigned.length ? ` ${assigned.length} ${assigned.length === 1 ? 'turno assegnato verrà liberato' : 'turni assegnati verranno liberati'}.` : ''}`)) return
+    if (!confirm(`Segnare come non richiesti ${targets.length} giorni?${targets.length < list.length ? ` (${list.length - targets.length} erogati restano come sono)` : ''}${assigned.length ? ` ${assigned.length} ${assigned.length === 1 ? 'turno assegnato verrà liberato' : 'turni assegnati verranno liberati'}.` : ''}`)) return
     setData((d) => ({
       ...d,
-      excludedDays: [...new Set([...d.excludedDays, ...days])].sort(),
+      excludedDays: [...new Set([...d.excludedDays, ...targets])].sort(),
       assignments: Object.fromEntries(Object.entries(d.assignments).filter(([sid]) => !set.has(sid.slice(0, 10)))),
     }))
   }
@@ -222,14 +243,15 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         <Planner readOnly={!editable} simple={role === 'viewer'} people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
           onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay}
           autofill={autofill} serverChecks={serverChecks} serverChecksState={serverChecksState}
-          onSetDaysExcluded={setDaysExcluded}
+          onSetDaysExcluded={setDaysExcluded} days={days} dayActions={dayActions}
           onTogglePin={(sid) => setData((d) => ({ ...d, pinned: d.pinned.includes(sid) ? d.pinned.filter((x) => x !== sid) : [...d.pinned, sid] }))} />
       </Section>
     ),
     payroll: (
       <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone integrativo e totale lordo."
         actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
-        <Payroll people={data.people} assignments={data.assignments} params={data.params} nd={serverChecks?.nd} />
+        <Payroll people={data.people} assignments={data.assignments} params={data.params} nd={serverChecks?.nd}
+          days={days} canCloseMonth={editable || (canReadFull(role) && seesAllSalaries(teams, profile.team)) || teams.list.some((t) => t.directorId === profile.id)} onCloseMonth={closeMonth} />
       </Section>
     ),
     pnl: (

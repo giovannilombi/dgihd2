@@ -92,6 +92,22 @@ export interface Params {
   majSab2: number // +30% dalla 3a ora
   indemnitySplit: 'intera' | 'proquota'
   indemnity: Record<'g1' | 'g2' | 'g3', IndemnityRow>
+  /**
+   * Straordinari per interventi in reperibilità (CCNL Metalmeccanici, art. 6 e 7, lavoratori non turnisti):
+   * maggiorazioni sulla paga oraria per fascia, sempre in aggiunta all'indennità di reperibilità.
+   */
+  otDayFirst: number // feriale diurno, prime ore del giorno: +25%
+  otDayFirstHours: number // ore al giorno con la prima maggiorazione: 2
+  otDayNext: number // feriale diurno oltre: +30%
+  otNight: number // notturno feriale: +50%
+  otHoliday: number // straordinario festivo (domeniche e festività): +55%
+  otHolidayNight: number // straordinario notturno festivo: +75%
+  otNightStart: number // inizio fascia notturna (ora): 22
+  otNightEnd: number // fine fascia notturna (ora): 6
+  otMinHours: number // ore minime riconosciute per intervento: 1
+  otToleranceMin: number // minuti oltre l'ora non conteggiati: 10 (1h10 → 1h, 1h11 → 2h)
+  callFee: number // € per chiamata seguita da intervento effettivo: 5
+  hourlyDivisor: number // paga oraria = RAL ÷ divisore: 2249 (173 ore × 13 mensilità)
   /** RAL media usata nei calcoli per le persone con RAL "Q/". Salvata solo nel database, mai mostrata. */
   ndRal?: number
 }
@@ -116,6 +132,18 @@ export const DEFAULT_PARAMS: Params = {
     g2: { feriale: 7.0, sabato: 10.98, domenica: 11.78 },
     g3: { feriale: 8.03, sabato: 13.23, domenica: 13.92 },
   },
+  otDayFirst: 0.25,
+  otDayFirstHours: 2,
+  otDayNext: 0.3,
+  otNight: 0.5,
+  otHoliday: 0.55,
+  otHolidayNight: 0.75,
+  otNightStart: 22,
+  otNightEnd: 6,
+  otMinHours: 1,
+  otToleranceMin: 10,
+  callFee: 5,
+  hourlyDivisor: 2249,
 }
 
 export const LEVEL_GROUP: Record<Level, 'g1' | 'g2' | 'g3'> = {

@@ -8,6 +8,7 @@ import { mergeConflicts, mergeViolations, needsServerChecks, type ServerChecks, 
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 import { useHeightVar, useStickyBar, useStickyOverlay } from '../lib/useStickyBar'
+import { dayState, lockedSlots, romeToday, shortName, type DayPerms, type DayStatusMap } from '../lib/dayStatus'
 
 interface Props {
   people: Person[]
@@ -29,6 +30,17 @@ interface Props {
   /** Vincoli economici calcolati dal server per le persone con RAL non visibile. */
   serverChecks?: ServerChecks | null
   serverChecksState?: ServerChecksState
+  /** Giorni erogati (turni definitivi) e consuntivati. */
+  days?: DayStatusMap
+  /** Permessi e azioni sui giorni (Segna erogato, Consuntiva, Sblocca); assenti = nessuna azione. */
+  dayActions?: DayActions
+}
+
+export interface DayActions {
+  perms: (day: string) => DayPerms
+  mark: (day: string) => Promise<void>
+  close: (day: string) => Promise<void>
+  unlock: (day: string, note?: string) => Promise<void>
 }
 
 function PinIcon({ filled, className = 'h-3.5 w-3.5' }: { filled?: boolean; className?: string }) {
@@ -54,19 +66,24 @@ export type RangeMode = string
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 
 /** Fascia blu del mese: nel calendario e, quando si scorre, fissa sotto la barra del periodo. */
-function MonthBanner({ label, st, heading }: { label: string; st: { covered: number; total: number; blocked: number }; heading?: boolean }) {
+function MonthBanner({ label, st, heading }: { label: string; st: { covered: number; total: number; blocked: number; erogati: number; consuntivati: number }; heading?: boolean }) {
   const Title = heading ? 'h3' : 'span'
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg bg-blue-700 px-4 py-2.5 text-white">
       <Title className="text-lg font-semibold tracking-wide uppercase">{label}</Title>
       <span className="text-sm text-blue-100">{st.covered}/{st.total} slot coperti</span>
       {st.blocked > 0 && <span className="text-sm text-blue-100">· {st.blocked} {st.blocked === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</span>}
+      {st.erogati > 0 && <span className="text-sm text-blue-100">· {st.erogati} {st.erogati === 1 ? 'giorno erogato' : 'giorni erogati'}{st.consuntivati > 0 ? ` (${st.consuntivati} consuntivat${st.consuntivati === 1 ? 'o' : 'i'})` : ''}</span>}
     </div>
   )
 }
 
-export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, onSetDaysExcluded, readOnly = false, simple = false, autofill, serverChecks = null, serverChecksState = 'off' }: Props) {
+export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, onSetDaysExcluded, readOnly = false, simple = false, autofill, serverChecks = null, serverChecksState = 'off', days = {}, dayActions }: Props) {
   const pinnedSet = new Set(pinned)
+  // Turni che auto-compilazione e "Svuota" non toccano: bloccati con la puntina o di giorni erogati
+  const fixedSet = new Set([...pinned, ...lockedSlots(days, assignments)])
+  const [dialog, setDialog] = useState<{ kind: 'mark' | 'close' | 'unlock'; day: string } | null>(null)
+  const today = romeToday()
   const [range, setRange] = useState<RangeMode>('all')
   const [customFrom, setCustomFrom] = useState(HORIZON_START)
   const [customTo, setCustomTo] = useState(HORIZON_END)
@@ -114,7 +131,11 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   }
   const monthStats = (m: string) => {
     const ss = visibleSlots.filter((x) => monthKey(x.date) === m)
-    return { total: ss.length, covered: ss.filter((x) => byId[assignments[x.id]]).length, blocked: excludedDays.filter((d) => d >= from && monthKey(d) === m).length }
+    const ds = daysInRange(from, to).filter((d) => monthKey(d) === m)
+    return {
+      total: ss.length, covered: ss.filter((x) => byId[assignments[x.id]]).length, blocked: excludedDays.filter((d) => d >= from && monthKey(d) === m).length,
+      erogati: ds.filter((d) => days[d]).length, consuntivati: ds.filter((d) => days[d]?.consuntivatoAt).length,
+    }
   }
 
   const assign = (slotId: string, personId: string) => {
@@ -127,12 +148,12 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
 
   // Turni del periodo visibile che l'auto-compilazione può ricalcolare (non bloccati)
   const inRange = (sid: string) => { const d = SLOT_BY_ID[sid]?.date; return !!d && d >= from && d <= to }
-  const keepOnly = () => Object.fromEntries(Object.entries(assignments).filter(([sid]) => !inRange(sid) || pinnedSet.has(sid)))
-  const pinnedInRange = pinned.filter(inRange).length
+  const keepOnly = () => Object.fromEntries(Object.entries(assignments).filter(([sid]) => !inRange(sid) || fixedSet.has(sid)))
+  const pinnedInRange = [...fixedSet].filter(inRange).length
 
   const runAutofill = async () => {
-    const recalculated = Object.keys(assignments).filter((sid) => inRange(sid) && !pinnedSet.has(sid)).length
-    if (recalculated && !confirm(`L'auto-compilazione ricalcola ${recalculated} turni non bloccati del periodo${pinnedInRange ? ` e mantiene i ${pinnedInRange} turni bloccati` : ''}. Per conservare una scelta fatta a mano, bloccala con la puntina. Continuare?`)) return
+    const recalculated = Object.keys(assignments).filter((sid) => inRange(sid) && !fixedSet.has(sid)).length
+    if (recalculated && !confirm(`L'auto-compilazione ricalcola ${recalculated} turni non bloccati del periodo${pinnedInRange ? ` e mantiene i ${pinnedInRange} turni bloccati o erogati` : ''}. Per conservare una scelta fatta a mano, bloccala con la puntina. Continuare?`)) return
     setBusy(true)
     setNotice(null)
     let res: Assignments
@@ -151,7 +172,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   }
 
   const clearRange = () => {
-    if (!confirm(`Rimuovere le assegnazioni non bloccate ${periodLabel}?${pinnedInRange ? ` I ${pinnedInRange} turni bloccati restano (sbloccali per rimuoverli).` : ''}`)) return
+    if (!confirm(`Rimuovere le assegnazioni non bloccate ${periodLabel}?${pinnedInRange ? ` I ${pinnedInRange} turni bloccati o erogati restano.` : ''}`)) return
     onChange(keepOnly())
     setNotice(null)
   }
@@ -194,7 +215,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
         {!readOnly && blockedInRange < daysInRange(from, to).length && <Button onClick={() => onSetDaysExcluded(daysInRange(from, to), true)} title="Segna come non richiesti tutti i giorni del periodo selezionato">Blocca giorni del periodo</Button>}
         {readOnly && <Badge tone="slate">Sola lettura</Badge>}
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
-          {pinnedInRange > 0 && <Badge tone="blue"><PinIcon filled className="h-3 w-3" /> {pinnedInRange} {pinnedInRange === 1 ? 'turno bloccato' : 'turni bloccati'}</Badge>}
+          {pinnedInRange > 0 && <Badge tone="blue"><PinIcon filled className="h-3 w-3" /> {pinnedInRange} {pinnedInRange === 1 ? 'turno bloccato' : 'turni bloccati'}{pinned.filter(inRange).length < pinnedInRange ? ' o erogati' : ''}</Badge>}
           {blockedInRange > 0 && <Badge tone="slate"><LockIcon className="h-3 w-3" /> {blockedInRange} {blockedInRange === 1 ? 'giorno non richiesto' : 'giorni non richiesti'}</Badge>}
           {visibleSlots.length === 0
             ? <Badge tone="slate">Nessun turno richiesto</Badge>
@@ -249,13 +270,18 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                       </div>
                     )
                   }
+                  const status = days[day]
+                  const state = dayState(days, day)
+                  const locked = state !== 'aperto'
+                  const perms = dayActions?.perms(day)
+                  const hasShift = slotsForDay(day).some((s) => byId[assignments[s.id]])
                   return (
-                    <div key={day} className={`group rounded-lg border p-1.5 ${festive ? 'border-indigo-200 bg-indigo-50/60' : 'border-slate-200 bg-white'}`}>
+                    <div key={day} className={`group flex flex-col rounded-lg border p-1.5 ${locked ? 'border-emerald-300 bg-emerald-50/50' : festive ? 'border-indigo-200 bg-indigo-50/60' : 'border-slate-200 bg-white'}`}>
                       <div className="mb-1 flex items-center justify-between gap-1">
                         <span className="text-sm font-semibold text-slate-800">{dayNum}</span>
                         <span className="flex min-w-0 items-center gap-1">
                           {HOLIDAYS[day] && <span className="truncate text-[10px] font-medium text-indigo-700" title={HOLIDAYS[day]}>{HOLIDAYS[day]}</span>}
-                          {!readOnly && <button type="button" onClick={() => onToggleDay(day)} title="Blocca giorno: non richiesto dal cliente (escluso dalla rotazione)" aria-label={`Blocca ${fmtDay(day)}`}
+                          {!readOnly && !locked && <button type="button" onClick={() => onToggleDay(day)} title="Blocca giorno: non richiesto dal cliente (escluso dalla rotazione)" aria-label={`Blocca ${fmtDay(day)}`}
                             className="no-print shrink-0 rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-700 focus-visible:text-slate-700 group-hover:text-slate-400">
                             <LockIcon open className="h-3.5 w-3.5" />
                           </button>}
@@ -275,7 +301,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                                 <span className="flex items-center gap-1">
                                   {conflict && <span className="font-semibold text-red-600" title={conflict.map((c) => c.message).join('\n')}>⚠</span>}
                                   {overPref && <span className="font-semibold text-amber-600" title={overPref}>⚠</span>}
-                                  {person && !readOnly && (
+                                  {person && !readOnly && !locked && (
                                     <button type="button" onClick={() => onTogglePin(s.id)} aria-pressed={isPinned}
                                       aria-label={`${isPinned ? 'Sblocca' : 'Blocca'} turno ${fmtDay(day)} ${SLOT_LABEL[s.kind]}`}
                                       title={isPinned ? 'Turno bloccato: l\'auto-compilazione non lo modifica. Clicca per sbloccare' : 'Blocca questo turno: l\'auto-compilazione lo manterrà'}
@@ -292,8 +318,8 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                                   value={person ? pid : ''}
                                   onFocus={() => setFocus(s.id)}
                                   onChange={(e) => assign(s.id, e.target.value)}
-                                  disabled={isPinned || readOnly}
-                                  title={isPinned ? 'Turno bloccato: sbloccalo con la puntina per modificarlo' : undefined}
+                                  disabled={isPinned || readOnly || locked}
+                                  title={locked ? 'Giorno erogato: turno definitivo' : isPinned ? 'Turno bloccato: sbloccalo con la puntina per modificarlo' : undefined}
                                   className={`w-full disabled:cursor-not-allowed min-w-0 truncate rounded-md bg-transparent py-1 pl-2 pr-1 text-xs outline-none ${person ? 'font-medium text-slate-900' : 'text-slate-400'}`}
                                 >
                                   <option value="">— scoperto —</option>
@@ -313,6 +339,23 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                           )
                         })}
                       </div>
+                      {status && (
+                        <div className="mt-1.5 flex flex-col gap-1 border-t border-emerald-200 pt-1.5">
+                          {state === 'consuntivato'
+                            ? <span className="inline-flex self-start rounded-md bg-indigo-50 px-1.5 py-px text-[10px] font-semibold text-indigo-800 ring-1 ring-inset ring-indigo-200" title={`Consuntivato da ${status.consuntivatoByName ?? ''} il ${fmtStamp(status.consuntivatoAt)}: interventi chiusi`}>Consuntivato</span>
+                            : <span className="inline-flex self-start rounded-md bg-emerald-50 px-1.5 py-px text-[10px] font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200" title={`Erogato da ${status.erogatoByName} il ${fmtStamp(status.erogatoAt)}: turni definitivi`}>Erogato · {shortName(status.erogatoByName)} {fmtShort(status.erogatoAt)}</span>}
+                          {(perms?.close && state === 'erogato') || perms?.unlock ? (
+                            <span className="no-print flex flex-wrap gap-1">
+                              {perms?.close && state === 'erogato' && <button type="button" onClick={() => setDialog({ kind: 'close', day })} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-indigo-800 ring-1 ring-inset ring-indigo-300 hover:bg-indigo-50">Consuntiva</button>}
+                              {perms?.unlock && <button type="button" onClick={() => setDialog({ kind: 'unlock', day })} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-white">Sblocca</button>}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
+                      {!status && perms?.mark && hasShift && day < today && (
+                        <button type="button" onClick={() => setDialog({ kind: 'mark', day })}
+                          className="no-print mt-1.5 rounded-md bg-white px-1.5 py-1 text-[11px] font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-300 hover:bg-emerald-50">✓ Segna erogato</button>
+                      )}
                     </div>
                   )
                 })}
@@ -374,8 +417,69 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-amber-700">⚠ Oltre disponibilità</span>: assegnabile a mano, ma supera il massimo mensile indicato dalla persona. L'auto-compilazione non lo fa mai.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><PinIcon filled className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" /> Con la puntina blocchi un turno assegnato: non è modificabile e l'auto-compilazione ricalcola tutti gli altri tenendolo fisso.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
+            <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-emerald-800">Segna erogato</span> (Full edit, super admin, director del team, dal giorno dopo): il giorno diventa definitivo, turni e persone non si cambiano più ed entra nel consuntivo. <span className="font-semibold text-indigo-800">Consuntiva</span>: chiude l'inserimento degli interventi del giorno (anche per tutto il mese, dal Consuntivo). <span className="font-semibold">Sblocca</span>: solo director del team o super admin, un passo indietro alla volta; resta traccia di chi e quando.</p>
           </div>
         </aside>}
+      </div>
+      {dialog && dayActions && <DayDialog kind={dialog.kind} day={dialog.day} state={dayState(days, dialog.day)} people={people} assignments={assignments} actions={dayActions} onClose={() => setDialog(null)} />}
+    </div>
+  )
+}
+
+const fmtShort = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Rome' }) : '')
+const fmtStamp = (iso: string | null) => (iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }) : '')
+
+/** Conferma di Segna erogato, Consuntiva e Sblocca, con l'effetto spiegato. */
+function DayDialog({ kind, day, state, people, assignments, actions, onClose }: { kind: 'mark' | 'close' | 'unlock'; day: string; state: ReturnType<typeof dayState>; people: Person[]; assignments: Assignments; actions: DayActions; onClose: () => void }) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const byId = new Map(people.map((p) => [p.id, p]))
+  const shifts = slotsForDay(day).map((s) => ({ s, p: byId.get(assignments[s.id]) }))
+  const title = kind === 'mark' ? `Confermi che ${fmtDayYear(day)} è stato erogato?`
+    : kind === 'close' ? `Consuntivare ${fmtDayYear(day)}?`
+    : `Sbloccare ${fmtDayYear(day)}?`
+  const run = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      if (kind === 'mark') await actions.mark(day)
+      else if (kind === 'close') await actions.close(day)
+      else await actions.unlock(day, note)
+      onClose()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="day-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+        <h3 id="day-title" className="text-lg font-semibold text-slate-900">{title}</h3>
+        <ul className="mt-2 space-y-0.5 text-sm text-slate-700">
+          {shifts.map(({ s, p }) => <li key={s.id}>{SLOT_LABEL[s.kind]} {SLOT_HOURS[s.kind]} · {p ? <strong>{p.name}</strong> : <span className="text-amber-800">scoperto</span>}</li>)}
+        </ul>
+        <p className="mt-3 text-sm text-slate-600">
+          {kind === 'mark' && <>Dopo la conferma il giorno è <strong>definitivo</strong>: turni e persone non si cambiano più ed entra nel consuntivo come erogato. Il Turnista può ancora segnalare o correggere interventi finché il giorno non viene <strong>consuntivato</strong>.</>}
+          {kind === 'close' && <>Si chiude l'inserimento di <strong>nuovi interventi</strong> su questo giorno. Quelli già segnalati restano e si possono ancora approvare o rifiutare.</>}
+          {kind === 'unlock' && (state === 'consuntivato'
+            ? <>Il giorno torna <strong>erogato</strong>: si riapre l'inserimento degli interventi. Resta traccia di chi e quando.</>
+            : <>Il giorno torna <strong>modificabile</strong>: turni e persone si possono di nuovo cambiare ed esce dagli importi erogati. Resta traccia di chi e quando.</>)}
+        </p>
+        {kind === 'unlock' && (
+          <label className="mt-3 block text-sm">
+            <span className="text-xs font-medium text-slate-600">Motivo (facoltativo, resta nella traccia)</span>
+            <textarea value={note} maxLength={300} rows={2} onChange={(e) => setNote(e.target.value)} className="mt-1 block w-full rounded-lg px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300" />
+          </label>
+        )}
+        {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Annulla</Button>
+          <Button variant="primary" disabled={busy} onClick={() => void run()}>
+            {busy ? 'Attendi…' : kind === 'mark' ? 'Conferma erogato' : kind === 'close' ? 'Consuntiva' : 'Sblocca'}
+          </Button>
+        </div>
       </div>
     </div>
   )

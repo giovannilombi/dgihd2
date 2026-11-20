@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   try { body = await req.json() } catch { return fail('Richiesta non valida') }
 
   // Dati completi (solo in memoria sul server)
-  const [people, details, privates, assignments, excluded, settings, serverParams, teamRows] = await Promise.all([
+  const [people, details, privates, assignments, excluded, settings, serverParams, teamRows, erogati] = await Promise.all([
     db.from('people').select('id, name, color, active, sort, team'),
     db.from('people_details').select('person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order'),
     db.from('people_private').select('person_id, level, ral, ral_nd'),
@@ -50,8 +50,10 @@ Deno.serve(async (req) => {
     db.from('server_params').select('nd_ral').eq('id', 1).maybeSingle(),
     // team e quali "vedono tutto": decidono di chi l'utente vede RAL e importi
     db.from('teams').select('id, label, sees_all, director_id, sort'),
+    // giorni erogati: i loro turni sono definitivi e l'auto-compilazione non li tocca
+    db.from('day_status').select('day'),
   ])
-  for (const r of [people, details, privates, assignments, excluded, settings, serverParams, teamRows]) if (r.error) return fail(r.error.message, 500)
+  for (const r of [people, details, privates, assignments, excluded, settings, serverParams, teamRows, erogati]) if (r.error) return fail(r.error.message, 500)
   const data = rowsToData(
     people.data as PersonRow[], details.data as DetailsRow[], privates.data as PrivateRow[],
     assignments.data as AssignmentRow[], (excluded.data as { day: string }[]).map((x) => x.day),
@@ -72,7 +74,9 @@ Deno.serve(async (req) => {
     if (!canEdit) return fail('Operazione riservata a chi può modificare.', 403)
     const from = String(body.from ?? ''), to = String(body.to ?? '')
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) return fail('Periodo non valido.')
-    const res = regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, data.pinned)
+    const locked = new Set((erogati.data as { day: string }[]).map((x) => String(x.day).slice(0, 10)))
+    const fixed = [...data.pinned, ...Object.keys(data.assignments).filter((sid) => locked.has(sid.slice(0, 10)))]
+    const res = regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, fixed)
     return json({ assignments: res })
   }
 
