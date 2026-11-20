@@ -124,9 +124,9 @@ export const DEFAULT_PARAMS: Params = {
   majSab2: 0.3,
   indemnitySplit: 'intera',
   indemnity: {
-    g1: { feriale: 5.87, sabato: 8.83, domenica: 9.53 },
-    g2: { feriale: 7.0, sabato: 11.01, domenica: 11.88 },
-    g3: { feriale: 8.03, sabato: 12.81, domenica: 13.92 },
+    g1: { feriale: 5.87, sabato: 8.83, domenica: 9.55 },
+    g2: { feriale: 7.0, sabato: 10.98, domenica: 11.78 },
+    g3: { feriale: 8.03, sabato: 13.23, domenica: 13.92 },
   },
 }
 

@@ -125,16 +125,16 @@ const DEFAULT_PARAMS = {
 		g1: {
 			feriale: 5.87,
 			sabato: 8.83,
-			domenica: 9.53
+			domenica: 9.55
 		},
 		g2: {
 			feriale: 7,
-			sabato: 11.01,
-			domenica: 11.88
+			sabato: 10.98,
+			domenica: 11.78
 		},
 		g3: {
 			feriale: 8.03,
-			sabato: 12.81,
+			sabato: 13.23,
 			domenica: 13.92
 		}
 	}
@@ -395,12 +395,10 @@ const RULE_MESSAGES = {
 	R0: "Bloccato: risorsa esclusa dalla rotazione su richiesta",
 	R1: "Bloccato: copertura massima 1 slot/giorno per garantire il riposo legale di 11h",
 	R2: "Bloccato: vietati turni consecutivi o adiacenti nel weekend (tutela riposo 11h e 35h settimanali)",
-	R3: "Bloccato: raggiunto il limite massimo di 2 turni/settimana (cap massimo di 8h di compensazione su singolo giorno weekend)",
-	R3cap: "Bloccato: le ore di compensazione della settimana supererebbero il cap giornaliero",
+	R3: "Bloccato: raggiunto il limite massimo di 2 turni/settimana",
 	R4: "Bloccato: raggiunto il tetto massimo di 4 giornate nel mese",
 	R5: "Bloccato: recupero festivo obbligatorio avendo già coperto un turno weekend/festivo la settimana precedente",
-	R7: "Bloccato: la persona non è disponibile in questa data (ferie o assenza)",
-	R6: "Bloccato: nessuna domenica libera per imputare le ore di compensazione (sabato e lunedì successivo già impegnati, domenica successiva e precedente non disponibili)"
+	R7: "Bloccato: la persona non è disponibile in questa data (ferie o assenza)"
 };
 const isFestive = (s) => s.kind !== "FN";
 /**
@@ -522,7 +520,7 @@ function compensationsFor(person, a, p) {
 * Verifica se `person` può essere assegnata a `slotId`, considerando tutte le altre
 * assegnazioni (l'eventuale assegnazione attuale dello slot viene ignorata).
 */
-function checkAssignment(person, slotId, a, p) {
+function checkAssignment(person, slotId, a, _p) {
 	const slot = SLOT_BY_ID[slotId];
 	const others = { ...a };
 	delete others[slotId];
@@ -541,17 +539,6 @@ function checkAssignment(person, slotId, a, p) {
 	if (mine.some((s) => s.date === prev || s.date === next)) add("R2");
 	const week = weekStart(slot.date);
 	if (mine.filter((s) => weekStart(s.date) === week).length >= 2) add("R3");
-	else if (hasRal(calcRal(person, p))) {
-		const near = /* @__PURE__ */ new Set([
-			addDays(week, -7),
-			week,
-			addDays(week, 7)
-		]);
-		const comps = allocateCompensations(person, [...mine, slot], p).filter((c) => near.has(c.week));
-		const over = comps.find((c) => !c.warning && c.dayTotal > p.capHours + 1e-9);
-		if (over) add("R3cap", `Bloccato: le ore di compensazione salirebbero a ${over.dayTotal.toFixed(2).replace(".", ",")} h sul ${over.day === "dom" ? "domenica" : "sabato"}, oltre il cap di ${p.capHours.toString().replace(".", ",")} h/giorno (limite 2 turni/settimana)`);
-		if (comps.some((c) => c.warning)) add("R6");
-	}
 	if (mine.filter((s) => monthKey(s.date) === monthKey(slot.date)).length >= 4) add("R4");
 	if (isFestive(slot)) {
 		const adjWeeks = /* @__PURE__ */ new Set([addDays(week, -7), addDays(week, 7)]);
@@ -638,14 +625,18 @@ function regenerate(people, a, p, from, to, excludedDays, pinned) {
 	})), p, from, to, excludedDays);
 }
 // src/lib/salaryChecks.ts
-/** Regole che dipendono da RAL e livello: le uniche che il browser non può verificare da solo. */
-const SALARY_RULES = /* @__PURE__ */ new Set(["R3cap", "R6"]);
+/**
+* Regole che dipendono da RAL e livello, le uniche che il browser non può verificare da solo.
+* Dal 20/11/2026 (solo gettone integrativo) non ce ne sono più: cap ore e domenica di imputazione
+* appartenevano all'alternativa "recupero come straordinario", archiviata.
+*/
+const SALARY_RULES = /* @__PURE__ */ new Set();
 /** Calcolo lato server (dati completi, RAL media inclusa) per le persone che il browser non può calcolare. */
 function salaryRuleChecks(data, myTeam) {
 	const hidden = data.people.filter((p) => !canSeeSalaryOf(myTeam, p.team) || p.ralNd);
 	const onlySalary = (rules) => rules.filter((r) => SALARY_RULES.has(r));
 	const blocked = {};
-	for (const p of hidden) {
+	for (const p of SALARY_RULES.size ? hidden : []) {
 		if (!p.active) continue;
 		for (const s of ALL_SLOTS) {
 			const rules = onlySalary(checkAssignment(p, s.id, data.assignments, data.params).map((v) => v.rule));
@@ -654,7 +645,7 @@ function salaryRuleChecks(data, myTeam) {
 	}
 	const hiddenIds = new Set(hidden.map((p) => p.id));
 	const conflicts = {};
-	for (const [sid, vs] of Object.entries(existingViolations(data.people, data.assignments, data.params))) {
+	for (const [sid, vs] of SALARY_RULES.size ? Object.entries(existingViolations(data.people, data.assignments, data.params)) : []) {
 		if (!hiddenIds.has(data.assignments[sid])) continue;
 		const rules = onlySalary(vs.map((v) => v.rule));
 		if (rules.length) conflicts[sid] = rules;

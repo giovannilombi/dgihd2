@@ -63,10 +63,6 @@ describe('motore vincoli', () => {
     const r = checkAssignment(a, '2026-11-27|N', { '2026-11-23|N': 'a', '2026-11-25|N': 'a' }, P).map((v) => v.rule)
     expect(r).toContain('R3')
   })
-  it('R3cap: RAL 26k con due notti feriali supera 8h', () => {
-    const r = checkAssignment(mk('b', 26000), '2026-11-25|N', { '2026-11-23|N': 'b' }, P).map((v) => v.rule)
-    expect(r).toContain('R3cap')
-  })
   it('R4 quinto turno nel mese', () => {
     const asg = { '2026-11-02|N': 'a', '2026-11-09|N': 'a', '2026-11-16|N': 'a', '2026-11-23|N': 'a' }
     expect(checkAssignment(a, '2026-11-30|N', asg, P).map((v) => v.rule)).toContain('R4')
@@ -96,11 +92,6 @@ describe('motore vincoli', () => {
     const w = c.find((x) => x.week === '2026-11-09')!
     expect(w.relocated).toBe('prev')
     expect(w.dayDate).toBe('2026-11-08')
-  })
-  it('nessuna domenica disponibile → R6 blocca il turno', () => {
-    // RAL 34k: lun 2 + sab 7 (7,01 h) ; lun 9 → dom 15 ha già 3,61 h → 10,62 h; dom 1 a contatto con lun 2
-    const r = checkAssignment(mk('c', 34000), '2026-11-09|N', { '2026-11-02|N': 'c', '2026-11-07|D': 'c' }, P).map((v) => v.rule)
-    expect(r).toContain('R6')
   })
   it('auto-compila senza violazioni', () => {
     const team = Array.from({ length: 14 }, (_, i) => mk(`p${i}`, 26000 + i * 2500))
@@ -466,17 +457,18 @@ describe('report CSV: dettaglio per giorno', () => {
     const col = (name: string) => header.indexOf(name)
     const num = (v: string) => Number(v.replace(/\./g, '').replace(',', '.'))
     const [t1, t2, week] = rows
-    for (const k of ['Indennità CCNL lorda', 'Gettone di disponibilità lordo (preferibile)', 'Lordo totale', 'Netto garantito']) {
+    expect(header).not.toContain('Alternativa: ore straordinario') // solo gettone integrativo
+    for (const k of ['Indennità CCNL lorda', 'Gettone integrativo lordo', 'Lordo totale', 'Netto di riferimento']) {
       expect(num(t1[col(k)]) + num(t2[col(k)])).toBeCloseTo(num(week[col(k)]), 1)
     }
-    expect(num(t1[col('Indennità CCNL lorda')]) + num(t1[col('Gettone di disponibilità lordo (preferibile)')])).toBeCloseTo(num(t1[col('Lordo totale')]), 1)
+    expect(num(t1[col('Indennità CCNL lorda')]) + num(t1[col('Gettone integrativo lordo')])).toBeCloseTo(num(t1[col('Lordo totale')]), 1)
   })
   it('senza RAL nessun NaN; le persone di altri team non compaiono nel consuntivo', () => {
     const noRal = mk('n', 0)
     const hidden = { ...mk('h', 0), salaryHidden: true }
     const csv = fullReportCsv([noRal, hidden], { '2026-11-24|N': 'n', '2026-11-26|N': 'h' }, P)
     expect(csv).not.toContain('NaN')
-    expect(csv).toContain('non calcolabile (RAL da inserire)')
+    expect(lines(csv).some((r) => r[1] === 'n' && r[3] === 'Turno')).toBe(true) // importi stimati sulla fascia più bassa
     expect(lines(csv).some((r) => r[1] === 'h')).toBe(false)
   })
 })

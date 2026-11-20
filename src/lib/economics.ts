@@ -26,7 +26,7 @@ export function ccnlIndemnity(person: Pick<Person, 'level'>, slot: Pick<Slot, 'd
 }
 
 export interface SlotEcon {
-  net: number // netto target garantito
+  net: number // netto di riferimento del turno
   iccnl: number // indennità CCNL lorda
   ltot: number // lordo totale necessario
   lcomp: number // integrazione lorda da compensare

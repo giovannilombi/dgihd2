@@ -4,11 +4,13 @@ Periodo pianificato: Novembre 2026 – Febbraio 2027 (gennaio e febbraio partono
 
 Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilità:
 
-- **Approccio**: presentazione del modello (sintesi sempre visibile; calcolo del gettone, tutele e riferimenti normativi, valori per RAL in sezioni espandibili), con valori ricalcolati sui parametri correnti.
-- **A · Parametri**: ricavi, gettoni netti target, cap ore di compensazione, moltiplicatore costo aziendale, coefficienti netto/lordo, maggiorazioni e indennità CCNL.
+- **Approccio**: presentazione del modello (sintesi sempre visibile; calcolo del gettone integrativo, tutele e riferimenti normativi, valori per RAL in sezioni espandibili), con valori ricalcolati sui parametri correnti.
+- **A · Parametri**: ricavi, netto di riferimento per turno, moltiplicatore costo aziendale, coefficienti netto/lordo, indennità CCNL.
 - **B · Team**: anagrafica (aggiungi, modifica, elimina), team della risorsa, ruolo (primario, riserva ordinata, KO), disponibilità dichiarata (volontario, max 1–3 turni/mese, nessuna preferenza) usata dall'auto-compilazione, import da CSV o da Excel incollato con template scaricabile, anteprima e segnalazione degli errori riga per riga.
 - **C · Calendario**: slot feriali e festivi (festività di Milano incluse), motore vincoli in tempo reale con il motivo di ogni blocco, auto-compilazione, blocco dei giorni non richiesti dal cliente (lucchetto).
-- **D · Consuntivo / E · Conto economico**: gettone di disponibilità lordo per settimana (modalità preferibile) e, in alternativa, ore di straordinario su Domenica o Sabato (cap 8h); netto, costo aziendale, KPI e grafico di marginalità.
+- **D · Consuntivo / E · Conto economico**: per turno indennità CCNL + gettone integrativo = lordo, netto di riferimento, costo aziendale; KPI e grafico di marginalità.
+
+Dal 20/11/2026 la reperibilità si liquida **solo con il gettone integrativo**. La versione con l'alternativa "recupero come straordinario" (ore su un giorno del weekend, cap 8 h, domenica di imputazione) è archiviata con l'etichetta git `archivio-gettone-e-alternativa-straordinario`. Regole, calcoli e riferimenti CCNL del modello sono descritti in [`docs/modello-reperibilita.md`](docs/modello-reperibilita.md).
 
 Salvataggio automatico sul database condiviso, export/import della configurazione JSON (validata, solo per chi vede tutti i team), report CSV, export dei soli turni in Excel formattato o in PDF (senza dati economici).
 
@@ -36,9 +38,9 @@ Ogni risorsa ha un'**email aziendale obbligatoria** (sotto il nome in B · Team,
 
 Ogni risorsa appartiene a un team (Tech, Design, PM, Director, Governance) e ogni utente ha un team (gli stessi, più HR). RAL e livello sono visibili **solo per le risorse del proprio team**; HR e Governance li vedono per tutti. Per le risorse degli altri team l'app mostra "Riservata" e non calcola costi né ore: consuntivo e conto economico riportano solo il proprio team.
 
-Vincoli e auto-compilazione restano corretti per tutti: le regole che dipendono dalla RAL (cap ore di compensazione e domenica di recupero) sono calcolate dalla funzione server `supabase/functions/planner`, che restituisce solo l'esito (regola violata, assegnazioni), mai importi, ore o RAL. Il team di una risorsa può essere cambiato solo da HR e Governance (controllo nel database).
+Nessun vincolo di rotazione dipende dalla RAL. L'auto-compilazione, che a parità di condizioni preferisce il costo minore, gira sulla funzione server `supabase/functions/planner` quando ci sono persone di cui il browser non conosce la RAL; restituisce solo le assegnazioni, mai importi o RAL. Il team di una risorsa può essere cambiato solo da HR e Governance (controllo nel database).
 
-Per le risorse con RAL **Q/** i calcoli usano una RAL media di riferimento che sta solo sul server (tabella `server_params`, non leggibile dagli utenti): vincoli, importi e ore di queste persone li calcola la funzione `planner` e il browser riceve solo i risultati.
+Per le risorse con RAL **Q/** i calcoli usano una RAL media di riferimento che sta solo sul server (tabella `server_params`, non leggibile dagli utenti): gli importi di queste persone li calcola la funzione `planner` e il browser riceve solo i risultati.
 
 I permessi sono applicati dal database (Row Level Security, `supabase/migrations`); la gestione account passa dalla funzione server `supabase/functions/admin-users`, che usa la chiave di servizio senza esporla al browser. Gli account li crea solo il super admin: il database rifiuta ogni iscrizione libera (anche via link magico). Al cambio password vengono rifiutate le password presenti in elenchi di password rubate (servizio Pwned Passwords, inviando solo i primi 5 caratteri dell'impronta SHA-1).
 

@@ -157,10 +157,9 @@ export const toCsv = (rows: (string | number)[][]) => '﻿' + rows.map((r) => r.
 /** Report CSV del periodo: le settimane del consuntivo sono incluse se il loro ultimo turno cade nel periodo. */
 export function fullReportCsv(people: Person[], a: Assignments, p: Params, excludedDays: string[] = [], range: ExportRange = FULL_RANGE, nd?: NdData) {
   const rows: (string | number)[][] = [['PIANO REPERIBILITÀ - ARM', `Periodo ${rangeText(range)}`], [], ['CONSUNTIVO CEDOLINO PER RISORSA']]
-  // Una riga per turno (CCNL + gettone = lordo totale), il totale della settimana con l'alternativa in ore
-  // (calcolata sul gettone settimanale) e il totale del mese per persona.
-  rows.push(['Mese', 'Risorsa', 'Settimana (lun)', 'Riga', 'Giorno e fascia', 'Indennità CCNL lorda', 'Gettone di disponibilità lordo (preferibile)', 'Lordo totale', 'Netto garantito', 'Costo aziendale', 'Alternativa: giorno straordinario', 'Alternativa: data', 'Alternativa: ore straordinario', 'Note'])
-  const hoursCell = (h: number) => (Number.isFinite(h) ? h : 'non calcolabile (RAL da inserire)')
+  // Una riga per turno (indennità CCNL + gettone integrativo = lordo totale), il totale della settimana
+  // e il totale del mese per persona.
+  rows.push(['Mese', 'Risorsa', 'Settimana (lun)', 'Riga', 'Giorno e fascia', 'Indennità CCNL lorda', 'Gettone integrativo lordo', 'Lordo totale', 'Netto di riferimento', 'Costo aziendale'])
   for (const m of payroll(people, a, p, nd)) {
     for (const r of m.rows) {
       const weeks = r.weeks.filter((w) => inRange(w.slots[w.slots.length - 1].date, range))
@@ -168,18 +167,16 @@ export function fullReportCsv(people: Person[], a: Assignments, p: Params, exclu
       for (const w of weeks) {
         for (const [i, s] of w.slots.entries()) {
           const e = w.days[i]
-          rows.push([m.label, r.person.name, w.week, 'Turno', slotTag(s.id), e.iccnl, e.lcomp, e.ltot, e.net, e.cost, '', '', '', ''])
+          rows.push([m.label, r.person.name, w.week, 'Turno', slotTag(s.id), e.iccnl, e.lcomp, e.ltot, e.net, e.cost])
         }
         rows.push([
           m.label, r.person.name, w.week, 'Totale settimana', `${w.slots.length} ${w.slots.length === 1 ? 'turno' : 'turni'}`,
           w.iccnl, w.lcomp, w.ltot, w.net, w.cost,
-          w.day === 'dom' ? 'Domenica' : 'Sabato', w.dayDate, hoursCell(w.hours),
-          [w.moveReason ?? '', w.warning ?? '', w.dayTotal > p.capHours + 1e-9 ? 'OLTRE CAP' : ''].filter(Boolean).join(' | '),
         ])
       }
-      const sum = (k: 'iccnl' | 'lcomp' | 'ltot' | 'net' | 'cost' | 'hours') => weeks.reduce((n, w) => n + w[k], 0)
+      const sum = (k: 'iccnl' | 'lcomp' | 'ltot' | 'net' | 'cost') => weeks.reduce((n, w) => n + w[k], 0)
       const n = weeks.reduce((k, w) => k + w.slots.length, 0)
-      rows.push([m.label, r.person.name, '', 'Totale mese', `${n} ${n === 1 ? 'turno' : 'turni'}`, sum('iccnl'), sum('lcomp'), sum('ltot'), sum('net'), sum('cost'), '', '', hoursCell(sum('hours')), ''])
+      rows.push([m.label, r.person.name, '', 'Totale mese', `${n} ${n === 1 ? 'turno' : 'turni'}`, sum('iccnl'), sum('lcomp'), sum('ltot'), sum('net'), sum('cost')])
     }
   }
   const pl = pnl(people, a, p, excludedDays, range, nd)

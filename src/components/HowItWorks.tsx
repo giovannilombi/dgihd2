@@ -1,25 +1,21 @@
 import { useState } from 'react'
-import { baseHourly, fmtEur, fmtNum, kNetto, slotEconomics, sundayHours } from '../lib/economics'
+import { fmtEur, fmtNum, kNetto, slotEconomics } from '../lib/economics'
 import { LEVEL_LABEL, LEVELS, type Level, type Params } from '../lib/types'
 import { AccordionSummary } from './ui'
 
-/** Esempio guidato, calcolato dal vivo: dal netto target al gettone, all'alternativa in ore e al costo aziendale. */
+/** Esempio guidato, calcolato dal vivo: dal netto di riferimento al lordo, al gettone integrativo e al costo aziendale. */
 export function HowItWorks({ p }: { p: Params }) {
   const [ral, setRal] = useState(30_000)
   const [level, setLevel] = useState<Level>('B1')
   const ok = Number.isFinite(ral) && ral > 0
   const e = ok ? slotEconomics({ level, ral }, { date: '2026-11-24', kind: 'FN' }, p) : null
   const k = ok ? kNetto(ral, p) : 0
-  const base = ok ? baseHourly(ral) : 0
-  const hDom = e ? sundayHours(e.lcomp, ral, p) : 0
-  const twoNights = e ? sundayHours(2 * e.lcomp, ral, p) : 0
 
   const steps = e ? [
-    ['Netto garantito al dipendente', 'gettone netto target', fmtEur(e.net)],
-    ['Lordo necessario', `${fmtNum(e.net)} € ÷ ${fmtNum(k)} (coeff. netto/lordo)`, fmtEur(e.ltot)],
-    ['Già coperto dal CCNL', `indennità reperibilità liv. ${level}`, `− ${fmtEur(e.iccnl)}`],
-    ['Gettone di disponibilità (preferibile)', 'voce dedicata in busta, a consuntivo', fmtEur(e.lcomp)],
-    ['Alternativa: ore di straordinario', `${fmtNum(e.lcomp)} € ÷ (${fmtNum(base)} €/h × ${fmtNum(1 + p.majDom)})`, `${fmtNum(hDom)} h Domenica`],
+    ['Netto di riferimento', 'uguale per tutti, per tipo di turno', fmtEur(e.net)],
+    ['Lordo complessivo del turno', `${fmtNum(e.net)} € ÷ ${fmtNum(k)} (coeff. netto/lordo della fascia di RAL)`, fmtEur(e.ltot)],
+    ['Indennità di reperibilità CCNL', `già dovuta per contratto, liv. ${level}`, `− ${fmtEur(e.iccnl)}`],
+    ['Gettone integrativo', 'voce dedicata in busta, a consuntivo', fmtEur(e.lcomp)],
     ['Costo per l\'azienda', `${fmtNum(e.ltot)} € × ${fmtNum(p.costMultiplier)}`, fmtEur(e.cost)],
   ] : []
 
@@ -48,10 +44,10 @@ export function HowItWorks({ p }: { p: Params }) {
                   <tr key={label} className={`border-b border-slate-200 last:border-0 ${i === 3 ? 'bg-blue-50' : ''}`}>
                     <td className="py-1.5 pr-2 pl-1 text-xs text-slate-400">{i + 1}</td>
                     <td className="py-1.5 pr-3">
-                      <div className={i === 3 ? 'font-semibold text-blue-900' : i === 4 ? 'text-slate-500' : 'font-medium text-slate-800'}>{label}</div>
+                      <div className={i === 3 ? 'font-semibold text-blue-900' : 'font-medium text-slate-800'}>{label}</div>
                       <div className="text-xs text-slate-500">{how}</div>
                     </td>
-                    <td className={`py-1.5 pr-1 text-right whitespace-nowrap ${i === 3 ? 'font-semibold text-blue-900' : i === 4 ? 'text-slate-500' : 'font-medium'}`}>{value}</td>
+                    <td className={`py-1.5 pr-1 text-right whitespace-nowrap ${i === 3 ? 'font-semibold text-blue-900' : 'font-medium'}`}>{value}</td>
                   </tr>
                 ))}
               </tbody>
@@ -60,12 +56,9 @@ export function HowItWorks({ p }: { p: Params }) {
         </div>
 
         <div className="space-y-3 text-sm leading-relaxed text-slate-700">
-          <p><strong className="text-slate-900">Gettone di disponibilità (preferibile).</strong> Il CCNL paga pochi euro a turno: la differenza fino al netto garantito viene erogata a fine mese come voce dedicata in busta paga, calcolata sulla RAL di ciascuno.</p>
-          <p><strong className="text-slate-900">Alternativa in ore.</strong> Lo stesso importo lordo può essere liquidato come straordinario su un solo giorno del weekend (Domenica +{fmtNum(p.majDom * 100, 0)}%, oppure Sabato se la persona è reperibile il lunedì dopo). Netto e costo non cambiano.</p>
-          <p>
-            <strong className="text-slate-900">Cap {fmtNum(p.capHours)} h/giorno.</strong> Nell'alternativa le ore della settimana non possono superare una giornata standard: il calendario blocca i turni che lo sforerebbero.
-            {e && <> Con questa RAL due notti feriali nella stessa settimana richiedono <strong>{fmtNum(twoNights)} h</strong>{twoNights > p.capHours ? <span className="text-red-700"> (oltre il cap: la seconda notte viene bloccata)</span> : ' (entro il cap)'}.</>}
-          </p>
+          <p><strong className="text-slate-900">Gettone integrativo.</strong> L'indennità CCNL resta dovuta e copre pochi euro a turno: il gettone porta il lordo del turno al valore che corrisponde al netto di riferimento. È una voce dedicata in busta paga, erogata a fine mese solo per i turni effettivamente svolti.</p>
+          <p><strong className="text-slate-900">Netto di riferimento, non garantito.</strong> Al dipendente si comunica il lordo, calcolato su misura: RAL e situazione fiscale (detrazioni, addizionali) cambiano da persona a persona, quindi il netto effettivo può scostarsi leggermente.</p>
+          <p><strong className="text-slate-900">Interventi.</strong> Le chiamate che richiedono di lavorare sono retribuite a parte, come lavoro straordinario con le maggiorazioni del CCNL.</p>
           <p><strong className="text-slate-900">Moltiplicatore {fmtNum(p.costMultiplier)}×.</strong> Per ogni euro lordo l'azienda spende circa {fmtNum(p.costMultiplier)} €, includendo contributi INPS a carico azienda, TFR e INAIL. Da allineare con il dato reale del payroll.</p>
         </div>
       </div>

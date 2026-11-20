@@ -200,7 +200,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             ? <Badge tone="slate">Nessun turno richiesto</Badge>
             : <Badge tone={covered === visibleSlots.length ? 'green' : covered ? 'amber' : 'red'}>{covered}/{visibleSlots.length} slot coperti</Badge>}
           {Object.keys(conflicts).length > 0 && <Badge tone="red">{Object.keys(conflicts).length} conflitti</Badge>}
-          {!simple && serverChecksState === 'error' && <Badge tone="amber" title="Il calcolo del cap ore per le persone di altri team non è al momento disponibile: verrà ripetuto alla prossima modifica">Verifica vincoli altri team non riuscita</Badge>}
+          {!simple && serverChecksState === 'error' && <Badge tone="amber" title="Gli importi calcolati sul server (persone con RAL Q/) non sono al momento disponibili: verranno ricalcolati alla prossima modifica">Calcolo sul server non riuscito</Badge>}
         </div>
         {monthBand && (
           <div ref={setBand} aria-hidden="true" className="absolute top-[calc(100%+1px)] bg-white pb-2" style={{ left: monthBand.left, width: monthBand.width }}>
@@ -367,14 +367,12 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             <ol className="list-decimal space-y-1 pl-4">
               <li>Max 1 slot/giorno nei weekend e festivi</li>
               <li>Nessun turno in giorni adiacenti (ponti Ven–Sab, Sab–Dom, Dom–Lun)</li>
-              <li>Max 2 turni/settimana ISO e cap {String(params.capHours).replace('.', ',')} h di compensazione</li>
+              <li>Max 2 turni/settimana ISO</li>
               <li>Max 4 turni/mese solare</li>
               <li>Weekend/festivo in W ⇒ niente weekend/festivi in W+1</li>
-              <li>Ogni settimana deve avere una domenica libera per le ore (anche la successiva o la precedente)</li>
             </ol>
             <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-amber-700">⚠ Oltre disponibilità</span>: assegnabile a mano, ma supera il massimo mensile indicato dalla persona. L'auto-compilazione non lo fa mai.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><PinIcon filled className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" /> Con la puntina blocchi un turno assegnato: non è modificabile e l'auto-compilazione ricalcola tutti gli altri tenendolo fisso.</p>
-            {people.some(needsServerChecks) && <p className="mt-2 border-t border-slate-200 pt-2">Per le persone di altri team e per quelle con RAL Q/ il cap ore e la domenica di recupero sono verificati dal server: vedi solo l'esito.</p>}
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
           </div>
         </aside>}

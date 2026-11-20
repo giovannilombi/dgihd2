@@ -2,7 +2,7 @@ import { ALL_SLOTS, SLOT_BY_ID, addDays, monthKey, weekSaturday, weekStart, week
 import { calcRal, hasRal, saturdayHours, slotEconomics, sundayHours } from './economics'
 import { availabilityOf, preferredMax, type Assignments, type Params, type Person, type Slot } from './types'
 
-export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R3cap' | 'R4' | 'R5' | 'R6' | 'R7'
+export type RuleId = 'R0' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5' | 'R7'
 
 export interface Violation {
   rule: RuleId
@@ -13,16 +13,14 @@ export const RULE_MESSAGES: Record<RuleId, string> = {
   R0: 'Bloccato: risorsa esclusa dalla rotazione su richiesta',
   R1: 'Bloccato: copertura massima 1 slot/giorno per garantire il riposo legale di 11h',
   R2: 'Bloccato: vietati turni consecutivi o adiacenti nel weekend (tutela riposo 11h e 35h settimanali)',
-  R3: 'Bloccato: raggiunto il limite massimo di 2 turni/settimana (cap massimo di 8h di compensazione su singolo giorno weekend)',
-  R3cap: 'Bloccato: le ore di compensazione della settimana supererebbero il cap giornaliero',
+  R3: 'Bloccato: raggiunto il limite massimo di 2 turni/settimana',
   R4: 'Bloccato: raggiunto il tetto massimo di 4 giornate nel mese',
   R5: 'Bloccato: recupero festivo obbligatorio avendo già coperto un turno weekend/festivo la settimana precedente',
   R7: 'Bloccato: la persona non è disponibile in questa data (ferie o assenza)',
-  R6: 'Bloccato: nessuna domenica libera per imputare le ore di compensazione (sabato e lunedì successivo già impegnati, domenica successiva e precedente non disponibili)',
 }
 
 export const RULE_SHORT: Record<RuleId, string> = {
-  R0: 'Esclusa', R1: '1 slot/giorno', R2: 'Adiacenza', R3: 'Max 2/sett.', R3cap: 'Cap ore', R4: 'Max 4/mese', R5: 'Recupero weekend', R6: 'Nessuna domenica di recupero', R7: 'Non disponibile',
+  R0: 'Esclusa', R1: '1 slot/giorno', R2: 'Adiacenza', R3: 'Max 2/sett.', R4: 'Max 4/mese', R5: 'Recupero weekend', R7: 'Non disponibile',
 }
 
 const isFestive = (s: Slot) => s.kind !== 'FN'
@@ -160,7 +158,7 @@ export function compensationsFor(person: Person, a: Assignments, p: Params): Wee
  * Verifica se `person` può essere assegnata a `slotId`, considerando tutte le altre
  * assegnazioni (l'eventuale assegnazione attuale dello slot viene ignorata).
  */
-export function checkAssignment(person: Person, slotId: string, a: Assignments, p: Params): Violation[] {
+export function checkAssignment(person: Person, slotId: string, a: Assignments, _p: Params): Violation[] {
   const slot = SLOT_BY_ID[slotId]
   const others: Assignments = { ...a }
   delete others[slotId]
@@ -182,21 +180,12 @@ export function checkAssignment(person: Person, slotId: string, a: Assignments, 
   const prev = addDays(slot.date, -1), next = addDays(slot.date, 1)
   if (mine.some((s) => s.date === prev || s.date === next)) add('R2')
 
-  // R3 – max 2 turni nella settimana ISO + cap ore compensazione
+  // R3 – max 2 turni nella settimana ISO
+  // (con il solo gettone integrativo non servono più il cap ore di compensazione né la domenica di
+  // imputazione: erano vincoli dell'alternativa "recupero come straordinario", archiviata.)
   const week = weekStart(slot.date)
   const sameWeek = mine.filter((s) => weekStart(s.date) === week)
   if (sameWeek.length >= 2) add('R3')
-  else if (hasRal(calcRal(person, p))) {
-    // Ricalcola l'imputazione con il nuovo turno: contano la settimana del turno e le due adiacenti
-    // (un turno di lunedì sposta la settimana precedente; gli spostamenti di domenica toccano W±1).
-    const near = new Set([addDays(week, -7), week, addDays(week, 7)])
-    const comps = allocateCompensations(person, [...mine, slot], p).filter((c) => near.has(c.week))
-    const over = comps.find((c) => !c.warning && c.dayTotal > p.capHours + 1e-9)
-    if (over) {
-      add('R3cap', `Bloccato: le ore di compensazione salirebbero a ${over.dayTotal.toFixed(2).replace('.', ',')} h sul ${over.day === 'dom' ? 'domenica' : 'sabato'}, oltre il cap di ${p.capHours.toString().replace('.', ',')} h/giorno (limite 2 turni/settimana)`)
-    }
-    if (comps.some((c) => c.warning)) add('R6')
-  }
 
   // R4 – max 4 turni nel mese solare
   if (mine.filter((s) => monthKey(s.date) === monthKey(slot.date)).length >= 4) add('R4')

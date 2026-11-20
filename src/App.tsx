@@ -223,7 +223,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       </Section>
     ),
     payroll: (
-      <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone di disponibilità e alternativa in ore."
+      <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone integrativo e totale lordo."
         actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
         <Payroll people={data.people} assignments={data.assignments} params={data.params} nd={serverChecks?.nd} />
       </Section>

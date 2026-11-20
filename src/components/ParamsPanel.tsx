@@ -13,14 +13,13 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
           <NumberField label="Weekend/festivo h24 (Diurno + Notturno) – per giorno" value={p.revenueFestivo} onChange={(v) => set('revenueFestivo', v)} min={0} suffix="€" hint="Listino 1.200 € scontato 10%. Fatturato solo se entrambi gli slot sono coperti." />
         </fieldset>
         <fieldset className="space-y-3">
-          <legend className="mb-2 text-sm font-semibold text-slate-800">Gettoni netti target per il team</legend>
+          <legend className="mb-2 text-sm font-semibold text-slate-800">Netto di riferimento per turno (uguale per tutti)</legend>
           <NumberField label="Notte feriale (18:00–09:00)" value={p.netFN} onChange={(v) => set('netFN', v)} min={0} suffix="€ netti" />
           <NumberField label="Weekend/festivo diurno (09:00–18:00)" value={p.netWD} onChange={(v) => set('netWD', v)} min={0} suffix="€ netti" />
           <NumberField label="Weekend/festivo notturno (18:00–09:00)" value={p.netWN} onChange={(v) => set('netWN', v)} min={0} suffix="€ netti" />
         </fieldset>
         <fieldset className="space-y-3">
-          <legend className="mb-2 text-sm font-semibold text-slate-800">Vincoli e costo</legend>
-          <NumberField label="Cap ore compensazione giornaliera" value={p.capHours} onChange={(v) => set('capHours', v)} min={1} max={12} step={0.25} suffix="h/giorno" hint="Vale per l'alternativa in ore: oltre il cap il turno viene bloccato" />
+          <legend className="mb-2 text-sm font-semibold text-slate-800">Costo aziendale</legend>
           <label className="block">
             <span className="text-xs font-medium text-slate-600">Moltiplicatore costo aziendale sul lordo</span>
             <div className="mt-2 flex items-center gap-3">
@@ -35,7 +34,7 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
       <div className="space-y-3">
       <HowItWorks p={p} />
       <details className="group rounded-xl border border-slate-200 bg-slate-50">
-        <AccordionSummary compact>Parametri avanzati: coefficienti netto/lordo, maggiorazioni, indennità CCNL</AccordionSummary>
+        <AccordionSummary compact>Parametri avanzati: coefficienti netto/lordo, indennità CCNL</AccordionSummary>
         <div className="grid gap-6 border-t border-slate-200 p-4 lg:grid-cols-3">
           <fieldset className="space-y-3">
             <legend className="mb-2 text-sm font-semibold text-slate-800">Coefficiente netto/lordo (K)</legend>
@@ -44,10 +43,7 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
             <NumberField label="RAL > 50.000 €" value={p.kNetHigh} onChange={(v) => set('kNetHigh', v)} min={0.3} max={1} />
           </fieldset>
           <fieldset className="space-y-3">
-            <legend className="mb-2 text-sm font-semibold text-slate-800">Maggiorazioni straordinario</legend>
-            <NumberField label="Domenica / festivo" value={Math.round(p.majDom * 100)} onChange={(v) => set('majDom', v / 100)} step={1} min={0} suffix="%" />
-            <NumberField label="Sabato – prime 2 ore" value={Math.round(p.majSab1 * 100)} onChange={(v) => set('majSab1', v / 100)} step={1} min={0} suffix="%" />
-            <NumberField label="Sabato – dalla 3ª ora" value={Math.round(p.majSab2 * 100)} onChange={(v) => set('majSab2', v / 100)} step={1} min={0} suffix="%" />
+            <legend className="mb-2 text-sm font-semibold text-slate-800">Indennità CCNL nel weekend</legend>
             <label className="block">
               <span className="text-xs font-medium text-slate-600">Indennità CCNL sui 2 slot weekend/festivi</span>
               <select value={p.indemnitySplit} onChange={(e) => set('indemnitySplit', e.target.value as Params['indemnitySplit'])} className="mt-1 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">

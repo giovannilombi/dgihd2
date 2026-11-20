@@ -27,8 +27,12 @@ export interface ServerChecks {
   nd?: Record<string, NdEconomics>
 }
 
-/** Regole che dipendono da RAL e livello: le uniche che il browser non può verificare da solo. */
-export const SALARY_RULES: ReadonlySet<RuleId> = new Set<RuleId>(['R3cap', 'R6'])
+/**
+ * Regole che dipendono da RAL e livello, le uniche che il browser non può verificare da solo.
+ * Dal 20/11/2026 (solo gettone integrativo) non ce ne sono più: cap ore e domenica di imputazione
+ * appartenevano all'alternativa "recupero come straordinario", archiviata.
+ */
+export const SALARY_RULES: ReadonlySet<RuleId> = new Set<RuleId>()
 
 /**
  * Il browser non può calcolare i vincoli economici di chi ha la RAL non visibile (altro team)
@@ -41,7 +45,7 @@ export function salaryRuleChecks(data: AppData, myTeam: UserTeam | null): Server
   const hidden = data.people.filter((p) => !canSeeSalaryOf(myTeam, p.team) || p.ralNd)
   const onlySalary = (rules: RuleId[]) => rules.filter((r) => SALARY_RULES.has(r))
   const blocked: ServerChecks['blocked'] = {}
-  for (const p of hidden) {
+  for (const p of SALARY_RULES.size ? hidden : []) {
     if (!p.active) continue
     for (const s of ALL_SLOTS) {
       const rules = onlySalary(checkAssignment(p, s.id, data.assignments, data.params).map((v) => v.rule))
@@ -50,7 +54,7 @@ export function salaryRuleChecks(data: AppData, myTeam: UserTeam | null): Server
   }
   const hiddenIds = new Set(hidden.map((p) => p.id))
   const conflicts: ServerChecks['conflicts'] = {}
-  for (const [sid, vs] of Object.entries(existingViolations(data.people, data.assignments, data.params))) {
+  for (const [sid, vs] of SALARY_RULES.size ? Object.entries(existingViolations(data.people, data.assignments, data.params)) : []) {
     if (!hiddenIds.has(data.assignments[sid])) continue
     const rules = onlySalary(vs.map((v) => v.rule))
     if (rules.length) conflicts[sid] = rules

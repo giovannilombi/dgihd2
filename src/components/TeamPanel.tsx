@@ -284,7 +284,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
         <Badge tone="slate">{counts.volontario} {counts.volontario === 1 ? 'volontario' : 'volontari'}</Badge>
         <Badge tone="slate">{counts.limitato} con limite</Badge>
         <Badge tone="slate">{counts.nessuna} senza preferenza</Badge>
-        {missingRal > 0 && <Badge tone="amber" title="Con RAL a zero gli importi sono stimati e le ore di straordinario non sono calcolabili">{missingRal} RAL da inserire</Badge>}
+        {missingRal > 0 && <Badge tone="amber" title="Con RAL a zero gli importi sono stimati sulla fascia di RAL più bassa">{missingRal} RAL da inserire</Badge>}
         {canSetTeam && noTeam > 0 && <Badge tone="amber" title="Senza team, RAL e livello sono visibili solo a HR e Governance">{noTeam} senza team</Badge>}
         {hiddenCount > 0 && <Badge tone="slate" title="RAL e livello visibili solo al loro team, a HR e a Governance; i vincoli che ne dipendono sono verificati dal server">{hiddenCount} di altri team · RAL riservata</Badge>}
         {missingEmail > 0 && <Badge tone="amber" title="L'email è obbligatoria: serve a riconoscere l'account della persona">{missingEmail} {missingEmail === 1 ? 'email da inserire' : 'email da inserire'}</Badge>}
