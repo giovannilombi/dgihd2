@@ -1,7 +1,6 @@
 import { SLOT_BY_ID } from './calendar'
-import { isDirectorOf, type Me } from './dayStatus'
 import { shiftWindow } from './overtime'
-import { seesAllSalaries, type TeamDir } from './teams'
+import { canSeeSalaryOf, isDirectorOf, type Me } from './roles'
 import type { Params, Person } from './types'
 
 /** Intervento dichiarato da un turnista (orari in ora italiana 'YYYY-MM-DDTHH:MM'). */
@@ -85,16 +84,13 @@ export function resolveTimes(slot: string, startTime: string, endTime: string): 
   return { start, end }
 }
 
-/** Chi decide: super admin o director del team della persona (mai sui propri interventi, salvo il super admin). */
-export const canDecide = (person: Pick<Person, 'id' | 'team'> | undefined, me: Me, teams: TeamDir, myPersonId: string | null) =>
-  !!person && (me.role === 'super_admin' || (isDirectorOf(teams, person.team, me) && person.id !== myPersonId))
+/** Chi decide: super admin, PM (tutti i team) o Director del team della persona; mai sui propri interventi, salvo il super admin. */
+export const canDecide = (person: Pick<Person, 'id' | 'team'> | undefined, me: Me, myPersonId: string | null) =>
+  !!person && (me.role === 'super_admin' || ((me.role === 'pm' || isDirectorOf(person.team, me)) && person.id !== myPersonId))
 
-/**
- * Importi degli interventi: solo a chi vede tutti i team (HR, Governance) e al director del team della persona,
- * e solo se la RAL puntuale è nota (non Q/, non da inserire).
- */
-export const amountsVisible = (person: Person | undefined, me: Me, teams: TeamDir) =>
-  !!person && (seesAllSalaries(teams, me.team) || isDirectorOf(teams, person.team, me))
+/** Importi degli interventi: a chi vede la RAL della persona (stessa regola); senza RAL puntuale solo ore. */
+export const amountsVisible = (person: Person | undefined, me: Me) =>
+  !!person && !person.salaryHidden && canSeeSalaryOf(me, person.team)
 export const payRal = (person: Person | undefined) =>
   person && !person.salaryHidden && !person.ralNd && person.ral > 0 ? person.ral : null
 

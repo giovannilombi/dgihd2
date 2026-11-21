@@ -6,7 +6,8 @@ import { download, slotTag } from '../lib/reports'
 import { AvailabilityDialog } from './AvailabilityDialog'
 import { AVAILABILITY_HELP, newId, nextColor, parseTeamText, TEMPLATE_CSV, type ImportedPerson } from '../lib/team'
 import { availabilityLabel, availabilityOf, isEmail, LEVEL_LABEL, LEVELS, normalizeEmail, preferredMax, type Assignments, type Level, type Person } from '../lib/types'
-import { canSeeSalaryOf, teamLabel, type TeamDir, type TeamId } from '../lib/teams'
+import { teamLabel, type TeamId } from '../lib/teams'
+import { canSeeSalaryOf, type Role } from '../lib/roles'
 import { useTeams } from '../lib/useTeams'
 import { Badge, Button, CommitInput } from './ui'
 import { renumberReserves } from '../lib/store'
@@ -21,7 +22,8 @@ interface Props {
   revealed: boolean
   /** Team dell'utente: RAL e livello delle risorse di altri team non sono mai visibili. */
   myTeam: TeamId | null
-  /** Solo chi vede tutti i team (es. HR e Governance) può assegnare o cambiare il team di una risorsa. */
+  role: Role
+  /** Solo chi vede tutti i team (Governance, Super admin) può assegnare o cambiare il team di una risorsa. */
   canSetTeam: boolean
   /** Team assegnato alle risorse aggiunte da chi non può sceglierlo (il proprio). */
   newTeam: TeamId | null
@@ -43,16 +45,14 @@ function Reserved({ w = 'w-20', team }: { w?: string; team?: TeamId | null }) {
   const teams = useTeams()
   return (
     <span className={`inline-flex ${w} items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-400 ring-1 ring-inset ring-slate-200 select-none`}
-      title={`Riservato al ${team ? `team ${teamLabel(teams, team)}` : 'team della risorsa'}${seesAllNames(teams) ? ` e a ${seesAllNames(teams)}` : ''}`}>
+      title={`Riservato ai Director del ${team ? `team ${teamLabel(teams, team)}` : 'team della risorsa'} e ai profili Governance e HR`}>
       Riservata
     </span>
   )
 }
 
-/** Nomi dei team che vedono tutto, es. "HR e Governance". */
-const seesAllNames = (teams: TeamDir) => teams.list.filter((t) => t.seesAll).map((t) => t.label).join(' e ')
 
-export function TeamPanel({ people, assignments, onChange, revealed, myTeam, canSetTeam, newTeam, accounts, onCreateAccount }: Props) {
+export function TeamPanel({ people, assignments, onChange, revealed, myTeam, role, canSetTeam, newTeam, accounts, onCreateAccount }: Props) {
   const teams = useTeams()
   const [importOpen, setImportOpen] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -90,7 +90,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
 
   /** Le nuove risorse nascono nel team dell'utente (HR e Governance lo scelgono poi dalla tabella). */
   const newPersonTeam = canSetTeam ? null : newTeam
-  const newHidden = !canSeeSalaryOf(teams, myTeam, newPersonTeam)
+  const newHidden = !canSeeSalaryOf({ role, team: myTeam }, newPersonTeam)
   const add = (name: string, email: string) => {
     const id = newId()
     // RAL vuota ("Da inserire"): niente valori di comodo che potrebbero restare per errore
@@ -188,7 +188,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, can
                         {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                         {p.team && !teams.byId[p.team] && <option value={p.team}>{p.team}</option>}
                       </select>
-                    ) : <span className="text-sm text-slate-700" title={`Il team di una risorsa lo assegna chi vede tutti i team${seesAllNames(teams) ? ` (${seesAllNames(teams)})` : ''}`}>{p.team ? teamLabel(teams, p.team) : '—'}</span>}
+                    ) : <span className="text-sm text-slate-700" title="Il team di una risorsa lo assegnano i profili Governance e Super admin">{p.team ? teamLabel(teams, p.team) : '—'}</span>}
                   </td>
                   <td className="py-2 pr-3">
                     {p.salaryHidden ? <Reserved w="w-16" team={p.team} /> : open ? (

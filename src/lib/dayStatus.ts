@@ -1,6 +1,5 @@
 import { addDays, slotsForDay } from './calendar'
-import { canEdit, canReadFull, type Role } from './roles'
-import { seesAllSalaries, type TeamDir, type TeamId } from './teams'
+import { canEdit, isDirectorOf, type Me } from './roles'
 import type { Assignments, Person } from './types'
 
 /**
@@ -64,29 +63,21 @@ export const shortName = (name: string) => {
   return parts.length > 1 ? `${parts[0][0]}. ${parts.slice(1).join(' ')}` : n.trim()
 }
 
-export interface Me { id: string; role: Role; team: TeamId | null }
-
-/** Director (valido) del team: account del team con accesso completo in lettura, come nel database. */
-export const isDirectorOf = (teams: TeamDir, team: TeamId | null | undefined, me: Me) =>
-  !!team && teams.byId[team]?.directorId === me.id && me.team === team && canReadFull(me.role)
+export type { Me } from './roles'
 
 export interface DayPerms {
-  /** Segna erogato (dalla fine del turno): Full edit, super admin, director di un team con un turno quel giorno. */
+  /** Segna erogato (dalla fine del turno): Super admin, Governance, Director. */
   mark: boolean
-  /** Consuntiva: chi può segnare l'erogato e chi legge tutto in un team che "vede tutto" (es. HR). */
+  /** Consuntiva: chi può segnare l'erogato e HR. */
   close: boolean
   /** Sblocca: super admin o director di un team con un turno quel giorno. */
   unlock: boolean
 }
 
 /** Stesse regole delle funzioni del database (mark_day_erogato, consuntiva_day, unlock_day). */
-export function dayPerms(day: string, me: Me, teams: TeamDir, people: Person[], a: Assignments): DayPerms {
+export function dayPerms(day: string, me: Me, people: Person[], a: Assignments): DayPerms {
   const byId = new Map(people.map((p) => [p.id, p]))
-  const directs = slotsForDay(day).some((s) => isDirectorOf(teams, byId.get(a[s.id])?.team, me))
-  const mark = canEdit(me.role) || directs
-  return {
-    mark,
-    close: mark || (canReadFull(me.role) && seesAllSalaries(teams, me.team)),
-    unlock: me.role === 'super_admin' || directs,
-  }
+  const directs = slotsForDay(day).some((s) => isDirectorOf(byId.get(a[s.id])?.team, me))
+  const mark = canEdit(me.role)
+  return { mark, close: mark || me.role === 'hr', unlock: me.role === 'super_admin' || directs }
 }

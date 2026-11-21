@@ -7,8 +7,8 @@ Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilit�
 - **Approccio**: presentazione del modello (sintesi sempre visibile; calcolo del gettone integrativo, tutele e riferimenti normativi, valori per RAL in sezioni espandibili), con valori ricalcolati sui parametri correnti.
 - **A · Parametri**: blocco A (ricavi, netto di riferimento per turno, moltiplicatore costo aziendale, coefficienti netto/lordo, indennità CCNL) e blocco B "Straordinari per interventi" (maggiorazioni CCNL per fascia, fascia notturna, minimo e tolleranza, divisore della paga oraria, compenso per chiamata).
 - **B · Team**: anagrafica (aggiungi, modifica, elimina), team della risorsa, ruolo (primario, riserva ordinata, KO), disponibilità dichiarata (volontario, max 1–3 turni/mese, nessuna preferenza) usata dall'auto-compilazione, import da CSV o da Excel incollato con template scaricabile, anteprima e segnalazione degli errori riga per riga.
-- **C · Calendario**: slot feriali e festivi (festività di Milano incluse), motore vincoli in tempo reale con il motivo di ogni blocco, auto-compilazione, blocco dei giorni non richiesti dal cliente (lucchetto). Dalla fine del turno: **Segna erogato** (giorno definitivo), **Consuntiva** (chiude gli interventi) e **Sblocca** (solo director del team o super admin, con traccia).
-- **Interventi** e **I miei interventi**: il turnista dichiara per ogni turno "Nessun intervento" o gli interventi (inizio, fine, nota), da telefono o desktop; il director del team o il super admin approva, rifiuta con motivo o riporta in approvazione. Ore per fascia e straordinario CCNL (minimo 1 ora, tolleranza 10', prime 2 ore feriali diurne al 25%, poi 30%, notturno 50%, festivo 55%, notturno festivo 75%, 5 € a chiamata); importi visibili solo a HR, Governance e director del team.
+- **C · Calendario**: slot feriali e festivi (festività di Milano incluse), motore vincoli in tempo reale con il motivo di ogni blocco, auto-compilazione, blocco dei giorni non richiesti dal cliente (lucchetto). Dalla fine del turno: **Segna erogato** (giorno definitivo), **Consuntiva** (chiude gli interventi) e **Sblocca** (solo Director del team o super admin, con traccia).
+- **Interventi** e **I miei interventi**: il turnista dichiara per ogni turno "Nessun intervento" o gli interventi (inizio, fine, nota), da telefono o desktop; i Director del team, i PM o il super admin approvano, rifiutano con motivo o riportano in approvazione. Ore per fascia e straordinario CCNL (minimo 1 ora, tolleranza 10', prime 2 ore feriali diurne al 25%, poi 30%, notturno 50%, festivo 55%, notturno festivo 75%, 5 € a chiamata); importi visibili a chi vede la RAL della persona.
 - **D · Consuntivo / E · Conto economico**: per turno indennità CCNL + gettone integrativo = lordo, netto di riferimento, costo aziendale; stato del giorno (da erogare, erogato, consuntivato), lordo erogato e previsto, "Consuntiva il mese", colonne Interventi e Straordinario; **Esporta per paghe (Excel)** per mese o settimana con 4 fogli (Reperibilità CCNL, Gettoni integrativi, Straordinario per interventi, Riepilogo paghe), solo turni erogati e interventi approvati; KPI e grafico di marginalità.
 
 Dal 20/11/2026 la reperibilità si liquida **solo con il gettone integrativo**. La versione con l'alternativa "recupero come straordinario" (ore su un giorno del weekend, cap 8 h, domenica di imputazione) è archiviata con l'etichetta git `archivio-gettone-e-alternativa-straordinario`. Regole, calcoli e riferimenti CCNL del modello sono descritti in [`docs/modello-reperibilita.md`](docs/modello-reperibilita.md).
@@ -19,13 +19,19 @@ Salvataggio automatico sul database condiviso, export/import della configurazion
 
 I dati (anagrafica, ferie, turni, parametri) stanno in un database **Supabase** (UE, Francoforte) e sono condivisi in tempo reale tra gli utenti. Il sito su GitHub Pages contiene solo il codice. Ogni persona accede con email e password personali; al primo accesso e dopo un reset la password temporanea (formato `animale-animale-NN`) va cambiata, e finché non viene cambiata il database non restituisce alcun dato.
 
-| Livello | Vede | Modifica |
-|---|---|---|
-| Super admin | tutto | tutto + utenti e livelli (pagina Utenti) |
-| Full edit | tutto | tutto, senza gestione utenti |
-| Viewer esteso | tutto (RAL e livello reinserendo la propria password) | nulla |
-| Viewer | solo calendario turni | nulla |
-| Turnista | solo calendario turni, con i propri evidenziati e l'elenco "I miei turni" | nulla |
+Ogni account ha un **profilo**; il team indica solo l'appartenenza.
+
+| Profilo | Vede | RAL e importi | Modifica / approva |
+|---|---|---|---|
+| Super admin (uno solo) | tutto | tutti | tutto, utenti e team |
+| Governance | tutto | tutti | tutto il piano, team delle risorse |
+| Director | tutto | solo il proprio team | il piano; approva gli interventi del proprio team, sblocca i giorni del team |
+| HR (anche più di uno) | tutto | tutti | nulla; consuntiva ed esporta per le paghe |
+| PM | Approccio, calendario, interventi (ore) | nessuno | approva gli interventi di tutti i team |
+| Viewer | solo calendario turni | nessuno | nulla |
+| Turnista | calendario e "I miei interventi" | nessuno | i propri interventi |
+
+RAL e livello in anagrafica restano oscurati finché non si reinserisce la propria password.
 
 ### Turnista
 
@@ -37,9 +43,9 @@ Ogni risorsa ha un'**email aziendale obbligatoria** (sotto il nome in B · Team,
 
 ### Team e visibilità di RAL e livello
 
-Ogni risorsa e ogni utente appartengono a un team. I team li gestisce il super admin (Utenti → Team): crea, rinomina, elimina se non usati, sceglie il **director** (un account del team con accesso completo in lettura) e indica quali team **vedono tutto** (oggi HR e Governance). RAL e livello sono visibili **solo per le risorse del proprio team**; i team che vedono tutto li vedono per tutti. Per le risorse degli altri team l'app mostra "Riservata" e non calcola costi né ore: consuntivo e conto economico riportano solo il proprio team.
+Ogni risorsa e ogni utente appartengono a un team (Utenti → Team: crea, rinomina, elimina se non usati). I **Director** di un team sono gli account con profilo Director in quel team, anche più di uno: vedono RAL e importi delle sole risorse del team e ne approvano gli interventi. Per le risorse degli altri team l'app mostra "Riservata" e non calcola costi né ore: consuntivo e conto economico riportano solo il proprio team.
 
-Nessun vincolo di rotazione dipende dalla RAL. L'auto-compilazione, che a parità di condizioni preferisce il costo minore, gira sulla funzione server `supabase/functions/planner` quando ci sono persone di cui il browser non conosce la RAL; restituisce solo le assegnazioni, mai importi o RAL. Il team di una risorsa può essere cambiato solo da chi appartiene a un team che vede tutto (controllo nel database).
+Nessun vincolo di rotazione dipende dalla RAL. L'auto-compilazione, che a parità di condizioni preferisce il costo minore, gira sulla funzione server `supabase/functions/planner` quando ci sono persone di cui il browser non conosce la RAL; restituisce solo le assegnazioni, mai importi o RAL. Il team di una risorsa può essere cambiato solo da Governance e Super admin (controllo nel database).
 
 Per le risorse con RAL **Q/** i calcoli usano una RAL media di riferimento che sta solo sul server (tabella `server_params`, non leggibile dagli utenti): gli importi di queste persone li calcola la funzione `planner` e il browser riceve solo i risultati.
 

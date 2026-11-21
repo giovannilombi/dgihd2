@@ -16,7 +16,7 @@ interface Props {
   nd?: NdData
   /** Giorni erogati e consuntivati: negli importi erogati entrano solo i turni dei giorni erogati. */
   days?: DayStatusMap
-  /** Può consuntivare un mese intero (Full edit, super admin, director, team che vedono tutto). */
+  /** Può consuntivare un mese intero (Super admin, Governance, Director, HR). */
   canCloseMonth?: boolean
   onCloseMonth?: (month: string) => Promise<number>
   /** Interventi (si liquidano solo gli approvati) e stato degli interventi del turno */

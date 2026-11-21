@@ -8,7 +8,7 @@ export type SyncStatus = 'loading' | 'synced' | 'saving' | 'error'
  * Dati condivisi su Supabase: le modifiche si applicano subito in pagina e vengono salvate
  * in coda; le modifiche degli altri utenti arrivano in tempo reale.
  */
-export function useRemoteData(readFull: boolean, editable: boolean) {
+export function useRemoteData(readFull: boolean, editable: boolean, readParams = readFull) {
   const [data, setLocal] = useState<AppData>(defaultData)
   const [status, setStatus] = useState<SyncStatus>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -20,7 +20,7 @@ export function useRemoteData(readFull: boolean, editable: boolean) {
 
   const reload = useCallback(async () => {
     try {
-      const fresh = await loadAll(readFull)
+      const fresh = await loadAll(readFull, readParams)
       current.current = fresh
       confirmed.current = fresh
       setLocal(fresh)
@@ -30,7 +30,7 @@ export function useRemoteData(readFull: boolean, editable: boolean) {
       setStatus('error')
       setError(`Impossibile leggere i dati: ${(e as Error).message}`)
     }
-  }, [readFull])
+  }, [readFull, readParams])
 
   useEffect(() => {
     void Promise.resolve().then(reload)

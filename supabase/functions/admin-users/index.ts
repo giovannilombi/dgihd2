@@ -1,6 +1,7 @@
 // Gestione account del Piano reperibilità ARM.
 // - change_password: qualsiasi utente autenticato cambia la propria password (obbligatorio al primo accesso)
 // - list / create / reset / set_role / set_team / set_person / set_view / delete: solo super admin
+//   (il Super admin è uno solo: non si assegna, non si cambia e non si elimina dall'app)
 // - process_requests: elabora la coda public.admin_requests (chiamata firmata dal database con il token del Vault)
 // La chiave di servizio resta lato server: non è mai inviata al browser.
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
@@ -10,8 +11,10 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
-const ROLES = ['super_admin', 'editor', 'viewer_plus', 'viewer', 'turnista'] as const
+const ROLES = ['super_admin', 'governance', 'director', 'hr', 'pm', 'viewer', 'turnista'] as const
 type Role = (typeof ROLES)[number]
+/** Profili assegnabili: il Super admin è uno solo e non si assegna, cambia o elimina dall'app. */
+const ASSIGNABLE: readonly Role[] = ROLES.filter((r) => r !== 'super_admin')
 /** Team esistente (tabella teams, gestita dal super admin), oppure null (nessun team: RAL e livello non visibili). */
 async function parseTeam(admin: ReturnType<typeof createClient>, t: unknown): Promise<string | null | undefined> {
   if (t === null || t === undefined || t === '') return null
@@ -143,8 +146,7 @@ Deno.serve(async (req) => {
   // --- Da qui solo super admin che ha già cambiato la password temporanea ---
   if (me.role !== 'super_admin' || me.must_change_password) return fail('Operazione riservata al super admin.', 403)
 
-  const superAdmins = async () => (await admin.from('profiles').select('id').eq('role', 'super_admin')).data?.length ?? 0
-  const validRole = (r: unknown): r is Role => ROLES.includes(r as Role)
+  const validRole = (r: unknown): r is Role => ASSIGNABLE.includes(r as Role)
 
   if (action === 'list') {
     const { data: profiles, error } = await admin.from('profiles').select('id, email, display_name, role, team, person_id, turnista_view, must_change_password, created_at').order('created_at')
@@ -161,7 +163,7 @@ Deno.serve(async (req) => {
     const email = String(body.email ?? '').trim().toLowerCase()
     const displayName = String(body.display_name ?? '').trim().slice(0, 80)
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Email non valida.')
-    if (!validRole(body.role)) return fail('Livello non valido.')
+    if (!validRole(body.role)) return fail('Profilo non valido.')
     const team = await parseTeam(admin, body.team)
     if (team === undefined) return fail('Team non valido.')
     const personId = await parsePerson(admin, body.person_id)
@@ -197,8 +199,8 @@ Deno.serve(async (req) => {
   }
 
   if (action === 'set_role') {
-    if (!validRole(body.role)) return fail('Livello non valido.')
-    if (target.role === 'super_admin' && body.role !== 'super_admin' && (await superAdmins()) <= 1) return fail('Deve restare almeno un super admin.')
+    if (target.role === 'super_admin') return fail('Il Super admin è uno solo e non si cambia da qui.')
+    if (!validRole(body.role)) return fail('Profilo non valido.')
     const { error } = await admin.from('profiles').update({ role: body.role }).eq('id', userId)
     if (error) return fail(error.message, 500)
     return json({ ok: true })
@@ -229,7 +231,7 @@ Deno.serve(async (req) => {
   }
 
   if (action === 'delete') {
-    if (target.role === 'super_admin' && (await superAdmins()) <= 1) return fail('Deve restare almeno un super admin.')
+    if (target.role === 'super_admin') return fail('Il Super admin non si elimina.')
     if (userId === caller.id && target.role !== 'super_admin') return fail('Non puoi eliminare il tuo account.')
     const { error } = await admin.auth.admin.deleteUser(userId)
     if (error) return fail(`Eliminazione non riuscita: ${error.message}`, 500)
@@ -252,7 +254,7 @@ async function processQueue(admin: Admin) {
       const email = r.email.trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email non valida.')
       if (r.action === 'create') {
-        if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')
+        if (!r.role || !ASSIGNABLE.includes(r.role)) throw new Error('Profilo non valido.')
         const team = await parseTeam(admin, r.team)
         if (team === undefined) throw new Error('Team non valido.')
         const personId = await parsePerson(admin, r.person_id)
@@ -269,7 +271,6 @@ async function processQueue(admin: Admin) {
       } else {
         const { data: target } = await admin.from('profiles').select('id, role').eq('email', email).maybeSingle()
         if (!target) throw new Error('Utente non trovato.')
-        const superAdmins = (await admin.from('profiles').select('id').eq('role', 'super_admin')).data?.length ?? 0
         if (r.action === 'reset') {
           const password = tempPassword()
           const { error } = await admin.auth.admin.updateUserById(target.id, { password })
@@ -278,8 +279,8 @@ async function processQueue(admin: Admin) {
           await storeTemp(admin, target.id, password)
           await done({ status: 'done', temp_password: password })
         } else if (r.action === 'set_role') {
-          if (!r.role || !ROLES.includes(r.role)) throw new Error('Livello non valido.')
-          if (target.role === 'super_admin' && r.role !== 'super_admin' && superAdmins <= 1) throw new Error('Deve restare almeno un super admin.')
+          if (target.role === 'super_admin') throw new Error('Il Super admin è uno solo e non si cambia.')
+          if (!r.role || !ASSIGNABLE.includes(r.role)) throw new Error('Profilo non valido.')
           await admin.from('profiles').update({ role: r.role }).eq('id', target.id)
           await done({ status: 'done' })
         } else if (r.action === 'set_team') {
@@ -294,7 +295,7 @@ async function processQueue(admin: Admin) {
           if (error) throw new Error(personError(error.message))
           await done({ status: 'done' })
         } else if (r.action === 'delete') {
-          if (target.role === 'super_admin' && superAdmins <= 1) throw new Error('Deve restare almeno un super admin.')
+          if (target.role === 'super_admin') throw new Error('Il Super admin non si elimina.')
           const { error } = await admin.auth.admin.deleteUser(target.id)
           if (error) throw new Error(error.message)
           await done({ status: 'done' })

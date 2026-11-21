@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL, fmtDay } from '../lib/calendar'
-import { romeNow, type Me } from '../lib/dayStatus'
+import { romeNow } from '../lib/dayStatus'
+import type { Me } from '../lib/roles'
 import { fmtEur } from '../lib/economics'
 import { amountsVisible, bySlot, canDecide, payRal, shiftChip, type Intervention, type IvStatus } from '../lib/interventions'
 import { BANDS, BAND_LABEL, fmtMinutes, personOvertime, type PaidIntervention } from '../lib/overtime'
@@ -29,9 +30,9 @@ interface Props {
 }
 
 /**
- * Interventi da approvare e storico. Ore e fasce sono visibili a chi legge il consuntivo; gli importi solo a
- * chi vede tutti i team e al director del team della persona. Approva e rifiuta il director del team o il
- * super admin; un intervento approvato o rifiutato si può riportare in approvazione.
+ * Interventi da approvare e storico. Ore e fasce le vede chi legge il piano; gli importi chi vede la RAL della
+ * persona. Approvano e rifiutano i Director del team della persona, i PM (tutti i team) e il super admin;
+ * un intervento approvato o rifiutato si può riportare in approvazione.
  */
 export function InterventionsReview({ ivs, noInt, people, assignments, params, me, myPersonId, teams }: Props) {
   const [tab, setTab] = useState<Tab>('pending')
@@ -73,7 +74,7 @@ export function InterventionsReview({ ivs, noInt, people, assignments, params, m
     return a.start.localeCompare(b.start)
   }
   const list = ivs.filter((x) => (tab === 'all' || x.status === tab) && (!team || byId.get(x.personId)?.team === team)).sort(cmp)
-  const anyAmounts = list.some((x) => amountsVisible(byId.get(x.personId), me, teams))
+  const anyAmounts = list.some((x) => amountsVisible(byId.get(x.personId), me))
 
   const decide = async (iv: Intervention, status: IvStatus, reason?: string) => {
     setBusy(iv.id)
@@ -108,7 +109,7 @@ export function InterventionsReview({ ivs, noInt, people, assignments, params, m
             </select>
           </label>
         )}
-        <span className="ml-auto text-xs text-slate-500">Approva e rifiuta il director del team della persona o il super admin.</span>
+        <span className="ml-auto text-xs text-slate-500">Approvano i Director del team della persona, i PM e il super admin.</span>
       </div>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
@@ -148,8 +149,8 @@ export function InterventionsReview({ ivs, noInt, people, assignments, params, m
               {list.map((iv) => {
                 const person = byId.get(iv.personId)
                 const c = calc.get(iv.id)
-                const show = amountsVisible(person, me, teams)
-                const can = canDecide(person, me, teams, myPersonId)
+                const show = amountsVisible(person, me)
+                const can = canDecide(person, me, myPersonId)
                 return (
                   <tr key={iv.id} className="border-b border-slate-100 align-top">
                     <td className="py-2 pr-3 whitespace-nowrap">{shiftLabel(iv.slot)}</td>

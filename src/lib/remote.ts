@@ -24,7 +24,8 @@ export async function persist(o: Ops) {
 }
 
 /** Legge tutto ciò che il livello (e il team) dell'utente consente di vedere. */
-export async function loadAll(readFull: boolean): Promise<AppData> {
+/** `readFull`: anagrafica completa e RAL visibili; `readParams`: parametri (anche per il PM, che non vede le RAL). */
+export async function loadAll(readFull: boolean, readParams = readFull): Promise<AppData> {
   const none = Promise.resolve({ data: null, error: null })
   const [people, details, privates, assignments, excluded, settings] = await Promise.all([
     supabase.from('people').select('id, name, color, active, sort, team'),
@@ -32,7 +33,7 @@ export async function loadAll(readFull: boolean): Promise<AppData> {
     readFull ? supabase.from('people_private').select('person_id, level, ral, ral_nd') : none,
     supabase.from('assignments').select('slot_id, person_id, pinned'),
     supabase.from('excluded_days').select('day'),
-    readFull ? supabase.from('settings').select('params').eq('id', 1).maybeSingle() : none,
+    readParams ? supabase.from('settings').select('params').eq('id', 1).maybeSingle() : none,
   ])
   for (const r of [people, details, privates, assignments, excluded, settings]) if (r.error) throw new Error(r.error.message)
   return withoutServerParams(rowsToData(

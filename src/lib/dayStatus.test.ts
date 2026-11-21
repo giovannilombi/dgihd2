@@ -1,14 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { dayPerms, dayShiftEnd, dayState, dayStatusMap, isDirectorOf, lockedSlots, romeNow, romeToday, shiftEnded, shortName, type Me } from './dayStatus'
-import { teamDir } from './teams'
+import { dayPerms, dayShiftEnd, dayState, dayStatusMap, lockedSlots, romeNow, romeToday, shiftEnded, shortName, type Me } from './dayStatus'
+import { isDirectorOf } from './roles'
 import { normalizeWithReport } from './store'
 import { DEFAULT_PARAMS, type Person } from './types'
 
-const teams = teamDir([
-  { id: 'tech', label: 'Tech', seesAll: false, directorId: 'dir-tech', sort: 1 },
-  { id: 'pm', label: 'PM', seesAll: false, directorId: null, sort: 2 },
-  { id: 'hr', label: 'HR', seesAll: true, directorId: null, sort: 3 },
-])
 const person = (id: string, team: string): Person => ({ id, name: id, level: 'B1', ral: 0, active: true, color: '#000', team })
 const people = [person('t1', 'tech'), person('p1', 'pm')]
 // sabato 19/12/2026: diurno a t1, notte a p1; lunedì 21/12: notte a p1
@@ -54,23 +49,25 @@ describe('stato dei giorni', () => {
 
 describe('permessi sui giorni (stesse regole del database)', () => {
   const me = (id: string, role: Me['role'], team: string | null): Me => ({ id, role, team })
-  it('Full edit e super admin segnano erogato; solo il super admin sblocca', () => {
-    expect(dayPerms('2026-12-21', me('e', 'editor', 'pm'), teams, people, a)).toEqual({ mark: true, close: true, unlock: false })
-    expect(dayPerms('2026-12-21', me('s', 'super_admin', null), teams, people, a)).toEqual({ mark: true, close: true, unlock: true })
+  it('Super admin, Governance e Director segnano erogato e consuntivano; sblocca il super admin', () => {
+    expect(dayPerms('2026-12-21', me('g', 'governance', 'governance'), people, a)).toEqual({ mark: true, close: true, unlock: false })
+    expect(dayPerms('2026-12-21', me('s', 'super_admin', null), people, a)).toEqual({ mark: true, close: true, unlock: true })
   })
-  it('il director segna e sblocca solo i giorni con un turno del suo team', () => {
-    const d = me('dir-tech', 'viewer_plus', 'tech')
-    expect(isDirectorOf(teams, 'tech', d)).toBe(true)
-    expect(dayPerms('2026-12-19', d, teams, people, a)).toEqual({ mark: true, close: true, unlock: true })
-    expect(dayPerms('2026-12-21', d, teams, people, a)).toEqual({ mark: false, close: false, unlock: false })
+  it('il Director sblocca solo i giorni con un turno del suo team', () => {
+    const d = me('d', 'director', 'tech')
+    expect(isDirectorOf('tech', d)).toBe(true)
+    expect(dayPerms('2026-12-19', d, people, a)).toEqual({ mark: true, close: true, unlock: true })
+    expect(dayPerms('2026-12-21', d, people, a)).toEqual({ mark: true, close: true, unlock: false })
   })
-  it('un director non più valido (altro team o livello senza accesso completo) non ha permessi', () => {
-    expect(isDirectorOf(teams, 'tech', me('dir-tech', 'viewer_plus', 'pm'))).toBe(false)
-    expect(isDirectorOf(teams, 'tech', me('dir-tech', 'viewer', 'tech'))).toBe(false)
+  it('è Director di un team solo con profilo Director e quel team', () => {
+    expect(isDirectorOf('tech', me('d', 'director', 'pm'))).toBe(false)
+    expect(isDirectorOf('tech', me('d', 'governance', 'tech'))).toBe(false)
+    expect(isDirectorOf(null, me('d', 'director', null))).toBe(false)
   })
-  it('chi legge tutto in un team che vede tutto (HR) consuntiva ma non segna né sblocca', () => {
-    expect(dayPerms('2026-12-21', me('h', 'viewer_plus', 'hr'), teams, people, a)).toEqual({ mark: false, close: true, unlock: false })
-    expect(dayPerms('2026-12-21', me('v', 'viewer', 'hr'), teams, people, a)).toEqual({ mark: false, close: false, unlock: false })
+  it('HR consuntiva ma non segna né sblocca; PM e Viewer nessuna azione', () => {
+    expect(dayPerms('2026-12-21', me('h', 'hr', 'hr'), people, a)).toEqual({ mark: false, close: true, unlock: false })
+    expect(dayPerms('2026-12-21', me('p', 'pm', 'pm'), people, a)).toEqual({ mark: false, close: false, unlock: false })
+    expect(dayPerms('2026-12-21', me('v', 'viewer', 'hr'), people, a)).toEqual({ mark: false, close: false, unlock: false })
   })
 })
 

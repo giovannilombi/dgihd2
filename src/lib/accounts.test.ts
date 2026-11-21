@@ -11,7 +11,7 @@ const account = (id: string, email: string, extra: Partial<AccountInfo> = {}): A
 
 describe('account delle risorse', () => {
   it('riconosce l\'account dal collegamento esplicito, altrimenti dall\'email', () => {
-    const accounts = [account('u1', 'ZZ.Uno@Esempio.it'), account('u2', 'altro@esempio.it', { person_id: 'p2', role: 'editor' })]
+    const accounts = [account('u1', 'ZZ.Uno@Esempio.it'), account('u2', 'altro@esempio.it', { person_id: 'p2', role: 'director' })]
     expect(accountFor(person('p1', 'zz.uno@esempio.it'), accounts)?.id).toBe('u1')
     expect(accountFor(person('p2', 'diversa@esempio.it'), accounts)?.id).toBe('u2')
     expect(accountFor(person('p3', 'nessuno@esempio.it'), accounts)).toBeUndefined()

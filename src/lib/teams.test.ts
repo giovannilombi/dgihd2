@@ -6,7 +6,8 @@ import { checkAssignment, RULE_MESSAGES } from './rules'
 import { SALARY_RULES, salaryRuleChecks } from './salaryChecks'
 import { mergeConflicts, mergeViolations } from './serverChecks'
 import { normalizeWithReport, type AppData } from './store'
-import { canSeeSalaryOf, DEFAULT_TEAMS as T, defaultResourceTeam, isTeamId, rowToTeam, seesAllSalaries, teamDir, teamLabel, teamLabelError, teamSlug, type TeamId } from './teams'
+import { DEFAULT_TEAMS as T, defaultResourceTeam, isTeamId, rowToTeam, teamDir, teamLabel, teamLabelError, teamSlug, type TeamId } from './teams'
+import { canSeeSalaryOf, normalizeRole, seesAllSalaries, type Role } from './roles'
 import { DEFAULT_PARAMS as P, type Person } from './types'
 
 const person = (id: string, team: TeamId | null, ral: number, extra: Partial<Person> = {}): Person =>
@@ -14,35 +15,35 @@ const person = (id: string, team: TeamId | null, ral: number, extra: Partial<Per
 const data = (people: Person[], assignments: Record<string, string> = {}): AppData =>
   ({ version: 1, params: P, people, assignments, excludedDays: [], pinned: [] })
 
-describe('visibilità RAL per team (stessa regola della RLS)', () => {
-  it('HR e Governance vedono tutti i team, anche le risorse senza team', () => {
-    for (const t of ['hr', 'governance'] as const) {
-      expect(seesAllSalaries(T, t)).toBe(true)
-      expect(canSeeSalaryOf(T, t, 'pm')).toBe(true)
-      expect(canSeeSalaryOf(T, t, null)).toBe(true)
+const me = (role: Role, team: TeamId | null) => ({ role, team })
+
+describe('visibilità RAL per profilo (stessa regola della RLS)', () => {
+  it('Super admin, Governance e HR vedono tutti i team, anche le risorse senza team', () => {
+    for (const r of ['super_admin', 'governance', 'hr'] as const) {
+      expect(seesAllSalaries(r)).toBe(true)
+      expect(canSeeSalaryOf(me(r, 'tech'), 'pm')).toBe(true)
+      expect(canSeeSalaryOf(me(r, null), null)).toBe(true)
     }
   })
-  it('gli altri vedono solo il proprio team', () => {
-    expect(canSeeSalaryOf(T, 'tech', 'tech')).toBe(true)
-    expect(canSeeSalaryOf(T, 'tech', 'pm')).toBe(false)
-    expect(canSeeSalaryOf(T, 'tech', null)).toBe(false)
-    expect(canSeeSalaryOf(T, 'pm', 'tech')).toBe(false)
-    expect(canSeeSalaryOf(T, 'tech', 'governance')).toBe(false)
-    expect(canSeeSalaryOf(T, 'governance', 'governance')).toBe(true)
+  it('il Director vede solo il proprio team', () => {
+    expect(canSeeSalaryOf(me('director', 'tech'), 'tech')).toBe(true)
+    expect(canSeeSalaryOf(me('director', 'tech'), 'pm')).toBe(false)
+    expect(canSeeSalaryOf(me('director', 'tech'), null)).toBe(false)
+    expect(canSeeSalaryOf(me('director', null), null)).toBe(false)
   })
-  it('senza team non si vede nessuna RAL', () => {
-    expect(canSeeSalaryOf(T, null, null)).toBe(false)
-    expect(canSeeSalaryOf(T, null, 'tech')).toBe(false)
+  it('PM, Viewer e Turnista non vedono nessuna RAL, qualunque sia il team', () => {
+    for (const r of ['pm', 'viewer', 'turnista'] as const) {
+      expect(canSeeSalaryOf(me(r, 'tech'), 'tech')).toBe(false)
+      expect(seesAllSalaries(r)).toBe(false)
+    }
   })
-  it('"vede tutto" segue la tabella dei team, non il nome del team', () => {
-    const dir = teamDir([
-      { id: 'tech', label: 'Tech', seesAll: false, directorId: null, sort: 1 },
-      { id: 'hr', label: 'HR', seesAll: false, directorId: null, sort: 2 },
-      { id: 'data', label: 'Data', seesAll: true, directorId: null, sort: 3 },
-    ])
-    expect(canSeeSalaryOf(dir, 'hr', 'tech')).toBe(false)
-    expect(canSeeSalaryOf(dir, 'data', 'tech')).toBe(true)
-    expect(seesAllSalaries(dir, 'sconosciuto')).toBe(false)
+  it('livelli della versione precedente: Full edit → Governance o Director, Viewer esteso → HR o PM', () => {
+    expect(normalizeRole('editor', 'governance')).toBe('governance')
+    expect(normalizeRole('editor', 'tech')).toBe('director')
+    expect(normalizeRole('viewer_plus', 'hr')).toBe('hr')
+    expect(normalizeRole('viewer_plus', 'tech')).toBe('pm')
+    expect(normalizeRole('pm', 'pm')).toBe('pm')
+    expect(normalizeRole('boh', null)).toBeNull()
   })
   it('le nuove risorse nascono nel team di chi le crea, se esiste', () => {
     expect(defaultResourceTeam(T, 'tech')).toBe('tech')
@@ -70,9 +71,9 @@ describe('gestione dei team', () => {
     expect(teamLabelError('Data', T)).toBeNull()
   })
   it('righe del database ordinate per posizione e nome; etichetta di un team sconosciuto = identificativo', () => {
-    const dir = teamDir([rowToTeam({ id: 'b', label: 'B', sees_all: false, director_id: null, sort: 20 }), rowToTeam({ id: 'a', label: 'A', sees_all: true, director_id: 'u1', sort: 20 })])
+    const dir = teamDir([rowToTeam({ id: 'b', label: 'B', sort: 20 }), rowToTeam({ id: 'a', label: 'A', sort: 20 })])
     expect(dir.list.map((t) => t.id)).toEqual(['a', 'b'])
-    expect(dir.byId.a).toMatchObject({ seesAll: true, directorId: 'u1' })
+    expect(dir.byId.a).toEqual({ id: 'a', label: 'A', sort: 20 })
     expect(teamLabel(dir, 'zz')).toBe('zz')
     expect(teamLabel(dir, null)).toBe('')
   })
@@ -92,13 +93,13 @@ describe('vincoli: con il solo gettone nessuno dipende dalla RAL', () => {
 
   it('il server non blocca nulla: niente più cap ore né domenica di imputazione', () => {
     expect(SALARY_RULES.size).toBe(0)
-    const r = salaryRuleChecks(full, 'tech', T)
+    const r = salaryRuleChecks(full, me('director', 'tech'))
     expect(r.blocked).toEqual({})
     expect(r.conflicts).toEqual({})
   })
   it('per HR e Governance la risposta è vuota', () => {
-    expect(salaryRuleChecks(full, 'governance', T)).toEqual({ blocked: {}, conflicts: {}, nd: {} })
-    expect(salaryRuleChecks(full, 'hr', T)).toEqual({ blocked: {}, conflicts: {}, nd: {} })
+    expect(salaryRuleChecks(full, me('governance', 'governance'))).toEqual({ blocked: {}, conflicts: {}, nd: {} })
+    expect(salaryRuleChecks(full, me('hr', 'hr'))).toEqual({ blocked: {}, conflicts: {}, nd: {} })
   })
   it('due notti feriali nella stessa settimana sono ammesse; la terza no (max 2 a settimana)', () => {
     const a = { '2026-11-23|N': 't1' }
@@ -125,7 +126,7 @@ describe('RAL Q/: la media di riferimento resta sul server', () => {
   const serverData = { ...data([q, t], { '2026-11-23|N': 'q1', '2026-11-24|N': 't1' }), params: serverParams }
 
   it('il server restituisce vincoli, importi e ore delle persone Q/ del proprio team, mai la RAL media', () => {
-    const r = salaryRuleChecks(serverData, 'tech', T)
+    const r = salaryRuleChecks(serverData, me('director', 'tech'))
     expect(r.nd?.q1.weeks).toHaveLength(1)
     expect(r.nd?.q1.slots['2026-11-23|N'].cost).toBeGreaterThan(0)
     expect(r.nd?.q1.weeks[0].hours).toBeGreaterThan(0)
@@ -134,7 +135,7 @@ describe('RAL Q/: la media di riferimento resta sul server', () => {
     expect(JSON.stringify(r)).not.toMatch(/ndRal|"ral"/)
   })
   it('importi delle persone Q/ di altri team: mai restituiti', () => {
-    expect(salaryRuleChecks(serverData, 'pm', T).nd).toEqual({})
+    expect(salaryRuleChecks(serverData, me('director', 'pm')).nd).toEqual({})
   })
   it('in pagina, senza i dati del server, la persona Q/ resta "in calcolo" (nessun importo con valori inventati)', () => {
     const local = data([q, t], { '2026-11-23|N': 'q1', '2026-11-24|N': 't1' }) // params senza ndRal, come nel browser
@@ -145,7 +146,7 @@ describe('RAL Q/: la media di riferimento resta sul server', () => {
   })
   it('con i dati del server consuntivo e conto economico usano gli importi calcolati sul server', () => {
     const local = data([q, t], { '2026-11-23|N': 'q1', '2026-11-24|N': 't1' })
-    const nd = salaryRuleChecks(serverData, 'tech', T).nd
+    const nd = salaryRuleChecks(serverData, me('director', 'tech')).nd
     const rows = payroll(local.people, local.assignments, local.params, nd).flatMap((m) => m.rows)
     const qRow = rows.find((r) => r.person.id === 'q1')!
     expect(qRow.weeks[0].days[0].cost).toBeCloseTo(nd!.q1.slots['2026-11-23|N'].cost, 6)

@@ -200,8 +200,8 @@ Altre regole dell'art. 7 rilevanti:
   nessun intervento, interventi in approvazione, approvati; per l'intervento: in approvazione, approvato,
   rifiutato (con motivo; il Turnista corregge e rimanda con un commento).
 - Modificabili o eliminabili dal Turnista finché non sono approvati.
-- Approvano il **director del team** della persona o il super admin; si può de-approvare (torna in
-  approvazione).
+- Approvano i **Director del team** della persona, i **PM** (tutti i team) o il super admin; si può
+  de-approvare (torna in approvazione).
 - Durata riconosciuta (regola aziendale, più favorevole del CCNL): **minimo 1 ora** per intervento; oltre
   10 minuti dopo l'ora intera si passa all'ora successiva (1 h 10' → 1 h; 1 h 11' → 2 h).
 - Ripartizione per fasce: i minuti effettivi si attribuiscono alla fascia in cui sono prestati (prima/dopo
@@ -225,23 +225,23 @@ Altre regole dell'art. 7 rilevanti:
   - "Nessun intervento" solo a turno finito e se non ci sono interventi;
   - dopo il **consuntivato** il turnista non aggiunge, modifica o elimina più; si può ancora approvare o
     rifiutare;
-  - il director non decide sui propri interventi (lo fa il super admin); il rifiuto richiede un motivo.
-- Visibilità: interventi, ore e fasce a chi legge l'anagrafica completa e a ciascuno per i propri; importi
-  solo ai team che vedono tutto (HR, Governance) e al director del team della persona.
+  - nessuno decide sui propri interventi (salvo il super admin); il rifiuto richiede un motivo.
+- Visibilità: interventi, ore e fasce a chi legge il piano (PM compresi) e a ciascuno per i propri; importi
+  a chi vede la RAL della persona.
 - Dove: "I miei interventi" (turnisti e chiunque sia collegato a una scheda, da telefono e desktop),
   "Interventi" (approvazione, filtri per team, ordinamento per data, turnista, team), chip nel calendario,
   colonne Interventi e Straordinario nel Consuntivo, sezione 4 dell'Approccio con formula ed esempi.
 
 ## 8. Erogato, consuntivato, sblocco
 
-- **Segna erogato** (director di un team con un turno quel giorno, Full edit, super admin), **dalla fine
+- **Segna erogato** (Super admin, Governance, Director), **dalla fine
   del turno** (ultimo turno assegnato del giorno, ora italiana: diurno 18:00, notte 09:00 del giorno dopo): il giorno diventa definitivo; turni e persone non si cambiano più (controllo nel database:
   turni, puntine e "giorno non richiesto" rifiutati); entra nel consuntivo come erogato. Auto-compilazione e
   "Svuota" lo trattano come bloccato.
 - **Consuntiva** (per giorno dal calendario, o per mese dal Consuntivo): chiude l'inserimento di nuovi
   interventi; restano quelli già segnalati, che si possono ancora approvare o rifiutare. Oltre a chi segna
-  l'erogato, può consuntivare chi legge tutto in un team che "vede tutto" (es. HR).
-- **Sblocca**: solo il director del team o il super admin, un passo indietro alla volta (consuntivato →
+  l'erogato, può consuntivare HR.
+- **Sblocca**: solo i Director del team o il super admin, un passo indietro alla volta (consuntivato →
   erogato → aperto), con motivo facoltativo. Ogni azione resta nella traccia (chi, quando, motivo).
 - Consuntivo: si liquidano solo i turni dei giorni erogati; gli altri restano indicati con l'importo previsto.
 - Implementazione: tabelle `day_status` e `day_status_log`, scritte solo dalle funzioni del database
@@ -249,12 +249,19 @@ Altre regole dell'art. 7 rilevanti:
 
 ## 9. Visibilità dei dati (privacy)
 
-- RAL e livello: solo per le risorse del proprio team; HR e Governance (team che "vedono tutto") per tutti.
-- Team gestiti dal super admin (tabella dei team): nome, "vede tutto" e director. Il director deve essere un
-  account dello stesso team con accesso completo in lettura, quindi vede già le RAL del team: gli importi
-  degli interventi non gli rivelano nulla di nuovo. Se cambia team o livello, il team resta senza director.
-- Importi degli interventi: solo HR, Governance e director del team della persona (dagli importi si
-  ricaverebbe la paga oraria, quindi la RAL). Ore e fasce visibili a chi legge il consuntivo.
+- Profili (uno per account; il team indica solo l'appartenenza):
+  - **Super admin**: uno solo (vincolo nel database), non si assegna, cambia o elimina dall'app;
+  - **Governance**: modifica tutto il piano (anche il team delle risorse), RAL e importi di tutti;
+  - **Director**: modifica il piano, RAL e importi del solo proprio team, approva gli interventi del team
+    e sblocca i giorni dei turni del team; più Director per team sono ammessi;
+  - **HR** (anche più di uno): sola lettura, RAL e importi di tutti, consuntiva ed esporta le paghe;
+  - **PM**: Approccio (con i parametri applicati, senza la pagina Parametri), calendario e interventi con le
+    sole ore; approva gli interventi di tutti i team; nessuna RAL;
+  - **Viewer**: solo calendario; **Turnista**: calendario e i propri interventi.
+- Importi degli interventi: a chi vede la RAL della persona (stessa regola: dagli importi si ricaverebbe la
+  paga oraria). Ore e fasce a chi legge il piano (anche PM).
+- Approvazione degli interventi: Director del team della persona, PM, super admin; mai sui propri interventi
+  (salvo il super admin).
 - Persone con RAL "Q/": gli importi derivano da un valore medio riservato; non mostrare dati da cui
   ricavarlo. Per gli interventi si mostrano solo ore e fasce, con l'indicazione di inserire la RAL puntuale
   per calcolare gli importi.

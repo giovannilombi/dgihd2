@@ -1,14 +1,8 @@
 import { useState } from 'react'
-import { canReadFull, ROLE_HELP, ROLE_LABEL, type Profile } from '../lib/roles'
-import { seesAllSalaries, teamLabel, type TeamDir, type TeamId } from '../lib/teams'
+import { roleAccess, ROLE_HELP, ROLE_LABEL, type Profile } from '../lib/roles'
+import { teamLabel } from '../lib/teams'
 import { useTeams } from '../lib/useTeams'
 import { ChangePasswordForm } from './ChangePassword'
-
-/** Quali RAL vede l'utente, in base al team. */
-const teamScope = (teams: TeamDir, team: TeamId | null) =>
-  seesAllSalaries(teams, team) ? 'Vede RAL e livello di tutti i team.'
-  : team ? `Vede RAL e livello solo delle risorse del team ${teamLabel(teams, team)}.`
-  : 'Nessun team: RAL e livello non visibili.'
 
 const initials = (p: Profile) => (p.display_name || p.email).split(/[\s.@]+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('')
 
@@ -45,11 +39,11 @@ export function UserMenu({ profile, onLogout, onChangePassword }: { profile: Pro
                 <div className="text-sm font-medium text-slate-900">{profile.display_name || '—'}</div>
                 <div className="truncate text-xs text-slate-500">{profile.email}</div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="inline-flex rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Livello: {ROLE_LABEL[role]}</span>
+                  <span className="inline-flex rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Profilo: {ROLE_LABEL[role]}</span>
                   <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">Team: {profile.team ? teamLabel(teams, profile.team) : 'non assegnato'}</span>
                 </div>
                 <div className="mt-1 text-xs text-slate-500">{ROLE_HELP[role]}</div>
-                {canReadFull(role) && <div className="mt-0.5 text-xs text-slate-500">{teamScope(teams, profile.team)}</div>}
+                <div className="mt-0.5 text-xs text-slate-500">{roleAccess(role, profile.team, teams).ralText}</div>
               </div>
               <div className="my-1 border-t border-slate-100" />
               <MenuItem onClick={() => { setOpen(false); setPwdOpen(true) }}>Cambia password</MenuItem>

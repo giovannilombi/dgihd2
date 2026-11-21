@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { useCallback, useEffect, useState } from 'react'
-import type { Profile } from './roles'
+import { normalizeRole, type Profile } from './roles'
 import { adminCall, supabase } from './supabase'
 
 export type AuthState =
@@ -12,7 +12,10 @@ export type AuthState =
 async function fetchProfile(userId: string) {
   const { data, error } = await supabase.from('profiles').select('id, email, display_name, role, must_change_password, team').eq('id', userId).maybeSingle()
   if (error) throw new Error(error.message)
-  return data as Profile | null
+  if (!data) return null
+  // livello sconosciuto = nessun accesso (mai un livello più ampio per errore)
+  const role = normalizeRole(data.role, data.team)
+  return role ? ({ ...data, role } as Profile) : null
 }
 
 export function useAuth() {

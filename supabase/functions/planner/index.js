@@ -189,13 +189,6 @@ const nextColor = (people) => {
 	"Sara Neri;sara.neri@azienda.it;C3;30.000;ko"
 ].join("\r\n");
 // src/lib/teams.ts
-const rowToTeam = (r) => ({
-	id: r.id,
-	label: r.label,
-	seesAll: !!r.sees_all,
-	directorId: r.director_id ?? null,
-	sort: Number(r.sort) || 0
-});
 function teamDir(list) {
 	const sorted = [...list].sort((a, b) => a.sort - b.sort || a.label.localeCompare(b.label));
 	return {
@@ -207,52 +200,36 @@ teamDir([
 	{
 		id: "tech",
 		label: "Tech",
-		seesAll: false,
-		directorId: null,
 		sort: 10
 	},
 	{
 		id: "design",
 		label: "Design",
-		seesAll: false,
-		directorId: null,
 		sort: 20
 	},
 	{
 		id: "pm",
 		label: "PM",
-		seesAll: false,
-		directorId: null,
 		sort: 30
 	},
 	{
 		id: "director",
 		label: "Director",
-		seesAll: false,
-		directorId: null,
 		sort: 40
 	},
 	{
 		id: "hr",
 		label: "HR",
-		seesAll: true,
-		directorId: null,
 		sort: 50
 	},
 	{
 		id: "governance",
 		label: "Governance",
-		seesAll: true,
-		directorId: null,
 		sort: 60
 	}
 ]);
 /** Stesso formato del vincolo del database. */
 const isTeamId = (v) => typeof v === "string" && /^[a-z0-9][a-z0-9-]{0,31}$/.test(v);
-/** Il team vede RAL, livello e importi di tutti i team. */
-const seesAllSalaries = (dir, team) => !!team && !!dir.byId[team]?.seesAll;
-/** Stessa regola della RLS: RAL e livello visibili a chi "vede tutto" o a chi è dello stesso team della risorsa. */
-const canSeeSalaryOf = (dir, myTeam, personTeam) => seesAllSalaries(dir, myTeam) || !!myTeam && myTeam === personTeam;
 // src/lib/store.ts
 /**
 * Valida e ripulisce dati importati o salvati: scarta persone e assegnazioni non valide,
@@ -695,6 +672,36 @@ function regenerate(people, a, p, from, to, excludedDays, pinned) {
 		return !d || d < from || d > to || keep.has(sid);
 	})), p, from, to, excludedDays);
 }
+// src/lib/roles.ts
+const ROLES = [
+	"super_admin",
+	"governance",
+	"director",
+	"hr",
+	"pm",
+	"viewer",
+	"turnista"
+];
+ROLES.filter((r) => r !== "super_admin");
+const isRole = (r) => ROLES.includes(r);
+/**
+* Livello come lo usa l'app. Converte anche i livelli della versione precedente (Full edit, Viewer esteso),
+* nel caso la pagina incontri un account non ancora migrato.
+*/
+function normalizeRole(raw, team) {
+	if (isRole(raw)) return raw;
+	if (raw === "editor") return team === "governance" ? "governance" : "director";
+	if (raw === "viewer_plus") return team === "hr" ? "hr" : "pm";
+	return null;
+}
+/** Modifica anagrafica, parametri e calendario */
+const canEdit = (r) => r === "super_admin" || r === "governance" || r === "director";
+/** Legge anagrafica completa, parametri, consuntivo e conto economico */
+const canReadFull = (r) => canEdit(r) || r === "hr";
+/** Vede RAL, livello e importi di tutti i team */
+const seesAllSalaries = (r) => r === "super_admin" || r === "governance" || r === "hr";
+/** Stessa regola del database: tutti per Super admin, Governance e HR; il Director solo il proprio team. */
+const canSeeSalaryOf = (me, personTeam) => seesAllSalaries(me.role) || me.role === "director" && !!me.team && me.team === personTeam;
 // src/lib/salaryChecks.ts
 /**
 * Regole che dipendono da RAL e livello, le uniche che il browser non può verificare da solo.
@@ -703,8 +710,8 @@ function regenerate(people, a, p, from, to, excludedDays, pinned) {
 */
 const SALARY_RULES = /* @__PURE__ */ new Set();
 /** Calcolo lato server (dati completi, RAL media inclusa) per le persone che il browser non può calcolare. */
-function salaryRuleChecks(data, myTeam, teams) {
-	const hidden = data.people.filter((p) => !canSeeSalaryOf(teams, myTeam, p.team) || p.ralNd);
+function salaryRuleChecks(data, me) {
+	const hidden = data.people.filter((p) => !canSeeSalaryOf(me, p.team) || p.ralNd);
 	const onlySalary = (rules) => rules.filter((r) => SALARY_RULES.has(r));
 	const blocked = {};
 	for (const p of SALARY_RULES.size ? hidden : []) {
@@ -722,7 +729,7 @@ function salaryRuleChecks(data, myTeam, teams) {
 		if (rules.length) conflicts[sid] = rules;
 	}
 	const nd = {};
-	for (const p of data.people.filter((x) => x.ralNd && canSeeSalaryOf(teams, myTeam, x.team))) {
+	for (const p of data.people.filter((x) => x.ralNd && canSeeSalaryOf(me, x.team))) {
 		const mine = personSlots(data.assignments, p.id);
 		if (!mine.length) continue;
 		nd[p.id] = {
@@ -759,12 +766,9 @@ Deno.serve(async (req) => {
 	if (!who?.user) return fail("Sessione non valida: accedi di nuovo.", 401);
 	const { data: me } = await db.from("profiles").select("role, team, must_change_password").eq("id", who.user.id).maybeSingle();
 	if (!me || me.must_change_password) return fail("Accesso non abilitato.", 403);
-	const readFull = [
-		"super_admin",
-		"editor",
-		"viewer_plus"
-	].includes(me.role);
-	const canEdit = ["super_admin", "editor"].includes(me.role);
+	const role = normalizeRole(me.role, typeof me.team === "string" ? me.team : null);
+	const readFull = !!role && canReadFull(role);
+	const canEdit$1 = !!role && canEdit(role);
 	if (!readFull) return fail("Operazione non disponibile per il tuo livello.", 403);
 	let body;
 	try {
@@ -772,7 +776,7 @@ Deno.serve(async (req) => {
 	} catch {
 		return fail("Richiesta non valida");
 	}
-	const [people, details, privates, assignments, excluded, settings, serverParams, teamRows, erogati] = await Promise.all([
+	const [people, details, privates, assignments, excluded, settings, serverParams, erogati] = await Promise.all([
 		db.from("people").select("id, name, color, active, sort, team"),
 		db.from("people_details").select("person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order"),
 		db.from("people_private").select("person_id, level, ral, ral_nd"),
@@ -780,7 +784,6 @@ Deno.serve(async (req) => {
 		db.from("excluded_days").select("day"),
 		db.from("settings").select("params").eq("id", 1).maybeSingle(),
 		db.from("server_params").select("nd_ral").eq("id", 1).maybeSingle(),
-		db.from("teams").select("id, label, sees_all, director_id, sort"),
 		db.from("day_status").select("day")
 	]);
 	for (const r of [
@@ -791,20 +794,18 @@ Deno.serve(async (req) => {
 		excluded,
 		settings,
 		serverParams,
-		teamRows,
 		erogati
 	]) if (r.error) return fail(r.error.message, 500);
 	const data = rowsToData(people.data, details.data, privates.data, assignments.data, excluded.data.map((x) => x.day), settings.data?.params);
 	const ndRal = Number(serverParams.data?.nd_ral);
 	if (Number.isFinite(ndRal) && ndRal > 0) data.params.ndRal = ndRal;
 	else delete data.params.ndRal;
-	if (body.action === "violations") {
-		const teams = teamDir(teamRows.data.map(rowToTeam));
-		const myTeam = typeof me.team === "string" && teams.byId[me.team] ? me.team : null;
-		return json(salaryRuleChecks(data, myTeam, teams));
-	}
+	if (body.action === "violations") return json(salaryRuleChecks(data, {
+		role,
+		team: typeof me.team === "string" ? me.team : null
+	}));
 	if (body.action === "autofill") {
-		if (!canEdit) return fail("Operazione riservata a chi può modificare.", 403);
+		if (!canEdit$1) return fail("Operazione riservata a chi può modificare.", 403);
 		const from = String(body.from ?? ""), to = String(body.to ?? "");
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) return fail("Periodo non valido.");
 		const locked = new Set(erogati.data.map((x) => String(x.day).slice(0, 10)));

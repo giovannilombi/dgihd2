@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { amountsVisible, canDecide, parseMyShifts, payRal, resolveTimes, shiftChip, type Intervention } from './interventions'
-import { teamDir } from './teams'
 import type { Person } from './types'
 
 const iv = (id: string, status: Intervention['status']): Intervention => ({
@@ -33,25 +32,24 @@ describe('orari del modulo', () => {
 })
 
 describe('chi decide e chi vede gli importi', () => {
-  const teams = teamDir([
-    { id: 'tech', label: 'Tech', seesAll: false, directorId: 'dir', sort: 1 },
-    { id: 'pm', label: 'PM', seesAll: false, directorId: null, sort: 2 },
-    { id: 'hr', label: 'HR', seesAll: true, directorId: null, sort: 3 },
-  ])
   const person = (id: string, team: string, extra: Partial<Person> = {}): Person => ({ id, name: id, level: 'B1', ral: 30000, active: true, color: '#000', team, ...extra })
-  const director = { id: 'dir', role: 'viewer_plus' as const, team: 'tech' }
-  it('director del team o super admin; mai sui propri interventi (salvo super admin)', () => {
-    expect(canDecide(person('t1', 'tech'), director, teams, 'own')).toBe(true)
-    expect(canDecide(person('p1', 'pm'), director, teams, 'own')).toBe(false)
-    expect(canDecide(person('own', 'tech'), director, teams, 'own')).toBe(false)
-    expect(canDecide(person('own', 'tech'), { id: 's', role: 'super_admin', team: null }, teams, 'own')).toBe(true)
-    expect(canDecide(person('t1', 'tech'), { id: 'e', role: 'editor', team: 'tech' }, teams, null)).toBe(false)
+  const director = { id: 'dir', role: 'director' as const, team: 'tech' }
+  it('Director del team, PM (tutti i team) o super admin; mai sui propri interventi (salvo super admin)', () => {
+    expect(canDecide(person('t1', 'tech'), director, 'own')).toBe(true)
+    expect(canDecide(person('p1', 'pm'), director, 'own')).toBe(false)
+    expect(canDecide(person('own', 'tech'), director, 'own')).toBe(false)
+    expect(canDecide(person('p1', 'design'), { id: 'p', role: 'pm', team: 'pm' }, null)).toBe(true)
+    expect(canDecide(person('own', 'pm'), { id: 'p', role: 'pm', team: 'pm' }, 'own')).toBe(false)
+    expect(canDecide(person('own', 'tech'), { id: 's', role: 'super_admin', team: null }, 'own')).toBe(true)
+    expect(canDecide(person('t1', 'tech'), { id: 'g', role: 'governance', team: 'governance' }, null)).toBe(false)
+    expect(canDecide(person('t1', 'tech'), { id: 'h', role: 'hr', team: 'hr' }, null)).toBe(false)
   })
-  it('importi: HR/Governance e director del team; RAL Q/ o da inserire = solo ore', () => {
-    expect(amountsVisible(person('t1', 'tech'), director, teams)).toBe(true)
-    expect(amountsVisible(person('p1', 'pm'), director, teams)).toBe(false)
-    expect(amountsVisible(person('p1', 'pm'), { id: 'h', role: 'viewer_plus', team: 'hr' }, teams)).toBe(true)
-    expect(amountsVisible(person('t1', 'tech'), { id: 'e', role: 'editor', team: 'tech' }, teams)).toBe(false)
+  it('importi a chi vede la RAL della persona; RAL Q/ o da inserire = solo ore', () => {
+    expect(amountsVisible(person('t1', 'tech'), director)).toBe(true)
+    expect(amountsVisible(person('p1', 'pm'), director)).toBe(false)
+    expect(amountsVisible(person('p1', 'pm'), { id: 'h', role: 'hr', team: 'hr' })).toBe(true)
+    expect(amountsVisible(person('t1', 'tech'), { id: 'p', role: 'pm', team: 'pm' })).toBe(false)
+    expect(amountsVisible(person('t1', 'tech', { salaryHidden: true }), { id: 'g', role: 'governance', team: 'governance' })).toBe(false)
     expect(payRal(person('a', 'tech'))).toBe(30000)
     expect(payRal(person('a', 'tech', { ralNd: true }))).toBeNull()
     expect(payRal(person('a', 'tech', { ral: 0 }))).toBeNull()

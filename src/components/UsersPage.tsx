@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { canReadFull, ROLE_HELP, ROLE_LABEL, roleAccess, roleRank, ROLES, type Profile, type Role } from '../lib/roles'
+import { ASSIGNABLE_ROLES, normalizeRole, ROLE_HELP, ROLE_LABEL, roleAccess, roleRank, ROLES, type Profile, type Role } from '../lib/roles'
 import type { Person } from '../lib/types'
 import { teamLabel, type TeamDir, type TeamId } from '../lib/teams'
 import { useTeams } from '../lib/useTeams'
@@ -38,7 +38,8 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
   const load = useCallback(async () => {
     try {
       const r = await adminCall<{ users: UserRow[] }>({ action: 'list' })
-      setUsers(r.users)
+      // livelli della versione precedente mostrati con il profilo corrispondente
+      setUsers(r.users.map((u) => ({ ...u, role: normalizeRole(u.role, u.team) ?? u.role })))
       setError('')
     } catch (e) {
       setError((e as Error).message)
@@ -72,11 +73,11 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
   }
   /** Ogni cambio di livello passa da una conferma che dice cosa vedrà la persona (RAL comprese). */
   const setRole = (u: UserRow, role: Role) => { if (role !== u.role) setPending({ user: u, role, team: u.team }) }
-  /** Il team decide quali RAL vede chi legge l'anagrafica: anche questo cambio va confermato. */
+  /** Per il Director il team decide RAL visibili e interventi da approvare: anche questo cambio va confermato. */
   const setTeam = (u: UserRow, value: TeamId) => {
     const team = value || null
     if (team === u.team) return
-    if (canReadFull(u.role)) return setPending({ user: u, role: u.role, team })
+    if (u.role === 'director') return setPending({ user: u, role: u.role, team })
     return run(async () => { await adminCall({ action: 'set_team', user_id: u.id, team }) })
   }
   const applyPending = (c: PendingChange) => {
@@ -115,7 +116,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
       </div>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
-      {tab === 'team' ? <TeamsTab me={me} people={people} users={users} loading={loading} /> : tab === 'turnisti' ? <TurnistiTab people={people} users={users} loading={loading} flush={flush} reload={load} /> : <>
+      {tab === 'team' ? <TeamsTab people={people} users={users} loading={loading} /> : tab === 'turnisti' ? <TurnistiTab people={people} users={users} loading={loading} flush={flush} reload={load} /> : <>
 
       <form onSubmit={create} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
         <label className="block min-w-64 flex-1">
@@ -127,14 +128,15 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
           <input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} className="mt-1 block w-full rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300" />
         </label>
         <label className="block">
-          <span className="text-xs font-medium text-slate-600">Livello</span>
+          <span className="text-xs font-medium text-slate-600">Profilo</span>
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })} className="mt-1 block rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">
-            {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
           </select>
         </label>
         <label className="block">
           <span className="text-xs font-medium text-slate-600">Team</span>
-          <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} className="mt-1 block rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300">
+          {/* Nel team PM il profilo proposto è PM */}
+          <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value, role: e.target.value === 'pm' && form.role === 'viewer' ? 'pm' : form.role })} className={`mt-1 block rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ${form.role === 'director' && !form.team ? 'ring-amber-400' : 'ring-slate-300'}`}>
             <option value="">— nessuno —</option>
             {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
@@ -151,12 +153,13 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
         {form.role === 'turnista' && form.email.includes('@') && !personByEmail(form.email) && (
           <p className="w-full text-xs text-amber-800">Nessuna persona dell'anagrafica ha questa email: il Turnista non vedrà evidenziati i propri turni finché l'email non coincide con quella della sua scheda in B · Team.</p>
         )}
-        <Button type="submit" variant="primary" disabled={busy || !form.email}>+ Crea utente</Button>
-        <p className="w-full text-xs text-slate-500">Viene generata una password provvisoria (es. giraffa-camaleonte-12), che resta copiabile dalla lista finché la persona non la cambia al primo accesso: comunicala alla persona, che dovrà cambiarla al primo accesso. Il team decide quali RAL vede: solo quelle del proprio team; {seesAllText(teams)}.</p>
+        {form.role === 'director' && !form.team && <p className="w-full text-xs text-amber-800">Il Director vede le RAL e approva gli interventi del proprio team: scegli il team.</p>}
+        <Button type="submit" variant="primary" disabled={busy || !form.email || (form.role === 'director' && !form.team)}>+ Crea utente</Button>
+        <p className="w-full text-xs text-slate-500">{ROLE_HELP[form.role]}. Viene generata una password provvisoria (es. giraffa-camaleonte-12), copiabile dalla lista finché la persona non la cambia al primo accesso.</p>
       </form>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-slate-600">Livello:</span>
+        <span className="text-xs font-medium text-slate-600">Profilo:</span>
         <button type="button" aria-pressed={!roleFilter.size} onClick={() => setRoleFilter(new Set())}
           className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${!roleFilter.size ? 'bg-blue-700 text-white ring-blue-700' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>Tutti ({users.length - counts.turnista})</button>
         {ROLES.filter((r) => r !== 'turnista').map((r) => (
@@ -176,7 +179,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
         <label className="ml-auto flex items-center gap-2 text-xs font-medium text-slate-600">
           Ordina per
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="rounded-md bg-white px-2 py-1 text-sm font-normal ring-1 ring-inset ring-slate-300">
-            <option value="role">Livello</option>
+            <option value="role">Profilo</option>
             <option value="name">Nome</option>
             <option value="last">Ultimo accesso</option>
             <option value="created">Data di creazione</option>
@@ -189,8 +192,8 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-2 pr-3 font-medium">Utente</th>
-              <th className="py-2 pr-3 font-medium">Livello</th>
-              <th className="py-2 pr-3 font-medium" title={`RAL e livello visibili: solo del proprio team; ${seesAllText(teams)}`}>Team</th>
+              <th className="py-2 pr-3 font-medium">Profilo</th>
+              <th className="py-2 pr-3 font-medium" title="Appartenenza; per il Director decide RAL visibili e interventi da approvare">Team</th>
               <th className="py-2 pr-3 font-medium" title="Per i Turnisti: propri turni o tutti i turni (vale quando l'impostazione generale è Per persona)">Visibilità</th>
               <th className="py-2 pr-3 font-medium">Stato</th>
               <th className="py-2 pr-3 font-medium">Ultimo accesso</th>
@@ -205,12 +208,16 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                   <div className="text-xs text-slate-500">{u.email}</div>
                 </td>
                 <td className="py-2 pr-3">
-                  <select value={u.role} disabled={busy || !ROLES.includes(u.role)} onChange={(e) => void setRole(u, e.target.value as Role)} aria-label={`Livello di ${u.email}`} className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
-                    {/* Livello non riconosciuto (pagina non aggiornata): mostrato com'è, mai sostituito dal primo dell'elenco */}
-                    {!ROLES.includes(u.role) && <option value={u.role}>{String(u.role)} · ricarica la pagina</option>}
-                    {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-                  </select>
-                  <div className="mt-0.5 text-[11px] text-slate-400">{ROLE_HELP[u.role]}</div>
+                  {u.role === 'super_admin' ? (
+                    <span className="inline-flex rounded-md bg-red-50 px-2 py-1 text-sm font-semibold text-red-800 ring-1 ring-inset ring-red-200" title="Il Super admin è uno solo e non si cambia da qui">Super admin</span>
+                  ) : (
+                    <select value={u.role} disabled={busy || !ROLES.includes(u.role)} onChange={(e) => void setRole(u, e.target.value as Role)} aria-label={`Profilo di ${u.email}`} className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
+                      {/* Profilo non riconosciuto (pagina non aggiornata): mostrato com'è, mai sostituito dal primo dell'elenco */}
+                      {!ROLES.includes(u.role) && <option value={u.role}>{String(u.role)} · ricarica la pagina</option>}
+                      {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                    </select>
+                  )}
+                  <div className="mt-0.5 max-w-64 text-[11px] text-slate-400">{ROLE_HELP[u.role]}</div>
                 </td>
                 <td className="py-2 pr-3">
                   <select value={u.team ?? ''} disabled={busy} onChange={(e) => void setTeam(u, e.target.value)} aria-label={`Team di ${u.email}`}
@@ -220,7 +227,6 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                     {u.team && !teams.byId[u.team] && <option value={u.team}>{u.team}</option>}
                   </select>
                   <div className={`mt-0.5 text-[11px] ${roleAccess(u.role, u.team, teams).ral === 'all' ? 'font-medium text-red-700' : 'text-slate-400'}`}>{ralHint(u, teams)}</div>
-                  {teams.list.some((t) => t.directorId === u.id) && <div className="mt-0.5 text-[11px] font-medium text-blue-800">Director del team</div>}
                 </td>
                 <td className="py-2 pr-3">
                   {u.role === 'turnista' ? (
@@ -445,18 +451,12 @@ function TurnistiTab({ people, users, loading, flush, reload }: { people: Person
 
 interface PendingChange { user: UserRow; role: Role; team: TeamId | null }
 
-/** "HR e Governance le vedono tutte": i team che vedono tutto, per i testi di aiuto. */
-const seesAllText = (teams: TeamDir) => {
-  const names = teams.list.filter((t) => t.seesAll).map((t) => t.label)
-  return names.length ? `${names.join(' e ')} le ${names.length === 1 ? 'vede' : 'vedono'} tutte` : 'nessun team le vede tutte'
-}
-
 /** Breve indicazione sotto il team: cosa vede davvero, tenendo conto anche del livello. */
 const ralHint = (u: { role: Role; team: TeamId | null }, teams: TeamDir) => {
   const a = roleAccess(u.role, u.team, teams)
-  if (a.ral === 'all') return 'Vede le RAL di tutti i team'
-  if (a.ral === 'team' && u.team) return `Vede le RAL del team ${teamLabel(teams, u.team)}`
-  return canReadFull(u.role) ? 'Non vede RAL (nessun team)' : `Non vede RAL (livello ${ROLE_LABEL[u.role]})`
+  if (a.ral === 'all') return 'Vede RAL e importi di tutti i team'
+  if (a.ral === 'team' && u.team) return `Vede RAL e importi del team ${teamLabel(teams, u.team)}`
+  return u.role === 'director' ? 'Director senza team: nessuna RAL, nessuna approvazione' : `Non vede RAL (profilo ${ROLE_LABEL[u.role] ?? u.role})`
 }
 
 /** Conferma di un cambio di livello o di team: elenca cosa vedrà la persona, RAL in evidenza. */
@@ -465,7 +465,8 @@ function AccessChangeDialog({ change, teams, isMe, namesMode, onCancel, onConfir
   const before = roleAccess(user.role, user.team, teams, namesMode)
   const after = roleAccess(role, team, teams, namesMode)
   // Il director deve restare un account del team con accesso completo in lettura: altrimenti perde il ruolo
-  const lostDirector = teams.list.filter((t) => t.directorId === user.id && (t.id !== team || !canReadFull(role)))
+  // Un Director che cambia profilo o team smette di approvare gli interventi del team precedente
+  const lostDirector = user.role === 'director' && user.team && (role !== 'director' || team !== user.team) ? [teams.byId[user.team] ?? { id: user.team, label: user.team, sort: 0 }] : []
   const who = user.display_name || user.email
   const roleChanged = role !== user.role
   const label = (r: Role, t: TeamId | null) => `${ROLE_LABEL[r]} · ${t ? teamLabel(teams, t) : 'nessun team'}`
@@ -498,7 +499,7 @@ function AccessChangeDialog({ change, teams, isMe, namesMode, onCancel, onConfir
           )}
         </div>
         {lostDirector.length > 0 && (
-          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Non sarà più director del team {lostDirector.map((t) => t.label).join(', ')}: finché non ne viene scelto un altro, approva il super admin.</p>
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Non sarà più Director del team {lostDirector.map((t) => t.label).join(', ')}: gli interventi del team li approvano gli altri Director del team, i PM o il super admin.</p>
         )}
         {isMe && user.role === 'super_admin' && role !== 'super_admin' && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Stai togliendo a te stesso il livello Super admin: non potrai più gestire gli utenti.</p>

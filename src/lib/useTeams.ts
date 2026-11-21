@@ -19,7 +19,7 @@ export function useTeamsData(enabled: boolean) {
 }
 
 export const TeamsContext = createContext<{ teams: TeamDir; reload: () => Promise<void> }>({ teams: DEFAULT_TEAMS, reload: async () => {} })
-/** Team correnti (nome, director, "vede tutto"). */
+/** Team correnti (nome e ordine). */
 export const useTeams = () => useContext(TeamsContext).teams
 /** Ricarica l'elenco dopo una modifica (oltre all'aggiornamento in tempo reale). */
 export const useReloadTeams = () => useContext(TeamsContext).reload

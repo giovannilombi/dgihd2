@@ -43,18 +43,24 @@ describe('vista Turnista', () => {
     expect(canReadFull('turnista')).toBe(false)
     expect(canEdit('turnista')).toBe(false)
     expect(canReadFull('viewer')).toBe(false)
-    expect(canReadFull('viewer_plus')).toBe(true)
+    expect(canReadFull('hr')).toBe(true)
+    expect(canReadFull('pm')).toBe(false)
+    expect(canEdit('hr')).toBe(false)
+    expect(canEdit('director')).toBe(true)
   })
 })
 
 describe('cosa vede ogni livello (conferma dei cambi di livello)', () => {
   it('le RAL dipendono da livello e team, come nel database', async () => {
     const { roleAccess } = await import('./roles')
-    expect(roleAccess('editor', 'tech', DEFAULT_TEAMS).ral).toBe('team')
-    expect(roleAccess('editor', 'tech', DEFAULT_TEAMS).ralText).toMatch(/team Tech/)
-    expect(roleAccess('viewer_plus', 'governance', DEFAULT_TEAMS).ral).toBe('all')
-    expect(roleAccess('editor', 'hr', DEFAULT_TEAMS).ral).toBe('all')
-    expect(roleAccess('editor', null, DEFAULT_TEAMS).ral).toBe('none')
+    expect(roleAccess('director', 'tech', DEFAULT_TEAMS).ral).toBe('team')
+    expect(roleAccess('director', 'tech', DEFAULT_TEAMS).ralText).toMatch(/team Tech/)
+    expect(roleAccess('governance', 'governance', DEFAULT_TEAMS).ral).toBe('all')
+    expect(roleAccess('hr', 'hr', DEFAULT_TEAMS).ral).toBe('all')
+    expect(roleAccess('hr', null, DEFAULT_TEAMS).ral).toBe('all')
+    expect(roleAccess('director', null, DEFAULT_TEAMS).ral).toBe('none')
+    expect(roleAccess('pm', 'pm', DEFAULT_TEAMS).ral).toBe('none')
+    expect(roleAccess('pm', 'pm', DEFAULT_TEAMS).sees.join(' ')).toMatch(/Approva e rifiuta gli interventi di tutti i team/)
     expect(roleAccess('super_admin', 'tech', DEFAULT_TEAMS).managesUsers).toBe(true)
   })
   it('Viewer e Turnista non vedono RAL qualunque sia il team', async () => {
@@ -68,7 +74,7 @@ describe('cosa vede ogni livello (conferma dei cambi di livello)', () => {
   })
   it('ordina i livelli dal più ampio al più ristretto', async () => {
     const { roleRank } = await import('./roles')
-    expect(['turnista', 'super_admin', 'viewer', 'editor'].sort((a, b) => roleRank(a as never) - roleRank(b as never))).toEqual(['super_admin', 'editor', 'viewer', 'turnista'])
+    expect(['turnista', 'super_admin', 'viewer', 'director', 'pm', 'hr'].sort((a, b) => roleRank(a as never) - roleRank(b as never))).toEqual(['super_admin', 'director', 'hr', 'pm', 'viewer', 'turnista'])
   })
 })
 

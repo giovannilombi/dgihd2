@@ -20,7 +20,7 @@ import { Button, Section } from './components/ui'
 import { useAuth, verifyOwnPassword } from './lib/useAuth'
 import { useRemoteData, type SyncStatus } from './lib/useRemoteData'
 import { useHeightVar } from './lib/useStickyBar'
-import { canEdit, canManageUsers, canReadFull, type Profile, type Role } from './lib/roles'
+import { canEdit, canManageUsers, canReadFull, canReadPlan, seesAllSalaries, type Profile, type Role } from './lib/roles'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import type { ExportRange } from './lib/exportRange'
@@ -28,7 +28,7 @@ import { ExportDialog, type ExportFormat } from './components/ExportDialog'
 import { normalizeWithReport } from './lib/store'
 import { HORIZON_LABEL } from './lib/calendar'
 import type { Assignments, Person } from './lib/types'
-import { defaultResourceTeam, seesAllSalaries, type TeamId } from './lib/teams'
+import { defaultResourceTeam, type TeamId } from './lib/teams'
 import { useTeams } from './lib/useTeams'
 import { TeamsProvider } from './components/TeamsProvider'
 import { regenerate } from './lib/rules'
@@ -61,9 +61,13 @@ type PageId = (typeof NAV)[number][0]
  * Pagine visibili per livello: il viewer vede solo il calendario, la gestione utenti è del super admin.
  * "I miei interventi" compare a chi è collegato a una scheda del piano (anche se è di turno).
  */
-const pagesFor = (role: Role, linked: boolean): PageId[] =>
-  role === 'viewer' ? ['planner', ...(linked ? ['miei' as const] : [])]
-  : NAV.map(([id]) => id).filter((id) => (id !== 'users' || canManageUsers(role)) && (id !== 'miei' || linked))
+const pagesFor = (role: Role, linked: boolean): PageId[] => {
+  const mine: PageId[] = linked ? ['miei'] : []
+  if (role === 'viewer') return ['planner', ...mine]
+  // PM: approccio, calendario e interventi (solo ore), senza parametri, anagrafica e importi
+  if (role === 'pm') return ['doc', 'planner', 'interventi', ...mine]
+  return NAV.map(([id]) => id).filter((id) => (id !== 'users' || canManageUsers(role)) && (id !== 'miei' || linked))
+}
 
 const readPage = (allowed: PageId[]): PageId => {
   const h = location.hash.replace(/^#\/?/, '') as PageId
@@ -110,28 +114,28 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   const role = profile.role
   const editable = canEdit(role)
   const headerRef = useHeightVar('--app-header-h')
-  const { data, setData, replace, status, error: syncError, flush } = useRemoteData(canReadFull(role), editable)
+  const { data, setData, replace, status, error: syncError, flush } = useRemoteData(canReadFull(role), editable, canReadPlan(role))
   const teams = useTeams()
   // Import/export della configurazione completa: solo chi vede RAL e livello di tutti i team
-  const fullConfig = seesAllSalaries(teams, profile.team)
+  const fullConfig = seesAllSalaries(role)
   const { checks: serverChecks, state: serverChecksState } = useServerChecks(data, status, canReadFull(role))
   // Giorni erogati (turni definitivi) e consuntivati; le azioni passano dalle funzioni del database
   const { days, reload: reloadDays } = useDayStatus(true)
   const me = { id: profile.id, role, team: profile.team }
   const dayAction = (fn: (day: string) => Promise<unknown>) => async (day: string) => { await flush(); await fn(day); await reloadDays() }
   const dayActions: DayActions = {
-    perms: (day) => dayPerms(day, me, teams, data.people, data.assignments),
+    perms: (day) => dayPerms(day, me, data.people, data.assignments),
     mark: dayAction(markDayErogato),
     close: dayAction(consuntivaDay),
     unlock: async (day, note) => { await unlockDay(day, note); await reloadDays() },
   }
   const closeMonth = async (month: string) => { const n = await consuntivaMonth(month); await reloadDays(); return n }
   // Interventi: tutti per chi legge il consuntivo; i propri per chi è collegato a una scheda del piano
-  const { ivs, noInt } = useInterventions(canReadFull(role))
+  const { ivs, noInt } = useInterventions(canReadPlan(role))
   const mine = useMyShifts(true)
   const myPersonId = mine.data?.me?.id ?? null
   const ivBySlot = bySlot(ivs)
-  const ivChip = canReadFull(role) ? (sid: string) => { const info = shiftChip(sid, ivBySlot[sid] ?? [], noInt.has(sid), romeNow()); return info.chip === 'future' || info.chip === 'running' ? null : info } : undefined
+  const ivChip = canReadPlan(role) ? (sid: string) => { const info = shiftChip(sid, ivBySlot[sid] ?? [], noInt.has(sid), romeNow()); return info.chip === 'future' || info.chip === 'running' ? null : info } : undefined
   const pendingCount = ivs.filter((x) => x.status === 'pending').length
   /**
    * Auto-compilazione: in pagina se l'utente vede tutte le RAL e non ci sono RAL Q/, altrimenti sul
@@ -261,7 +265,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       </Section>
     ),
     team: (
-      <TeamPage verify={verify} editable={editable} myTeam={profile.team} people={data.people} assignments={data.assignments}
+      <TeamPage verify={verify} editable={editable} role={role} myTeam={profile.team} people={data.people} assignments={data.assignments}
         superAdmin={canManageUsers(role)} flush={flush}
         onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
     ),
@@ -271,7 +275,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
           <Button onClick={() => setExportFormat('xlsx')}>Esporta turni (Excel)</Button>
           <Button onClick={() => setExportFormat('pdf')}>Esporta turni (PDF)</Button>
         </>}>
-        <Planner readOnly={!editable} simple={role === 'viewer'} people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
+        <Planner readOnly={!editable} simple={role === 'viewer' || role === 'pm'} people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
           onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay}
           autofill={autofill} serverChecks={serverChecks} serverChecksState={serverChecksState}
           onSetDaysExcluded={setDaysExcluded} days={days} dayActions={dayActions} ivChip={role === 'viewer' ? undefined : ivChip}
@@ -285,8 +289,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
           <Button variant="primary" onClick={() => setPayExport(true)}>Esporta per paghe (Excel)</Button>
         </>}>
         <Payroll people={data.people} assignments={data.assignments} params={data.params} nd={serverChecks?.nd}
-          days={days} canCloseMonth={editable || (canReadFull(role) && seesAllSalaries(teams, profile.team)) || teams.list.some((t) => t.directorId === profile.id)} onCloseMonth={closeMonth}
-          interventions={ivs} ivChip={ivChip} showAmounts={(p) => amountsVisible(p, me, teams)} />
+          days={days} canCloseMonth={editable || role === 'hr'} onCloseMonth={closeMonth}
+          interventions={ivs} ivChip={ivChip} showAmounts={(p) => amountsVisible(p, me)} />
       </Section>
     ),
     pnl: (
@@ -294,14 +298,14 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} nd={serverChecks?.nd} />
       </Section>
     ),
-    interventi: canReadFull(role) ? (
-      <Section id="interventi" title="Interventi in reperibilità" subtitle="Dichiarati dai turnisti; li approva o rifiuta il director del team della persona o il super admin. Si pagano come straordinario CCNL, in aggiunta a indennità e gettone.">
+    interventi: canReadPlan(role) ? (
+      <Section id="interventi" title="Interventi in reperibilità" subtitle="Dichiarati dai turnisti; li approvano o rifiutano i Director del team della persona, i PM e il super admin. Si pagano come straordinario CCNL, in aggiunta a indennità e gettone.">
         <InterventionsReview ivs={ivs} noInt={noInt} people={data.people} assignments={data.assignments} params={data.params} me={me} myPersonId={myPersonId} teams={teams} />
       </Section>
     ) : null,
     miei: myPersonId ? (
       <Section id="miei" title="I miei interventi">
-        <MyInterventions data={mine.data} error={mine.error} reload={mine.reload} rules={canReadFull(role) ? data.params : undefined} />
+        <MyInterventions data={mine.data} error={mine.error} reload={mine.reload} rules={canReadPlan(role) ? data.params : undefined} />
       </Section>
     ) : null,
     users: canManageUsers(role) ? (
@@ -363,7 +367,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       )}
       {payExport && (
         <PayrollExportDialog busy={exporting} onClose={() => setPayExport(false)} onExport={(x, f) => void runPayrollExport(x, f)}
-          input={{ people: data.people, assignments: data.assignments, params: data.params, nd: serverChecks?.nd, days, interventions: ivs, showAmounts: (p) => amountsVisible(p, me, teams) }} />
+          input={{ people: data.people, assignments: data.assignments, params: data.params, nd: serverChecks?.nd, days, interventions: ivs, showAmounts: (p) => amountsVisible(p, me) }} />
       )}
       {confirmExport && (
         <PasswordDialog
@@ -379,7 +383,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
 }
 
 /** Pagina anagrafica: RAL e livello oscurati finché non si reinserisce la password (lo stato si azzera cambiando pagina). */
-function TeamPage({ verify, editable, myTeam, people, assignments, superAdmin, flush, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; myTeam: TeamId | null; people: Person[]; assignments: Assignments; superAdmin: boolean; flush: () => Promise<void>; onChange: (people: Person[], assignments?: Assignments) => void }) {
+function TeamPage({ verify, editable, role, myTeam, people, assignments, superAdmin, flush, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; role: Role; myTeam: TeamId | null; people: Person[]; assignments: Assignments; superAdmin: boolean; flush: () => Promise<void>; onChange: (people: Person[], assignments?: Assignments) => void }) {
   const { revealed, toggle, dialog } = useRevealSensitive(verify)
   const teams = useTeams()
   // Solo il super admin vede il tipo di account di ogni risorsa e può creare quello da Turnista
@@ -401,7 +405,7 @@ function TeamPage({ verify, editable, myTeam, people, assignments, superAdmin, f
         </>}>
         <fieldset disabled={!editable} className="min-w-0">
           <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed}
-            myTeam={myTeam} canSetTeam={editable && seesAllSalaries(teams, myTeam)} newTeam={defaultResourceTeam(teams, myTeam)}
+            myTeam={myTeam} role={role} canSetTeam={editable && seesAllSalaries(role)} newTeam={defaultResourceTeam(teams, myTeam)}
             accounts={superAdmin && loaded ? accounts : undefined} onCreateAccount={superAdmin ? createAccount : undefined} />
         </fieldset>
       </Section>
