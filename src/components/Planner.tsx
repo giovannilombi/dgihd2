@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ALL_SLOTS, HOLIDAYS, HORIZON_END, HORIZON_MONTHS, HORIZON_START, SLOT_BY_ID, SLOT_HOURS, SLOT_LABEL,
   HORIZON_LABEL, addDays, daysInRange, fmtDay, fmtDayYear, isWeekendOrHoliday, isoWeekNumber, monthKey, monthLabel, slotsForDay, toDate, weekStart,
@@ -8,7 +8,7 @@ import { mergeConflicts, mergeViolations, needsServerChecks, type ServerChecks, 
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 import { useHeightVar, useStickyBar, useStickyOverlay } from '../lib/useStickyBar'
-import { dayState, lockedSlots, romeToday, shortName, type DayPerms, type DayStatusMap } from '../lib/dayStatus'
+import { dayShiftEnd, dayState, lockedSlots, romeToday, shiftEnded, shortName, type DayPerms, type DayStatusMap } from '../lib/dayStatus'
 
 interface Props {
   people: Person[]
@@ -83,7 +83,10 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   // Turni che auto-compilazione e "Svuota" non toccano: bloccati con la puntina o di giorni erogati
   const fixedSet = new Set([...pinned, ...lockedSlots(days, assignments)])
   const [dialog, setDialog] = useState<{ kind: 'mark' | 'close' | 'unlock'; day: string } | null>(null)
-  const today = romeToday()
+  // Orologio al minuto: "Segna erogato" compare alla fine del turno senza ricaricare la pagina
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => { const t = window.setInterval(() => setNow(new Date()), 60_000); return () => window.clearInterval(t) }, [])
+  const today = romeToday(now)
   const [range, setRange] = useState<RangeMode>('all')
   const [customFrom, setCustomFrom] = useState(HORIZON_START)
   const [customTo, setCustomTo] = useState(HORIZON_END)
@@ -352,10 +355,12 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                           ) : null}
                         </div>
                       )}
-                      {!status && perms?.mark && hasShift && day < today && (
+                      {!status && perms?.mark && hasShift && (shiftEnded(day, assignments, now) ? (
                         <button type="button" onClick={() => setDialog({ kind: 'mark', day })}
                           className="no-print mt-1.5 rounded-md bg-white px-1.5 py-1 text-[11px] font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-300 hover:bg-emerald-50">✓ Segna erogato</button>
-                      )}
+                      ) : day <= today && (
+                        <span className="no-print mt-1.5 text-[10px] text-slate-500">Erogabile a fine turno: {fmtEnd(dayShiftEnd(day, assignments))}</span>
+                      ))}
                     </div>
                   )
                 })}
@@ -417,7 +422,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
             <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-amber-700">⚠ Oltre disponibilità</span>: assegnabile a mano, ma supera il massimo mensile indicato dalla persona. L'auto-compilazione non lo fa mai.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><PinIcon filled className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" /> Con la puntina blocchi un turno assegnato: non è modificabile e l'auto-compilazione ricalcola tutti gli altri tenendolo fisso.</p>
             <p className="mt-2 flex items-start gap-1.5 border-t border-slate-200 pt-2"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Con il lucchetto blocchi un giorno non richiesto dal cliente: resta fuori dalla rotazione, dall'auto-compilazione, dai ricavi e dall'export.</p>
-            <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-emerald-800">Segna erogato</span> (Full edit, super admin, director del team, dal giorno dopo): il giorno diventa definitivo, turni e persone non si cambiano più ed entra nel consuntivo. <span className="font-semibold text-indigo-800">Consuntiva</span>: chiude l'inserimento degli interventi del giorno (anche per tutto il mese, dal Consuntivo). <span className="font-semibold">Sblocca</span>: solo director del team o super admin, un passo indietro alla volta; resta traccia di chi e quando.</p>
+            <p className="mt-2 border-t border-slate-200 pt-2"><span className="font-semibold text-emerald-800">Segna erogato</span> (Full edit, super admin, director del team, dalla fine del turno: 18:00 per il diurno, 09:00 del giorno dopo per la notte): il giorno diventa definitivo, turni e persone non si cambiano più ed entra nel consuntivo. <span className="font-semibold text-indigo-800">Consuntiva</span>: chiude l'inserimento degli interventi del giorno (anche per tutto il mese, dal Consuntivo). <span className="font-semibold">Sblocca</span>: solo director del team o super admin, un passo indietro alla volta; resta traccia di chi e quando.</p>
           </div>
         </aside>}
       </div>
@@ -426,6 +431,8 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
   )
 }
 
+/** '2026-11-21T09:00' → 'ore 09:00 del 21/11' */
+const fmtEnd = (end: string | null) => (end ? `ore ${end.slice(11, 16)} del ${end.slice(8, 10)}/${end.slice(5, 7)}` : '')
 const fmtShort = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Rome' }) : '')
 const fmtStamp = (iso: string | null) => (iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }) : '')
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dayPerms, dayState, dayStatusMap, isDirectorOf, lockedSlots, romeToday, shortName, type Me } from './dayStatus'
+import { dayPerms, dayShiftEnd, dayState, dayStatusMap, isDirectorOf, lockedSlots, romeNow, romeToday, shiftEnded, shortName, type Me } from './dayStatus'
 import { teamDir } from './teams'
 import { normalizeWithReport } from './store'
 import { DEFAULT_PARAMS, type Person } from './types'
@@ -31,6 +31,19 @@ describe('stato dei giorni', () => {
     expect(romeToday(new Date('2026-12-19T23:30:00Z'))).toBe('2026-12-20')
     expect(romeToday(new Date('2026-07-01T21:59:00Z'))).toBe('2026-07-01')
     expect(romeToday(new Date('2026-07-01T22:00:00Z'))).toBe('2026-07-02')
+  })
+  it('si segna erogato dalla fine dell\'ultimo turno assegnato del giorno (ora italiana)', () => {
+    // sabato 19/12: diurno 09–18 e notte 18–09 → fine domenica 20/12 alle 09:00
+    expect(dayShiftEnd('2026-12-19', a)).toBe('2026-12-20T09:00')
+    expect(dayShiftEnd('2026-12-19', { '2026-12-19|D': 't1' })).toBe('2026-12-19T18:00')
+    expect(dayShiftEnd('2026-12-22', a)).toBeNull()
+    expect(romeNow(new Date('2026-12-20T07:59:00Z'))).toBe('2026-12-20T08:59')
+    expect(shiftEnded('2026-12-19', a, new Date('2026-12-20T07:59:00Z'))).toBe(false)
+    expect(shiftEnded('2026-12-19', a, new Date('2026-12-20T08:00:00Z'))).toBe(true)
+    expect(shiftEnded('2026-12-19', { '2026-12-19|D': 't1' }, new Date('2026-12-19T17:00:00Z'))).toBe(true)
+    // ora legale: 09:00 a Roma = 07:00 UTC
+    expect(shiftEnded('2026-07-01', { '2026-07-01|N': 't1' }, new Date('2026-07-02T06:59:00Z'))).toBe(false)
+    expect(shiftEnded('2026-07-01', { '2026-07-01|N': 't1' }, new Date('2026-07-02T07:00:00Z'))).toBe(true)
   })
   it('nome breve di chi ha segnato', () => {
     expect(shortName('Paolo Gialli')).toBe('P. Gialli')

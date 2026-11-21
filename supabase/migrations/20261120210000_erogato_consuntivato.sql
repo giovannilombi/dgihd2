@@ -1,6 +1,7 @@
 -- Giorni erogati e consuntivati. Nessun dato personale oltre al nome di chi esegue l'azione.
 -- - Erogato: il giorno è definitivo, turni e persone non si cambiano più (controllo nel database).
---   Lo segnano Full edit, super admin e il director di un team con un turno quel giorno, dal giorno dopo.
+--   Lo segnano Full edit, super admin e il director di un team con un turno quel giorno, dal giorno dopo
+--   (dal 20261120220000: dalla fine del turno).
 -- - Consuntivato: chiude l'inserimento degli interventi del giorno (fase interventi). Lo fa chi può segnare
 --   l'erogato e chi legge tutto in un team che "vede tutto" (es. HR); anche per un mese intero.
 -- - Sblocca: un passo indietro (consuntivato → erogato → aperto), solo super admin o director; resta traccia.

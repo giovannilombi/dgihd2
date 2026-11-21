@@ -1,4 +1,4 @@
-import { slotsForDay } from './calendar'
+import { addDays, slotsForDay } from './calendar'
 import { canEdit, canReadFull, type Role } from './roles'
 import { seesAllSalaries, type TeamDir, type TeamId } from './teams'
 import type { Assignments, Person } from './types'
@@ -32,8 +32,30 @@ export const isErogato = (map: DayStatusMap, day: string) => !!map[day]
 /** Turni dei giorni erogati: restano fissi (come i turni bloccati) per auto-compilazione e "Svuota". */
 export const lockedSlots = (map: DayStatusMap, a: Assignments) => Object.keys(a).filter((sid) => !!map[sid.slice(0, 10)])
 
-/** Data di oggi in Italia (YYYY-MM-DD): un giorno si segna erogato dal giorno dopo. */
+/** Data di oggi in Italia (YYYY-MM-DD). */
 export const romeToday = (now = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+
+/** Data e ora in Italia, 'YYYY-MM-DDTHH:MM' (confrontabile come testo). */
+export function romeNow(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(now).map((p) => [p.type, p.value]))
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`
+}
+
+/**
+ * Fine dell'ultimo turno assegnato del giorno, ora italiana 'YYYY-MM-DDTHH:MM': Notte 09:00 del giorno dopo,
+ * Diurno 18:00. null se il giorno non ha turni assegnati. Stessa regola della funzione del database.
+ */
+export function dayShiftEnd(day: string, a: Assignments): string | null {
+  const ends = slotsForDay(day).filter((s) => a[s.id]).map((s) => (s.kind === 'WD' ? `${day}T18:00` : `${addDays(day, 1)}T09:00`))
+  return ends.length ? ends.sort()[ends.length - 1] : null
+}
+
+/** Il giorno si può segnare come erogato: ha turni assegnati e l'ultimo è finito. */
+export const shiftEnded = (day: string, a: Assignments, now = new Date()) => {
+  const end = dayShiftEnd(day, a)
+  return !!end && romeNow(now) >= end
+}
 
 /** "P. Gialli" da "Paolo Gialli"; un'email resta la parte prima della @. */
 export const shortName = (name: string) => {
@@ -49,7 +71,7 @@ export const isDirectorOf = (teams: TeamDir, team: TeamId | null | undefined, me
   !!team && teams.byId[team]?.directorId === me.id && me.team === team && canReadFull(me.role)
 
 export interface DayPerms {
-  /** Segna erogato: Full edit, super admin, director di un team con un turno quel giorno. */
+  /** Segna erogato (dalla fine del turno): Full edit, super admin, director di un team con un turno quel giorno. */
   mark: boolean
   /** Consuntiva: chi può segnare l'erogato e chi legge tutto in un team che "vede tutto" (es. HR). */
   close: boolean

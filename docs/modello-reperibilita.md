@@ -213,8 +213,8 @@ Altre regole dell'art. 7 rilevanti:
 
 ## 8. Erogato, consuntivato, sblocco
 
-- **Segna erogato** (director di un team con un turno quel giorno, Full edit, super admin), **dal giorno
-  dopo**: il giorno diventa definitivo; turni e persone non si cambiano più (controllo nel database:
+- **Segna erogato** (director di un team con un turno quel giorno, Full edit, super admin), **dalla fine
+  del turno** (ultimo turno assegnato del giorno, ora italiana: diurno 18:00, notte 09:00 del giorno dopo): il giorno diventa definitivo; turni e persone non si cambiano più (controllo nel database:
   turni, puntine e "giorno non richiesto" rifiutati); entra nel consuntivo come erogato. Auto-compilazione e
   "Svuota" lo trattano come bloccato.
 - **Consuntiva** (per giorno dal calendario, o per mese dal Consuntivo): chiude l'inserimento di nuovi
