@@ -13,8 +13,8 @@ export function MenuItem({ onClick, danger, children }: { onClick: () => void; d
   )
 }
 
-/** Menu dell'utente nell'intestazione: livello, team, cambio password, uscita. */
-export function UserMenu({ profile, onLogout, onChangePassword }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void> }) {
+/** Menu dell'utente nell'intestazione: livello, team, guida del profilo, cambio password, uscita. */
+export function UserMenu({ profile, onLogout, onChangePassword, guide }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void>; guide?: { label: string; onOpen: () => void } }) {
   const [open, setOpen] = useState(false)
   const [pwdOpen, setPwdOpen] = useState(false)
   const role = profile.role
@@ -46,6 +46,7 @@ export function UserMenu({ profile, onLogout, onChangePassword }: { profile: Pro
                 <div className="mt-0.5 text-xs text-slate-500">{roleAccess(role, profile.team, teams).ralText}</div>
               </div>
               <div className="my-1 border-t border-slate-100" />
+              {guide && <MenuItem onClick={() => { setOpen(false); guide.onOpen() }}>{guide.label}</MenuItem>}
               <MenuItem onClick={() => { setOpen(false); setPwdOpen(true) }}>Cambia password</MenuItem>
               <MenuItem danger onClick={() => { setOpen(false); onLogout() }}>Esci</MenuItem>
             </div>

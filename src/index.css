@@ -22,6 +22,15 @@ details[open] > summary .chev { transform: rotate(90deg); }
 
 .num { font-variant-numeric: tabular-nums; }
 
+/* Guida: il pannello entra da destra, il fondo si scurisce. Niente animazione se il sistema la riduce. */
+@keyframes guide-in { from { transform: translateX(2rem); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes guide-fade { from { opacity: 0; } to { opacity: 1; } }
+.guide-in { animation: guide-in 0.22s ease-out; }
+.guide-fade { animation: guide-fade 0.2s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .guide-in, .guide-fade { animation: none; }
+}
+
 @media print {
   .no-print { display: none !important; }
   body { background: #fff; }

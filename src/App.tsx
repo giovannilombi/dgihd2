@@ -40,6 +40,9 @@ import { useInterventions, useMyShifts } from './lib/useInterventions'
 import { InterventionsReview } from './components/InterventionsReview'
 import { MyInterventions } from './components/MyInterventions'
 import { PayrollExportDialog } from './components/PayrollExportDialog'
+import { GuideButton, GuideDrawer } from './components/guide/GuideDrawer'
+import { GUIDE_LABEL, isGuideHash } from './lib/guides'
+import { useGuide } from './lib/useGuide'
 import { buildPayrollXlsx, type PayrollExport } from './lib/payrollExport'
 import { consuntivaDay, consuntivaMonth, markDayErogato, unlockDay, useDayStatus } from './lib/useDayStatus'
 import type { DayActions } from './components/Planner'
@@ -81,7 +84,8 @@ function usePage(allowed: PageId[]) {
   const [page, setPage] = useState<PageId>(() => readPage(allowed))
   useEffect(() => {
     const list = key.split(',') as PageId[]
-    const on = () => { setPage(readPage(list)); window.scrollTo(0, 0) }
+    // un link alla guida (#/guida…) apre il pannello sopra la pagina corrente, senza cambiarla
+    const on = () => { if (isGuideHash(location.hash)) return; setPage(readPage(list)); window.scrollTo(0, 0) }
     on()
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
@@ -160,6 +164,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   const allowed = pagesFor(role, !!myPersonId)
   const page = usePage(allowed)
   const [menuOpen, setMenuOpen] = useState(false)
+  const guide = useGuide(role)
+  const openGuide = () => guide.show(role)
   const verify = (password: string) => verifyOwnPassword(profile.email, password)
 
   const [confirmExport, setConfirmExport] = useState(false)
@@ -331,7 +337,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
             <span className="hidden text-xs text-slate-500 sm:inline">{HORIZON_LABEL}</span>
             <div className="ml-auto flex items-center gap-3">
               <SyncBadge status={status} />
-              <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} />
+              <GuideButton id={role} onOpen={openGuide} />
+              <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} guide={{ label: GUIDE_LABEL[role], onOpen: openGuide }} />
             </div>
           </div>
         </div>
@@ -387,6 +394,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         {syncError && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{syncError}</div>}
         {status === 'loading' ? <p className="py-10 text-center text-sm text-slate-500">Caricamento dei dati condivisi…</p> : sections[page]}
       </main>
+      {guide.open && <GuideDrawer id={guide.open} own={role} ctx={{ p: data.params, exact: canReadPlan(role) }}
+        onSwitch={guide.show} onClose={() => guide.close(`#/${page}`)} />}
       {exportFormat && (
         <ExportDialog format={exportFormat} busy={exporting} onClose={() => setExportFormat(null)}
           onExport={(range, fileName) => runExport(exportFormat, range, fileName)} />
