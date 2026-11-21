@@ -14,7 +14,6 @@ import { useMyShifts } from '../lib/useInterventions'
 import { bySlot, shiftChip } from '../lib/interventions'
 import { romeNow } from '../lib/dayStatus'
 import { DEFAULT_PARAMS } from '../lib/types'
-import { GUIDE_LABEL } from '../lib/guides'
 import { useGuide } from '../lib/useGuide'
 import { GuideButton, GuideDrawer } from './guide/GuideDrawer'
 import { TurnistaIntro } from './guide/TurnistaIntro'
@@ -52,7 +51,7 @@ export function TurnistaApp({ profile, onLogout, onChangePassword }: { profile: 
   const toFill = (mine.data?.shifts ?? []).filter((s) => !s.consuntivato && shiftChip(s.slot, ivMap[s.slot] ?? [], s.noIntervention, romeNow()).chip === 'todo').length
   const rejected = (mine.data?.interventions ?? []).filter((x) => x.status === 'rejected').length
   const guide = useGuide('turnista')
-  const openGuide = () => guide.show('turnista')
+  const openGuide = guide.show
 
   const load = useCallback(async () => {
     const { data, error: err } = await supabase.rpc('turnista_calendar')
@@ -91,7 +90,7 @@ export function TurnistaApp({ profile, onLogout, onChangePassword }: { profile: 
           <div className="ml-auto flex items-center gap-2">
             {updatedAt && <span className="hidden text-xs text-slate-400 md:inline">Aggiornato alle {updatedAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>}
             <GuideButton id="turnista" onOpen={openGuide} />
-            <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} guide={{ label: GUIDE_LABEL.turnista, onOpen: openGuide }} />
+            <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} onOpenGuide={openGuide} />
           </div>
         </div>
       </header>
@@ -104,8 +103,8 @@ export function TurnistaApp({ profile, onLogout, onChangePassword }: { profile: 
             {cal ? <ShiftsCalendar cal={cal} /> : !error && <p className="py-10 text-center text-sm text-slate-500">Caricamento del calendario…</p>}
           </>}
       </main>
-      {guide.open && <GuideDrawer id={guide.open} own="turnista" ctx={{ p: { ...DEFAULT_PARAMS, ...mine.data?.rules }, exact: false }}
-        onSwitch={guide.show} onClose={() => guide.close(page === 'interventi' ? '#/interventi' : '#/')} />}
+      {guide.open && <GuideDrawer id="turnista" ctx={{ p: { ...DEFAULT_PARAMS, ...mine.data?.rules }, exact: false }}
+        onClose={() => guide.close(page === 'interventi' ? '#/interventi' : '#/')} />}
     </div>
   )
 }

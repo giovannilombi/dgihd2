@@ -1,27 +1,12 @@
 import type { Role } from './roles'
 import type { Params } from './types'
 
-/** Una guida per ogni profilo: l'id coincide con il profilo. */
+/** Una guida per ogni profilo: l'id coincide con il profilo, e ognuno vede solo la propria. */
 export type GuideId = Role
-
-/** Ordine nel selettore dello Space admin: dal profilo più ampio al più ristretto. */
-export const GUIDE_IDS: GuideId[] = ['super_admin', 'governance', 'director', 'hr', 'pm', 'viewer', 'turnista']
-
-export const GUIDE_LABEL: Record<GuideId, string> = {
-  super_admin: 'Guida Space admin',
-  governance: 'Guida Governance',
-  director: 'Guida Director',
-  hr: 'Guida HR',
-  pm: 'Guida PM',
-  viewer: 'Guida Viewer',
-  turnista: 'Guida turnisti',
-}
-
-export const isGuideId = (x: unknown): x is GuideId => GUIDE_IDS.includes(x as GuideId)
 
 /** Titolo e sottotitolo nell'intestazione della guida. */
 export const GUIDE_TITLE: Record<GuideId, [string, string]> = {
-  super_admin: ['Amministrare lo spazio', 'Account, profili, accesso alle RAL e team. Da qui leggi anche le guide di tutti gli altri profili.'],
+  super_admin: ['Amministrare lo spazio', 'Account, profili, accesso alle RAL e team.'],
   governance: ['Governare il piano di tutti i team', 'Calendario, anagrafica e parametri di tutti i team, conferma dei turni e controllo degli interventi.'],
   director: ['Gestire i turni del tuo team', 'Preparare il team, costruire il calendario, confermare i turni svolti e approvare gli interventi.'],
   hr: ['Monitorare ed esportare per le paghe', "Dove controllare l'andamento, come leggere il consuntivo, chiudere il mese ed esportare i file."],
@@ -39,16 +24,9 @@ export interface GuideCtx {
   exact: boolean
 }
 
-/** Link diretto: "#/guida" apre la guida del proprio profilo, "#/guida/hr" quella indicata. */
-export const guideHash = (id?: GuideId) => (id ? `#/guida/${id}` : '#/guida')
-export const isGuideHash = (hash: string) => /^#\/?guida(\/|$)/.test(hash)
-
-/** Guida richiesta dall'indirizzo, se c'è; un id sconosciuto apre quella del proprio profilo. */
-export function readGuideHash(hash: string, own: GuideId): GuideId | null {
-  const m = /^#\/?guida(?:\/([a-z_]*))?\/?$/.exec(hash)
-  if (!m) return null
-  return isGuideId(m[1]) ? m[1] : own
-}
+/** Link diretto alla guida: apre sempre quella del profilo di chi lo apre. */
+export const GUIDE_HASH = '#/guida'
+export const isGuideHash = (hash: string) => /^#\/?guida(\/[a-z_]*)?\/?$/.test(hash)
 
 /**
  * Guida già aperta su questo dispositivo: finché non lo è, il pulsante ha il puntino che pulsa.

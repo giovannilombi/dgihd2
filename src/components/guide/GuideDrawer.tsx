@@ -1,22 +1,21 @@
 import { useEffect, useRef } from 'react'
-import { GUIDE_IDS, GUIDE_LABEL, GUIDE_TITLE, GUIDE_TONE, guideSeen, type GuideCtx, type GuideId } from '../../lib/guides'
+import { GUIDE_TITLE, GUIDE_TONE, guideSeen, type GuideCtx, type GuideId } from '../../lib/guides'
 import { ROLE_LABEL } from '../../lib/roles'
 import { GuideDoc } from './GuideDoc'
 import { BookIcon } from './kit'
 
 /**
- * Pulsante della guida accanto al nome: colore del profilo e puntino che pulsa finché la guida
- * non è stata aperta su questo dispositivo. Su schermi stretti mostra solo "Guida".
+ * Pulsante "Guida" accanto al nome: colore del profilo e puntino che pulsa finché la guida
+ * non è stata aperta su questo dispositivo. Apre sempre la guida del proprio profilo.
  */
 export function GuideButton({ id, onOpen }: { id: GuideId; onOpen: () => void }) {
   const tone = GUIDE_TONE[id]
   const fresh = !guideSeen(id)
   return (
-    <button type="button" onClick={onOpen} aria-haspopup="dialog" title={`${GUIDE_LABEL[id]}: come funziona l'app per il profilo ${ROLE_LABEL[id]}`}
+    <button type="button" onClick={onOpen} aria-haspopup="dialog" title={`Guida per il profilo ${ROLE_LABEL[id]}`}
       className={`no-print relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ring-inset transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${tone.pill}`}>
       <BookIcon />
-      <span className="sm:hidden">Guida</span>
-      <span className="hidden sm:inline">{GUIDE_LABEL[id]}</span>
+      Guida
       {fresh && (
         <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5" aria-hidden>
           <span className={`absolute inset-0 rounded-full opacity-75 motion-safe:animate-ping ${tone.ping}`} />
@@ -29,17 +28,14 @@ export function GuideButton({ id, onOpen }: { id: GuideId; onOpen: () => void })
 }
 
 /**
- * Guida aperta: pannello a destra (a tutto schermo su telefono). Esc o il fondo scuro la chiudono;
- * il fuoco resta nel pannello e alla chiusura torna dove era. Lo Space admin può leggere le guide di tutti.
+ * Guida del proprio profilo: pannello a destra (a tutto schermo su telefono). Esc o il fondo scuro
+ * la chiudono; il fuoco resta nel pannello e alla chiusura torna dove era.
  */
-export function GuideDrawer({ id, own, ctx, onSwitch, onClose }: {
-  id: GuideId; own: GuideId; ctx: GuideCtx; onSwitch: (id: GuideId) => void; onClose: () => void
-}) {
+export function GuideDrawer({ id, ctx, onClose }: { id: GuideId; ctx: GuideCtx; onClose: () => void }) {
   const tone = GUIDE_TONE[id]
   const panelRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const switchable = own === 'super_admin'
   const [title, lead] = GUIDE_TITLE[id]
 
   useEffect(() => {
@@ -49,7 +45,6 @@ export function GuideDrawer({ id, own, ctx, onSwitch, onClose }: {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = overflow; back?.focus?.() }
   }, [])
-  useEffect(() => { scrollRef.current?.scrollTo(0, 0) }, [id])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { e.stopPropagation(); onClose(); return }
@@ -68,29 +63,22 @@ export function GuideDrawer({ id, own, ctx, onSwitch, onClose }: {
         className="guide-in relative flex h-full w-full max-w-3xl flex-col bg-white shadow-2xl">
         <header className="border-b border-slate-200 px-5 pb-4 pt-5 sm:px-8">
           <div className="flex items-start gap-3">
-            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${tone.solid}`}><BookIcon className="h-5 w-5" /></span>
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${tone.solid}`}><BookIcon className="h-5 w-5" /></span>
             <div className="min-w-0 flex-1">
-              <p className={`text-[11px] font-semibold uppercase tracking-wider ${tone.text}`}>Guida per il profilo {ROLE_LABEL[id]}</p>
-              <h2 id="guida-titolo" className="mt-0.5 text-xl font-semibold text-slate-900">{title}</h2>
-              <p className="mt-1 text-sm text-slate-500">{lead}</p>
+              <h2 id="guida-titolo" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xl font-semibold text-slate-900">
+                Guida per il profilo
+                <span className={`rounded-lg px-2.5 py-0.5 ${tone.solid}`}>{ROLE_LABEL[id]}</span>
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600"><span className="font-semibold text-slate-900">{title}.</span> {lead}</p>
             </div>
             <button ref={closeRef} type="button" onClick={onClose} aria-label="Chiudi la guida"
               className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-500 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
               <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M5 5l10 10M15 5L5 15" /></svg>
             </button>
           </div>
-          {switchable && (
-            <label className="mt-4 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-600">
-              Guida da mostrare
-              <select value={id} onChange={(e) => onSwitch(e.target.value as GuideId)}
-                className="rounded-lg bg-white px-2.5 py-1.5 text-sm text-slate-900 ring-1 ring-inset ring-slate-300">
-                {GUIDE_IDS.map((g) => <option key={g} value={g}>{GUIDE_LABEL[g]}{g === own ? ' (la tua)' : ''}</option>)}
-              </select>
-            </label>
-          )}
         </header>
         <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
-          <GuideDoc key={id} id={id} ctx={ctx} scrollRef={scrollRef} />
+          <GuideDoc id={id} ctx={ctx} scrollRef={scrollRef} />
         </div>
       </aside>
     </div>

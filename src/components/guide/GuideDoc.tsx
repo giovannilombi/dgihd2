@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode, type RefObject } from 'react'
 import { fmtEur } from '../../lib/economics'
-import { GUIDE_IDS, GUIDE_LABEL, GUIDE_TONE, guideHash, type GuideCtx, type GuideId } from '../../lib/guides'
+import { GUIDE_HASH, GUIDE_TONE, type GuideCtx, type GuideId } from '../../lib/guides'
 import { fmtMinutes, recognizedHours } from '../../lib/overtime'
 import { DEFAULT_PARAMS } from '../../lib/types'
 import { InterventionChip } from '../InterventionChip'
@@ -142,7 +142,12 @@ function legend(withInterventions = true) {
 function mineSection(): Sec {
   return {
     key: 'miei', title: 'Se sei anche di turno',
-    body: <P>Se il tuo account è collegato a una scheda del piano compare la scheda <Ui>I miei interventi</Ui>: a fine turno indichi <Ui>Nessun intervento</Ui> oppure <Ui>+ Intervento</Ui>, come i turnisti. Le regole sono nella Guida turnisti.</P>,
+    body: <List items={[
+      <>Se il tuo account è collegato a una scheda del piano compare la scheda <Ui>I miei interventi</Ui>.</>,
+      <>A fine turno indichi <Ui>Nessun intervento</Ui> oppure <Ui>+ Intervento</Ui> con inizio, fine e una nota.</>,
+      'Finché è in approvazione puoi modificarlo o eliminarlo; se viene rifiutato lo correggi e lo rimandi con un commento.',
+      'Non puoi approvare i tuoi interventi: li approva qualcun altro tra capo del team, PM e Space admin.',
+    ]} />,
   }
 }
 
@@ -363,6 +368,7 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
         {c.exact && <P>Ore riconosciute: minimo {ore(c.p.otMinHours)} per intervento, oltre l'ora contano i minuti sopra i {c.p.otToleranceMin}′; più {fmtEur(c.p.callFee)} per chiamata.</P>}
       </>,
     },
+    mineSection(),
   ]
 }
 
@@ -580,10 +586,10 @@ function spaceAdmin(): Sec[] {
       ]} />,
     },
     {
-      key: 'guide', title: 'Le guide degli altri profili',
+      key: 'guide', title: 'Le guide',
       body: <>
-        <P>Ogni profilo trova la sua guida accanto al proprio nome. Con il selettore in alto leggi quella di qualsiasi profilo; per mandarla a qualcuno usa il link diretto:</P>
-        <Table head={['Guida', 'Link']} rows={GUIDE_IDS.map((g) => [GUIDE_LABEL[g], <code key={g} className="select-all break-all font-mono text-xs text-slate-600">{base}{guideHash(g)}</code>])} />
+        <P>Ogni profilo ha il pulsante <Ui>Guida</Ui> accanto al nome e vede solo la guida del proprio profilo. Per mandarla a qualcuno usa questo link: si apre la guida del profilo di chi lo apre.</P>
+        <code className="block select-all break-all rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700 ring-1 ring-inset ring-slate-200">{base}{GUIDE_HASH}</code>
       </>,
     },
   ]

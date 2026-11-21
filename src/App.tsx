@@ -41,7 +41,7 @@ import { InterventionsReview } from './components/InterventionsReview'
 import { MyInterventions } from './components/MyInterventions'
 import { PayrollExportDialog } from './components/PayrollExportDialog'
 import { GuideButton, GuideDrawer } from './components/guide/GuideDrawer'
-import { GUIDE_LABEL, isGuideHash } from './lib/guides'
+import { isGuideHash } from './lib/guides'
 import { useGuide } from './lib/useGuide'
 import { buildPayrollXlsx, type PayrollExport } from './lib/payrollExport'
 import { consuntivaDay, consuntivaMonth, markDayErogato, unlockDay, useDayStatus } from './lib/useDayStatus'
@@ -165,7 +165,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   const page = usePage(allowed)
   const [menuOpen, setMenuOpen] = useState(false)
   const guide = useGuide(role)
-  const openGuide = () => guide.show(role)
+  const openGuide = guide.show
   const verify = (password: string) => verifyOwnPassword(profile.email, password)
 
   const [confirmExport, setConfirmExport] = useState(false)
@@ -338,7 +338,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
             <div className="ml-auto flex items-center gap-3">
               <SyncBadge status={status} />
               <GuideButton id={role} onOpen={openGuide} />
-              <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} guide={{ label: GUIDE_LABEL[role], onOpen: openGuide }} />
+              <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} onOpenGuide={openGuide} />
             </div>
           </div>
         </div>
@@ -394,8 +394,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         {syncError && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{syncError}</div>}
         {status === 'loading' ? <p className="py-10 text-center text-sm text-slate-500">Caricamento dei dati condivisi…</p> : sections[page]}
       </main>
-      {guide.open && <GuideDrawer id={guide.open} own={role} ctx={{ p: data.params, exact: canReadPlan(role) }}
-        onSwitch={guide.show} onClose={() => guide.close(`#/${page}`)} />}
+      {guide.open && <GuideDrawer id={role} ctx={{ p: data.params, exact: canReadPlan(role) }} onClose={() => guide.close(`#/${page}`)} />}
       {exportFormat && (
         <ExportDialog format={exportFormat} busy={exporting} onClose={() => setExportFormat(null)}
           onExport={(range, fileName) => runExport(exportFormat, range, fileName)} />
