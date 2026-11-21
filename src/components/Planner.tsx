@@ -8,6 +8,8 @@ import { mergeConflicts, mergeViolations, needsServerChecks, type ServerChecks, 
 import { availabilityLabel, preferredMax, type Assignments, type Params, type Person } from '../lib/types'
 import { Badge, Button } from './ui'
 import { useHeightVar, useStickyBar, useStickyOverlay } from '../lib/useStickyBar'
+import type { ShiftChipInfo } from '../lib/interventions'
+import { InterventionChip } from './InterventionChip'
 import { dayShiftEnd, dayState, lockedSlots, romeToday, shiftEnded, shortName, type DayPerms, type DayStatusMap } from '../lib/dayStatus'
 
 interface Props {
@@ -34,6 +36,8 @@ interface Props {
   days?: DayStatusMap
   /** Permessi e azioni sui giorni (Segna erogato, Consuntiva, Sblocca); assenti = nessuna azione. */
   dayActions?: DayActions
+  /** Stato degli interventi del turno (chip): solo per chi legge il consuntivo. */
+  ivChip?: (slotId: string) => ShiftChipInfo | null
 }
 
 export interface DayActions {
@@ -78,7 +82,7 @@ function MonthBanner({ label, st, heading }: { label: string; st: { covered: num
   )
 }
 
-export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, onSetDaysExcluded, readOnly = false, simple = false, autofill, serverChecks = null, serverChecksState = 'off', days = {}, dayActions }: Props) {
+export function Planner({ people, assignments, params, excludedDays, pinned, onChange, onToggleDay, onTogglePin, onSetDaysExcluded, readOnly = false, simple = false, autofill, serverChecks = null, serverChecksState = 'off', days = {}, dayActions, ivChip }: Props) {
   const pinnedSet = new Set(pinned)
   // Turni che auto-compilazione e "Svuota" non toccano: bloccati con la puntina o di giorni erogati
   const fixedSet = new Set([...pinned, ...lockedSlots(days, assignments)])
@@ -338,6 +342,7 @@ export function Planner({ people, assignments, params, excludedDays, pinned, onC
                                   })}
                                 </select>
                               </div>
+                              {person && ivChip && (() => { const info = ivChip(s.id); return info ? <InterventionChip info={info} className="mt-1" /> : null })()}
                             </div>
                           )
                         })}

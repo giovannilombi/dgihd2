@@ -9,6 +9,10 @@ import { supabase } from '../lib/supabase'
 import { useHeightVar } from '../lib/useStickyBar'
 import { Section } from './ui'
 import { UserMenu } from './UserMenu'
+import { MyInterventions } from './MyInterventions'
+import { useMyShifts } from '../lib/useInterventions'
+import { bySlot, shiftChip } from '../lib/interventions'
+import { romeNow } from '../lib/dayStatus'
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 const REFRESH_MS = 5 * 60_000
@@ -36,6 +40,12 @@ export function TurnistaApp({ profile, onLogout, onChangePassword }: { profile: 
   const [error, setError] = useState('')
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
   const headerRef = useHeightVar('--app-header-h')
+  const [page, setPage] = useState<'calendario' | 'interventi'>(() => (location.hash.includes('interventi') ? 'interventi' : 'calendario'))
+  const go = (p: 'calendario' | 'interventi') => { setPage(p); history.replaceState(null, '', p === 'interventi' ? '#/interventi' : '#/'); window.scrollTo(0, 0) }
+  const mine = useMyShifts(true)
+  const ivMap = bySlot(mine.data?.interventions ?? [])
+  const toFill = (mine.data?.shifts ?? []).filter((s) => !s.consuntivato && shiftChip(s.slot, ivMap[s.slot] ?? [], s.noIntervention, romeNow()).chip === 'todo').length
+  const rejected = (mine.data?.interventions ?? []).filter((x) => x.status === 'rejected').length
 
   const load = useCallback(async () => {
     const { data, error: err } = await supabase.rpc('turnista_calendar')
@@ -62,7 +72,15 @@ export function TurnistaApp({ profile, onLogout, onChangePassword }: { profile: 
       <header ref={headerRef} className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
           <span className="font-semibold text-slate-900">Piano reperibilità <span className="text-blue-700">- ARM</span></span>
-          <span className="rounded-md bg-blue-50 px-2.5 py-1.5 text-sm font-medium text-blue-800 ring-1 ring-blue-200">Calendario turni</span>
+          <nav className="flex flex-wrap gap-1 text-sm" aria-label="Sezioni">
+            {([['calendario', 'Calendario turni'], ['interventi', 'I miei interventi']] as const).map(([id, label]) => (
+              <button key={id} type="button" onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}
+                className={`rounded-md px-2.5 py-1.5 font-medium ${page === id ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
+                {label}
+                {id === 'interventi' && toFill + rejected > 0 && <span className="ml-1.5 rounded-full bg-orange-100 px-1.5 text-xs font-semibold text-orange-900 ring-1 ring-orange-300" title="Turni da compilare o interventi rifiutati">{toFill + rejected}</span>}
+              </button>
+            ))}
+          </nav>
           <div className="ml-auto flex items-center gap-2">
             {updatedAt && <span className="hidden text-xs text-slate-400 md:inline">Aggiornato alle {updatedAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>}
             <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} />
@@ -71,7 +89,9 @@ export function TurnistaApp({ profile, onLogout, onChangePassword }: { profile: 
       </header>
       <main className="mx-auto max-w-[1500px] space-y-4 px-4 py-6">
         {error && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>}
-        {cal ? <ShiftsCalendar cal={cal} /> : !error && <p className="py-10 text-center text-sm text-slate-500">Caricamento del calendario…</p>}
+        {page === 'interventi'
+          ? <Section id="interventi" title="I miei interventi"><MyInterventions data={mine.data} error={mine.error} reload={mine.reload} rules={mine.data?.rules} /></Section>
+          : cal ? <ShiftsCalendar cal={cal} /> : !error && <p className="py-10 text-center text-sm text-slate-500">Caricamento del calendario…</p>}
       </main>
     </div>
   )

@@ -4,6 +4,7 @@ import { HORIZON_LABEL } from '../lib/calendar'
 import { baseHourly, fmtEur, kNetto, fmtNum, fmtPct, slotEconomics } from '../lib/economics'
 import { GROUP_LABEL, LEVEL_GROUP, LEVEL_LABEL, LEVELS, type Level, type Params, type Person } from '../lib/types'
 import { Collapsible } from './ui'
+import { BAND_LABEL, BANDS, fmtMinutes, personOvertime, RATE_KEYS, rateLabel, rateOf, splitIntervention } from '../lib/overtime'
 
 function Tex({ children, block }: { children: string; block?: boolean }) {
   const html = katex.renderToString(children, { displayMode: !!block, throwOnError: false })
@@ -65,7 +66,7 @@ export function Approach({ params: p, people }: { params: Params; people: Person
         <H>2.1 Parametri contrattuali di riferimento</H>
         <UL>
           <li><strong>CCNL applicato:</strong> Metalmeccanici Industria, codice CNEL C011 (13 mensilità, divisore orario mensile <strong>173</strong>, divisore annuo <strong>2.249 ore</strong>).</li>
-          <li><strong>Paga base oraria</strong> (base per il calcolo dello straordinario degli interventi): <Tex>{String.raw`P_{base} = \dfrac{\text{RAL}}{13 \times 173} = \dfrac{\text{RAL}}{2.249}`}</Tex></li>
+          <li><strong>Paga base oraria</strong> (base per il calcolo dello straordinario degli interventi, vedi sezione 4): <Tex>{String.raw`P_{base} = \dfrac{\text{RAL}}{13 \times 173} = \dfrac{\text{RAL}}{${fmtNum(p.hourlyDivisor).replace('.', '{.}')}}`}</Tex></li>
         </UL>
 
         <H>2.2 Indennità tabellare minima di reperibilità (lorda)</H>
@@ -113,17 +114,92 @@ export function Approach({ params: p, people }: { params: Params; people: Person
         <UL>
           <li><strong>Liquidazione a consuntivo.</strong> Gli importi vengono caricati solo a fine mese, dopo la verifica dell'effettivo svolgimento del turno e in assenza di eventi impeditivi o infortuni, eliminando il rischio di incongruenze assicurative INAIL ex-ante.</li>
           <li><strong>Gettone integrativo.</strong> Voce retributiva dedicata, pari all'integrazione lorda calcolata dal simulatore: remunera la sola disponibilità passiva, è tracciabile turno per turno e non richiede di registrare in presenze ore non effettivamente lavorate.</li>
-          <li><strong>Interventi effettivi.</strong> Le ore di intervento, anche da remoto, sono orario di lavoro e vengono retribuite come lavoro straordinario con le maggiorazioni del CCNL per fascia (straordinario diurno, notturno, festivo), oltre all'indennità di reperibilità e al gettone.</li>
+          <li><strong>Interventi effettivi.</strong> Le ore di intervento, anche da remoto, sono orario di lavoro e vengono retribuite come lavoro straordinario con le maggiorazioni del CCNL per fascia (straordinario diurno, notturno, festivo), oltre all'indennità di reperibilità e al gettone, più {eur(p.callFee)} per chiamata (dettaglio nella sezione 4).</li>
         </UL>
         <H>3.3 Volontarietà ed equità della rotazione</H>
         <P>L'adesione è <strong>volontaria</strong> e regolata da una rotazione equa (max 2 turni/settimana non consecutivi, max 4 turni/mese). Ognuno può indicarsi come volontario, fissare un massimo di 1, 2 o 3 turni al mese oppure non esprimere preferenze: la pianificazione impiega prima i volontari e non supera mai i limiti indicati. Chi non aderisce esce dalla rotazione senza ripercussioni e la copertura viene ricalcolata sulle persone disponibili.</P>
       </Collapsible>
 
-      {/* 4. Tabella rapida – calcolata dal motore con i parametri correnti */}
-      <Collapsible title="4. Valori di riferimento per RAL e livello (CCNL Metalmeccanici)">
+      {/* 4. Straordinario per interventi – regole e calcolo sui parametri correnti */}
+      <Collapsible title="4. Interventi: come si calcola lo straordinario (CCNL art. 6 e 7)">
+        <OvertimeSection p={p} />
+      </Collapsible>
+
+      {/* 5. Tabella rapida – calcolata dal motore con i parametri correnti */}
+      <Collapsible title="5. Valori di riferimento per RAL e livello (CCNL Metalmeccanici)">
         <RefTable p={p} />
       </Collapsible>
     </div>
+  )
+}
+
+// ---------- Straordinario per interventi ----------
+const pct = (x: number) => `${fmtNum(Math.round(x * 1000) / 10)}%`
+const hh = (h: number) => `${String(Math.trunc(h)).padStart(2, '0')}:00`
+/** RAL di esempio (non riferita a nessuna persona) */
+const EXAMPLE_RAL = 30_000
+
+function OvertimeSection({ p }: { p: Params }) {
+  const hourly = EXAMPLE_RAL / p.hourlyDivisor
+  const examples = [
+    { id: 'a', title: 'Notte feriale a cavallo della mezzanotte', start: '2026-11-19T22:40', end: '2026-11-20T00:15', when: 'giovedì 22:40 → venerdì 00:15' },
+    { id: 'b', title: 'Sabato notte che prosegue nella domenica', start: '2026-11-28T23:30', end: '2026-11-29T00:40', when: 'sabato 23:30 → domenica 00:40' },
+    { id: 'c', title: 'Due chiamate nella stessa sera feriale', start: '2026-11-30T18:30', end: '2026-11-30T20:00', when: 'lunedì 18:30 → 20:00 e 20:30 → 21:15', extra: { id: 'c2', start: '2026-11-30T20:30', end: '2026-11-30T21:15' } },
+  ]
+  return (
+    <>
+      <P>Gli interventi effettivi durante la reperibilità, anche da remoto, sono orario di lavoro: si pagano come <strong>lavoro straordinario</strong> con le maggiorazioni del CCNL (art. 7, lavoratori non turnisti), sempre <strong>in aggiunta</strong> a indennità di reperibilità e gettone integrativo (nessuno storno). Il turnista li dichiara a fine turno (oppure indica "Nessun intervento"); li approva il director del suo team o il super admin. Entrano nel consuntivo solo gli interventi approvati.</P>
+      <H>4.1 Ore riconosciute</H>
+      <UL>
+        <li>Ogni intervento vale almeno <strong>{fmtNum(p.otMinHours)} {p.otMinHours === 1 ? 'ora' : 'ore'}</strong>; oltre, si contano le ore intere e i minuti oltre l'ora solo se superano <strong>{fmtNum(p.otToleranceMin)} minuti</strong> (es. 1h{String(p.otToleranceMin).padStart(2, '0')} → 1 ora, 1h{String(Math.min(59, p.otToleranceMin + 1)).padStart(2, '0')} → 2 ore).</li>
+        <li>I minuti si dividono per <strong>fascia</strong> secondo il giorno di calendario del minuto lavorato: <strong>feriale</strong> da lunedì a sabato, <strong>festivo</strong> domeniche e festività; <strong>notte</strong> dalle {hh(p.otNightStart)} alle {hh(p.otNightEnd)}. Il sabato dopo mezzanotte è già domenica.</li>
+        <li>I minuti di arrotondamento vanno nella fascia in cui l'intervento <strong>finisce</strong>.</li>
+        <li>Feriale diurno: le prime <strong>{fmtNum(p.otDayFirstHours)} ore del giorno</strong> (sommando in ordine di orario gli interventi del giorno) a {pct(p.otDayFirst)}, le successive a {pct(p.otDayNext)}.</li>
+      </UL>
+      <H>4.2 Maggiorazioni applicate</H>
+      <div className="overflow-x-auto">
+        <table className="num w-full min-w-[420px] text-sm">
+          <thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="py-2 pr-3">Fascia</th><th className="py-2 text-right">Maggiorazione</th></tr></thead>
+          <tbody>
+            {RATE_KEYS.map((k) => <tr key={k} className="border-b border-slate-100"><td className="py-1.5 pr-3">{rateLabel(k, p)}</td><td className="py-1.5 text-right">{pct(rateOf(k, p))}</td></tr>)}
+          </tbody>
+        </table>
+      </div>
+      <P>Festivo e notturno festivo si applicano <strong>dalla prima ora</strong> (straordinario festivo {pct(p.otHoliday)}, straordinario notturno festivo {pct(p.otHolidayNight)}): di domenica o in un festivo non lavorato le ore di intervento sono aggiuntive all'orario normale. Tutti i valori sono modificabili in Parametri → blocco B.</P>
+      <H>4.3 Formula</H>
+      <Tex block>{String.raw`P_{base} = rac{	ext{RAL}}{${fmtNum(p.hourlyDivisor).replace('.', '{.}')}} \qquad S = \sum_{f} h_f 	imes P_{base} 	imes (1 + m_f) \;+\; n_{chiamate} 	imes ${fmtNum(p.callFee).replace(',', '{,}')}\,€`}</Tex>
+      <P>
+        <Tex>{String.raw`h_f`}</Tex> = ore riconosciute nella fascia <Tex>f</Tex>, <Tex>{String.raw`m_f`}</Tex> = maggiorazione della fascia. Per ogni <strong>chiamata seguita da intervento effettivo</strong>, anche da remoto, si aggiungono {eur(p.callFee)} (art. 6, esclusi dalla base del TFR). Nessun tempo di viaggio (interventi da remoto).
+        La paga oraria si stima dalla RAL (173 ore × 13 mensilità); il valore esatto (art. 3: elementi fissi mensili ÷ 173) lo applica l'ufficio paghe. Per le persone con RAL non comunicata (Q/) si indicano solo le ore, finché non viene inserita la RAL puntuale.
+      </P>
+      <H>4.4 Esempi con una RAL di {fmtEur(EXAMPLE_RAL)} (paga oraria {fmtEur(hourly)})</H>
+      <div className="overflow-x-auto">
+        <table className="num w-full min-w-[640px] text-sm">
+          <thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="py-2 pr-3">Interventi</th><th className="py-2 pr-3">Durata → riconosciute</th><th className="py-2 pr-3">Ore per fascia</th><th className="py-2 text-right">Straordinario + chiamate</th></tr></thead>
+          <tbody>
+            {examples.map((ex) => {
+              const list = [{ id: ex.id, start: ex.start, end: ex.end }, ...(ex.extra ? [ex.extra] : [])]
+              const ot = personOvertime(list, EXAMPLE_RAL, p)
+              const split = list.map((x) => splitIntervention(x, p))
+              const minutes = split.reduce((t, x) => t + x.minutes, 0)
+              return (
+                <tr key={ex.id} className="border-b border-slate-100 align-top">
+                  <td className="py-2 pr-3"><div className="font-medium text-slate-900">{ex.title}</div><div className="text-xs text-slate-500">{ex.when}</div></td>
+                  <td className="py-2 pr-3">{split.map((x) => `${fmtMinutes(x.minutes)} → ${x.hours} h`).join(' · ')}{split.length > 1 ? ` (tot. ${fmtMinutes(minutes)})` : ''}</td>
+                  <td className="py-2 pr-3 text-xs text-slate-600">
+                    {RATE_KEYS.filter((k) => ot.byRate[k] > 0).map((k) => <div key={k}>{rateLabel(k, p)} ({pct(rateOf(k, p))}): {fmtMinutes(ot.byRate[k])}</div>)}
+                  </td>
+                  <td className="py-2 text-right whitespace-nowrap"><strong>{fmtEur(ot.total ?? 0)}</strong><div className="text-xs text-slate-500">{fmtEur(ot.amount ?? 0)} + {ot.calls} × {fmtEur(p.callFee)}</div></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Fasce: {BANDS.map((b) => BAND_LABEL[b]).join(', ')}. Nota CCNL sul sabato (straordinario oltre le prime 2 ore al di fuori della manutenzione: 50%): riportata come nota, non applicata nel calcolo; il sabato è trattato come feriale.
+      </p>
+    </>
   )
 }
 

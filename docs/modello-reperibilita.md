@@ -210,6 +210,27 @@ Altre regole dell'art. 7 rilevanti:
   cui l'intervento termina**.
 - Ogni intervento dà diritto anche al compenso per chiamata di 5,00 € (§ 6.1).
 - "Prime 2 ore / successive" dello straordinario diurno si contano per giornata.
+- Calcolo: `P_base = RAL ÷ divisore` (2.249 = 173 × 13), `S = Σ h_fascia × P_base × (1 + m_fascia) + n_chiamate × 5 €`.
+  Si liquidano solo gli interventi **approvati**. Per le persone con RAL Q/ (o RAL non inserita) si mostrano
+  solo le ore, con l'indicazione di inserire la RAL puntuale.
+- Esempi (RAL di esempio 30.000 €, paga oraria ≈ 13,34 €):
+  - giovedì 22:40 → venerdì 00:15 (95' → 2 h): 2 h notturno feriale al 50% → 40,02 € + 5 €;
+  - sabato 23:30 → domenica 00:40 (70' → 1 h): 30' notturno feriale al 50% + 30' notturno festivo al 75%
+    → 21,68 € + 5 €;
+  - lunedì 18:30 → 20:00 (90' → 2 h) e 20:30 → 21:15 (45' → 1 h): 2 h al 25% + 1 h al 30% → 50,69 € + 10 €.
+- Regole applicate dal database (funzioni `add_intervention`, `update_intervention`, `delete_intervention`,
+  `declare_no_intervention`, `decide_intervention`, `my_shifts`):
+  - si dichiara solo sui propri turni (account collegato alla scheda o con la stessa email), con inizio
+    durante il turno, mai per interventi non ancora conclusi, senza sovrapposizioni, al massimo 16 ore;
+  - "Nessun intervento" solo a turno finito e se non ci sono interventi;
+  - dopo il **consuntivato** il turnista non aggiunge, modifica o elimina più; si può ancora approvare o
+    rifiutare;
+  - il director non decide sui propri interventi (lo fa il super admin); il rifiuto richiede un motivo.
+- Visibilità: interventi, ore e fasce a chi legge l'anagrafica completa e a ciascuno per i propri; importi
+  solo ai team che vedono tutto (HR, Governance) e al director del team della persona.
+- Dove: "I miei interventi" (turnisti e chiunque sia collegato a una scheda, da telefono e desktop),
+  "Interventi" (approvazione, filtri per team, ordinamento per data, turnista, team), chip nel calendario,
+  colonne Interventi e Straordinario nel Consuntivo, sezione 4 dell'Approccio con formula ed esempi.
 
 ## 8. Erogato, consuntivato, sblocco
 

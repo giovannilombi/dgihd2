@@ -34,7 +34,11 @@ import { TeamsProvider } from './components/TeamsProvider'
 import { regenerate } from './lib/rules'
 import { callFunction } from './lib/supabase'
 import { needsServerChecks, useServerChecks } from './lib/serverChecks'
-import { dayPerms, lockedSlots } from './lib/dayStatus'
+import { dayPerms, lockedSlots, romeNow } from './lib/dayStatus'
+import { amountsVisible, bySlot, shiftChip } from './lib/interventions'
+import { useInterventions, useMyShifts } from './lib/useInterventions'
+import { InterventionsReview } from './components/InterventionsReview'
+import { MyInterventions } from './components/MyInterventions'
 import { consuntivaDay, consuntivaMonth, markDayErogato, unlockDay, useDayStatus } from './lib/useDayStatus'
 import type { DayActions } from './components/Planner'
 
@@ -45,14 +49,19 @@ const NAV = [
   ['planner', 'C · Calendario'],
   ['payroll', 'D · Consuntivo'],
   ['pnl', 'E · Conto economico'],
+  ['interventi', 'Interventi'],
+  ['miei', 'I miei interventi'],
   ['users', 'Utenti'],
 ] as const
 type PageId = (typeof NAV)[number][0]
 
-/** Pagine visibili per livello: il viewer vede solo il calendario, la gestione utenti è del super admin. */
-const pagesFor = (role: Role): PageId[] =>
-  role === 'viewer' ? ['planner']
-  : NAV.map(([id]) => id).filter((id) => id !== 'users' || canManageUsers(role))
+/**
+ * Pagine visibili per livello: il viewer vede solo il calendario, la gestione utenti è del super admin.
+ * "I miei interventi" compare a chi è collegato a una scheda del piano (anche se è di turno).
+ */
+const pagesFor = (role: Role, linked: boolean): PageId[] =>
+  role === 'viewer' ? ['planner', ...(linked ? ['miei' as const] : [])]
+  : NAV.map(([id]) => id).filter((id) => (id !== 'users' || canManageUsers(role)) && (id !== 'miei' || linked))
 
 const readPage = (allowed: PageId[]): PageId => {
   const h = location.hash.replace(/^#\/?/, '') as PageId
@@ -115,6 +124,13 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     unlock: async (day, note) => { await unlockDay(day, note); await reloadDays() },
   }
   const closeMonth = async (month: string) => { const n = await consuntivaMonth(month); await reloadDays(); return n }
+  // Interventi: tutti per chi legge il consuntivo; i propri per chi è collegato a una scheda del piano
+  const { ivs, noInt } = useInterventions(canReadFull(role))
+  const mine = useMyShifts(true)
+  const myPersonId = mine.data?.me?.id ?? null
+  const ivBySlot = bySlot(ivs)
+  const ivChip = canReadFull(role) ? (sid: string) => { const info = shiftChip(sid, ivBySlot[sid] ?? [], noInt.has(sid), romeNow()); return info.chip === 'future' || info.chip === 'running' ? null : info } : undefined
+  const pendingCount = ivs.filter((x) => x.status === 'pending').length
   /**
    * Auto-compilazione: in pagina se l'utente vede tutte le RAL e non ci sono RAL Q/, altrimenti sul
    * server (che conosce RAL e media di riferimento) dopo aver salvato le modifiche in corso.
@@ -130,7 +146,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     return out
   }
   const fileRef = useRef<HTMLInputElement>(null)
-  const allowed = pagesFor(role)
+  const allowed = pagesFor(role, !!myPersonId)
   const page = usePage(allowed)
   const [menuOpen, setMenuOpen] = useState(false)
   const verify = (password: string) => verifyOwnPassword(profile.email, password)
@@ -243,7 +259,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         <Planner readOnly={!editable} simple={role === 'viewer'} people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} pinned={data.pinned}
           onChange={(assignments) => setData((d) => ({ ...d, assignments }))} onToggleDay={toggleDay}
           autofill={autofill} serverChecks={serverChecks} serverChecksState={serverChecksState}
-          onSetDaysExcluded={setDaysExcluded} days={days} dayActions={dayActions}
+          onSetDaysExcluded={setDaysExcluded} days={days} dayActions={dayActions} ivChip={role === 'viewer' ? undefined : ivChip}
           onTogglePin={(sid) => setData((d) => ({ ...d, pinned: d.pinned.includes(sid) ? d.pinned.filter((x) => x !== sid) : [...d.pinned, sid] }))} />
       </Section>
     ),
@@ -251,7 +267,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone integrativo e totale lordo."
         actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
         <Payroll people={data.people} assignments={data.assignments} params={data.params} nd={serverChecks?.nd}
-          days={days} canCloseMonth={editable || (canReadFull(role) && seesAllSalaries(teams, profile.team)) || teams.list.some((t) => t.directorId === profile.id)} onCloseMonth={closeMonth} />
+          days={days} canCloseMonth={editable || (canReadFull(role) && seesAllSalaries(teams, profile.team)) || teams.list.some((t) => t.directorId === profile.id)} onCloseMonth={closeMonth}
+          interventions={ivs} ivChip={ivChip} showAmounts={(p) => amountsVisible(p, me, teams)} />
       </Section>
     ),
     pnl: (
@@ -259,6 +276,16 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} nd={serverChecks?.nd} />
       </Section>
     ),
+    interventi: canReadFull(role) ? (
+      <Section id="interventi" title="Interventi in reperibilità" subtitle="Dichiarati dai turnisti; li approva o rifiuta il director del team della persona o il super admin. Si pagano come straordinario CCNL, in aggiunta a indennità e gettone.">
+        <InterventionsReview ivs={ivs} noInt={noInt} people={data.people} assignments={data.assignments} params={data.params} me={me} myPersonId={myPersonId} teams={teams} />
+      </Section>
+    ) : null,
+    miei: myPersonId ? (
+      <Section id="miei" title="I miei interventi">
+        <MyInterventions data={mine.data} error={mine.error} reload={mine.reload} rules={canReadFull(role) ? data.params : undefined} />
+      </Section>
+    ) : null,
     users: canManageUsers(role) ? (
       <Section id="users" title="Utenti e livelli di accesso" subtitle="Solo il super admin vede questa pagina.">
         <UsersPage me={profile} people={data.people} flush={flush} />
@@ -276,6 +303,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
               <a key={id} href={`#/${id}`} aria-current={page === id ? 'page' : undefined}
                 className={`rounded-md px-2.5 py-1.5 font-medium ${page === id ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
                 {label}
+                {id === 'interventi' && pendingCount > 0 && <span className="ml-1.5 rounded-full bg-yellow-100 px-1.5 text-xs font-semibold text-yellow-900 ring-1 ring-yellow-300" title="Interventi in approvazione">{pendingCount}</span>}
               </a>
             ))}
           </nav>
