@@ -16,7 +16,7 @@ interface Props {
   nd?: NdData
   /** Giorni erogati e consuntivati: negli importi erogati entrano solo i turni dei giorni erogati. */
   days?: DayStatusMap
-  /** Può consuntivare un mese intero (Super admin, Governance, Director, HR). */
+  /** Può consuntivare un mese intero (Space admin, Governance, Director, HR). */
   canCloseMonth?: boolean
   onCloseMonth?: (month: string) => Promise<number>
   /** Interventi (si liquidano solo gli approvati) e stato degli interventi del turno */
@@ -68,7 +68,7 @@ export function Payroll({ people, assignments, params, nd, days = {}, canCloseMo
   const hasIv = interventions.length > 0 || !!ivChip
   const pendingNd = people.filter((x) => x.ralNd && !x.salaryHidden && !nd?.[x.id] && Object.values(assignments).includes(x.id)).length
   const pendingNote = pendingNd > 0 && <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">Calcolo in corso per {pendingNd === 1 ? '1 persona' : `${pendingNd} persone`} con RAL Q/: i loro importi vengono calcolati dal server.</p>
-  if (!months.length) return pendingNote || <p className="text-sm text-slate-500">Nessun turno assegnato: compila il calendario (Sezione C) per generare il consuntivo.</p>
+  if (!months.length) return pendingNote || <p className="text-sm text-slate-500">Nessun turno assegnato: compila il calendario (pagina Calendario) per generare il consuntivo.</p>
   return (
     <div className="space-y-8">
       {pendingNote}

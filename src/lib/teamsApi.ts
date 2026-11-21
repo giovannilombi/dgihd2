@@ -15,7 +15,7 @@ function teamError(message: string): Error {
 }
 const check = (r: { error: { message: string } | null }) => { if (r.error) throw teamError(r.error.message) }
 
-/** Gestione dei team: le regole RLS la consentono solo al super admin. */
+/** Gestione dei team: le regole RLS la consentono solo allo space admin. */
 export async function createTeam(label: string, dir: TeamDir): Promise<TeamId> {
   const id = teamSlug(label, dir.list.map((t) => t.id))
   const sort = Math.max(0, ...dir.list.map((t) => t.sort)) + 10

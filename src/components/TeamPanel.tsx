@@ -23,13 +23,13 @@ interface Props {
   /** Team dell'utente: RAL e livello delle risorse di altri team non sono mai visibili. */
   myTeam: TeamId | null
   role: Role
-  /** Solo chi vede tutti i team (Governance, Super admin) può assegnare o cambiare il team di una risorsa. */
+  /** Solo chi vede tutti i team (Governance, Space admin) può assegnare o cambiare il team di una risorsa. */
   canSetTeam: boolean
   /** Team assegnato alle risorse aggiunte da chi non può sceglierlo (il proprio). */
   newTeam: TeamId | null
-  /** Account esistenti: solo per il super admin, che vede il tipo di account di ogni risorsa. */
+  /** Account esistenti: solo per lo space admin, che vede il tipo di account di ogni risorsa. */
   accounts?: AccountInfo[]
-  /** Crea l'account Turnista della risorsa (solo super admin). */
+  /** Crea l'account Turnista della risorsa (solo space admin). */
   onCreateAccount?: (p: Person) => Promise<void>
 }
 
@@ -87,6 +87,22 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, rol
     setEditing(null)
   }
   const update = (id: string, patch: Partial<Person>) => onChange(people.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+  /**
+   * Il team di una risorsa decide quale capo di team ne vede la RAL e ne approva gli interventi:
+   * prima di cambiarlo si dice chi accederà ai suoi dati e si chiede conferma.
+   */
+  const changeTeam = (p: Person, value: string) => {
+    const team = value || null
+    if (team === (p.team ?? null)) return
+    const headName = (t: TeamId) => {
+      const h = accounts?.find((x) => x.team === t && (x.role === 'director' || x.role === 'super_admin'))
+      return h ? ` (${h.display_name || h.email})` : ''
+    }
+    const msg = team
+      ? `Spostare ${p.name} nel team ${teamLabel(teams, team)}?\n\nAttenzione: RAL, livello e importi di ${p.name} diventeranno visibili al capo del team ${teamLabel(teams, team)}${headName(team)}, oltre che a Space admin, Governance e HR. Il capo del team ne approverà anche gli interventi.${p.team ? `\n\nNon li vedrà più il capo del team ${teamLabel(teams, p.team)}.` : ''}`
+      : `Togliere ${p.name} dal team ${teamLabel(teams, p.team)}?\n\nRAL e importi resteranno visibili solo a Space admin, Governance e HR.`
+    if (confirm(msg)) update(p.id, { team })
+  }
 
   /** Le nuove risorse nascono nel team dell'utente (HR e Governance lo scelgono poi dalla tabella). */
   const newPersonTeam = canSetTeam ? null : newTeam
@@ -182,13 +198,13 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, rol
                   </td>
                   <td className="py-2 pr-3">
                     {canSetTeam ? (
-                      <select aria-label={`Team di ${p.name}`} value={p.team ?? ''} onChange={(e) => update(p.id, { team: e.target.value || null })}
+                      <select aria-label={`Team di ${p.name}`} value={p.team ?? ''} onChange={(e) => changeTeam(p, e.target.value)}
                         className={`rounded-md bg-white px-2 py-1 ring-1 ring-inset ${p.team ? 'ring-slate-200' : 'text-amber-800 ring-amber-300'}`}>
                         <option value="">— da assegnare —</option>
                         {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                         {p.team && !teams.byId[p.team] && <option value={p.team}>{p.team}</option>}
                       </select>
-                    ) : <span className="text-sm text-slate-700" title="Il team di una risorsa lo assegnano i profili Governance e Super admin">{p.team ? teamLabel(teams, p.team) : '—'}</span>}
+                    ) : <span className="text-sm text-slate-700" title="Il team di una risorsa lo assegnano i profili Governance e Space admin">{p.team ? teamLabel(teams, p.team) : '—'}</span>}
                   </td>
                   <td className="py-2 pr-3">
                     {p.salaryHidden ? <Reserved w="w-16" team={p.team} /> : open ? (
@@ -298,7 +314,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, rol
         {canSetTeam && noTeam > 0 && <Badge tone="amber" title="Senza team, RAL e livello sono visibili solo a HR e Governance">{noTeam} senza team</Badge>}
         {hiddenCount > 0 && <Badge tone="slate" title="RAL e livello visibili solo al loro team, a HR e a Governance; i vincoli che ne dipendono sono verificati dal server">{hiddenCount} di altri team · RAL riservata</Badge>}
         {missingEmail > 0 && <Badge tone="amber" title="L'email è obbligatoria: serve a riconoscere l'account della persona">{missingEmail} {missingEmail === 1 ? 'email da inserire' : 'email da inserire'}</Badge>}
-        {accounts && withoutAccount > 0 && <Badge tone="slate" title="Risorse senza account: il super admin può crearlo da qui o dalla pagina Utenti, scheda Turnisti">{withoutAccount} senza account</Badge>}
+        {accounts && withoutAccount > 0 && <Badge tone="slate" title="Risorse senza account: lo space admin può crearlo da qui o dalla pagina Utenti, scheda Turnisti">{withoutAccount} senza account</Badge>}
         <span className="text-xs text-slate-500">L'auto-compilazione impiega prima i volontari, poi chi ha un limite (senza superarlo), infine chi non ha espresso preferenze; le riserve solo se nessun primario è disponibile.</span>
       </div>
       <div className="overflow-x-auto">
@@ -313,7 +329,7 @@ export function TeamPanel({ people, assignments, onChange, revealed, myTeam, rol
               <th className="py-2 pr-3 font-medium" title="Primario: in rotazione. Riserva: usata solo se nessun primario è disponibile. KO: fuori rotazione">Ruolo</th>
               <th className="py-2 pr-3 font-medium" title="Usata dall'auto-compilazione: prima i volontari, poi chi ha un limite (rispettato), infine chi non ha espresso preferenze">Disponibilità</th>
               <th className="py-2 pr-3 font-medium" title="Ferie/assenze (blocco assoluto) e giorni di disponibilità (preferenza)">Calendario personale</th>
-              <th className="py-2 pr-3 text-right font-medium" title="Calcolato automaticamente dal calendario (Sezione C): non modificabile">Turni assegnati</th>
+              <th className="py-2 pr-3 text-right font-medium" title="Calcolato automaticamente dal calendario (pagina Calendario): non modificabile">Turni assegnati</th>
               <th className="py-2" />
             </tr>
           </thead>
@@ -480,7 +496,7 @@ const ROLE_STYLE: Record<RoleValue, string> = {
   ko: 'bg-red-50 text-red-700 ring-red-200',
 }
 
-/** Tipo di account della risorsa (solo super admin); senza account e con l'email, un clic lo crea. */
+/** Tipo di account della risorsa (solo space admin); senza account e con l'email, un clic lo crea. */
 function AccountChip({ person, accounts, canCreate, onCreate }: { person: Person; accounts: AccountInfo[]; canCreate: boolean; onCreate: () => void }) {
   const acc = accountFor(person, accounts)
   const base = 'inline-flex items-center gap-1 rounded-md px-1.5 py-px text-[11px] font-semibold whitespace-nowrap ring-1 ring-inset'

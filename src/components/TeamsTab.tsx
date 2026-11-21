@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { type Profile } from '../lib/roles'
+import { ROLE_LABEL, type Profile } from '../lib/roles'
 import type { Person } from '../lib/types'
 import { teamLabelError, type Team } from '../lib/teams'
 import { createTeam, deleteTeam, updateTeam } from '../lib/teamsApi'
@@ -9,8 +9,8 @@ import { Button } from './ui'
 const inputCls = 'rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300'
 
 /**
- * Gestione dei team (solo super admin): il team indica solo l'appartenenza di risorse e account.
- * I Director di un team sono gli account con profilo Director in quel team (possono essere più di uno).
+ * Gestione dei team (solo space admin): il team indica solo l'appartenenza di risorse e account.
+ * Ogni team ha un solo capo: il suo Director, oppure lo Space admin assegnato a quel team.
  */
 export function TeamsTab({ people, users, loading }: { people: Person[]; users: Profile[]; loading: boolean }) {
   const teams = useTeams()
@@ -27,7 +27,7 @@ export function TeamsTab({ people, users, loading }: { people: Person[]; users: 
   }
   const resourcesOf = (t: Team) => people.filter((p) => p.team === t.id).length
   const accountsOf = (t: Team) => users.filter((u) => u.team === t.id)
-  const directorsOf = (t: Team) => accountsOf(t).filter((u) => u.role === 'director').map((u) => u.display_name || u.email).sort((a, b) => a.localeCompare(b, 'it'))
+  const headOf = (t: Team) => accountsOf(t).find((u) => u.role === 'director' || u.role === 'super_admin')
 
   const create = (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,7 +50,7 @@ export function TeamsTab({ people, users, loading }: { people: Person[]; users: 
     <div className="space-y-4">
       <p className="text-sm text-slate-600">
         Il team indica a quale gruppo appartengono risorse e account. Cosa vede e può fare ogni account lo decide il suo <strong>profilo</strong> (scheda Account).
-        I <strong>Director</strong> di un team sono gli account con profilo Director in quel team: vedono RAL e importi delle sole risorse del team e ne approvano gli interventi. Gli interventi di tutti i team li approvano anche i PM e il super admin.
+        Ogni team ha <strong>un solo capo</strong>: il suo <strong>Director</strong> (vede RAL e importi delle sole risorse del team e ne approva gli interventi), oppure lo Space admin se è assegnato a quel team. Gli interventi di tutti i team li approvano anche i PM e lo Space admin.
       </p>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
@@ -59,7 +59,7 @@ export function TeamsTab({ people, users, loading }: { people: Person[]; users: 
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-2 pr-3 font-medium">Team</th>
-              <th className="py-2 pr-3 font-medium">Director</th>
+              <th className="py-2 pr-3 font-medium">Capo del team</th>
               <th className="py-2 pr-3 font-medium">Risorse</th>
               <th className="py-2 pr-3 font-medium">Account</th>
               <th className="py-2"><span className="sr-only">Azioni</span></th>
@@ -69,7 +69,7 @@ export function TeamsTab({ people, users, loading }: { people: Person[]; users: 
             {teams.list.map((t) => {
               const nRes = resourcesOf(t)
               const nAcc = accountsOf(t).length
-              const dirs = directorsOf(t)
+              const head = headOf(t)
               const inUse = nRes > 0 || nAcc > 0
               return (
                 <tr key={t.id} className="border-b border-slate-100 align-middle">
@@ -83,7 +83,7 @@ export function TeamsTab({ people, users, loading }: { people: Person[]; users: 
                       </form>
                     ) : <span className="font-semibold text-slate-900">{t.label}</span>}
                   </td>
-                  <td className="py-2 pr-3 text-slate-700">{loading ? '…' : dirs.length ? dirs.join(', ') : <span className="text-slate-400">nessuno: approvano PM e super admin</span>}</td>
+                  <td className="py-2 pr-3 text-slate-700">{loading ? '…' : head ? <>{head.display_name || head.email} <span className="text-xs text-slate-500">({ROLE_LABEL[head.role]})</span></> : <span className="text-slate-400">nessuno: approvano PM e Space admin</span>}</td>
                   <td className="py-2 pr-3 tabular-nums text-slate-700">{nRes}</td>
                   <td className="py-2 pr-3 tabular-nums text-slate-700">{loading ? '…' : nAcc}</td>
                   <td className="py-2 text-right whitespace-nowrap">
@@ -104,7 +104,7 @@ export function TeamsTab({ people, users, loading }: { people: Person[]; users: 
           <input value={newLabel} maxLength={40} onChange={(e) => setNewLabel(e.target.value)} placeholder="Es. Data" className={`mt-1 block w-full ${inputCls}`} />
         </label>
         <Button type="submit" variant="primary" disabled={busy || !newLabel.trim()}>+ Crea team</Button>
-        <p className="w-full text-xs text-slate-500">Un team con risorse o account non si può eliminare: prima vanno spostati. Per nominare un Director, nella scheda Account assegna il profilo Director e il team.</p>
+        <p className="w-full text-xs text-slate-500">Un team con risorse o account non si può eliminare: prima vanno spostati. Per nominare il capo, nella scheda Account assegna il profilo Director e il team: l'app chiede conferma mostrando quali RAL vedrà.</p>
       </form>
     </div>
   )

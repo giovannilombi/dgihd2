@@ -44,21 +44,22 @@ import { buildPayrollXlsx, type PayrollExport } from './lib/payrollExport'
 import { consuntivaDay, consuntivaMonth, markDayErogato, unlockDay, useDayStatus } from './lib/useDayStatus'
 import type { DayActions } from './components/Planner'
 
+/** Pagine nell'ordine del lavoro; "I miei interventi" e "Utenti" stanno a parte nella riga delle schede. */
 const NAV = [
   ['doc', 'Approccio'],
-  ['params', 'A · Parametri'],
-  ['team', 'B · Team'],
-  ['planner', 'C · Calendario'],
-  ['payroll', 'D · Consuntivo'],
-  ['pnl', 'E · Conto economico'],
+  ['params', 'Parametri'],
+  ['team', 'Team'],
+  ['planner', 'Calendario'],
   ['interventi', 'Interventi'],
+  ['payroll', 'Consuntivo'],
+  ['pnl', 'Conto economico'],
   ['miei', 'I miei interventi'],
   ['users', 'Utenti'],
 ] as const
 type PageId = (typeof NAV)[number][0]
 
 /**
- * Pagine visibili per livello: il viewer vede solo il calendario, la gestione utenti è del super admin.
+ * Pagine visibili per livello: il viewer vede solo il calendario, la gestione utenti è dello space admin.
  * "I miei interventi" compare a chi è collegato a una scheda del piano (anche se è di turno).
  */
 const pagesFor = (role: Role, linked: boolean): PageId[] => {
@@ -97,7 +98,7 @@ export default function App() {
       <div className="grid min-h-screen place-items-center bg-slate-100 px-4">
         <div className="max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-sm shadow-sm">
           <h1 className="text-lg font-semibold text-slate-900">Account non abilitato</h1>
-          <p className="mt-2 text-slate-600">Questo account non ha un livello di accesso assegnato. Contatta il super admin.</p>
+          <p className="mt-2 text-slate-600">Questo account non ha un livello di accesso assegnato. Contatta lo space admin.</p>
           <Button className="mt-4" onClick={signOut}>Esci</Button>
         </div>
       </div>
@@ -137,6 +138,10 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   const ivBySlot = bySlot(ivs)
   const ivChip = canReadPlan(role) ? (sid: string) => { const info = shiftChip(sid, ivBySlot[sid] ?? [], noInt.has(sid), romeNow()); return info.chip === 'future' || info.chip === 'running' ? null : info } : undefined
   const pendingCount = ivs.filter((x) => x.status === 'pending').length
+  // I miei interventi: turni da compilare e interventi rifiutati da correggere
+  const myIvBySlot = bySlot(mine.data?.interventions ?? [])
+  const myTodo = (mine.data?.shifts ?? []).filter((s) => !s.consuntivato && shiftChip(s.slot, myIvBySlot[s.slot] ?? [], s.noIntervention, romeNow()).chip === 'todo').length
+    + (mine.data?.interventions ?? []).filter((x) => x.status === 'rejected').length
   /**
    * Auto-compilazione: in pagina se l'utente vede tutte le RAL e non ci sono RAL Q/, altrimenti sul
    * server (che conosce RAL e media di riferimento) dopo aver salvato le modifiche in corso.
@@ -209,7 +214,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       const { data: next, warnings } = normalizeWithReport(raw, new Set(teams.list.map((t) => t.id)))
       const noEmail = next.people.filter((p) => !p.email)
       if (noEmail.length) return setNotice({ tone: 'error', text: `Import non riuscito: ${noEmail.length} ${noEmail.length === 1 ? 'risorsa non ha' : 'risorse non hanno'} un'email valida (${noEmail.slice(0, 3).map((p) => p.name).join(', ')}${noEmail.length > 3 ? '…' : ''}). L'email è obbligatoria: aggiungila nel file e riprova.` })
-      if (!confirm(`Importare ${next.people.length} risorse e ${Object.keys(next.assignments).length} turni? I dati condivisi attuali verranno sostituiti per tutti gli utenti.`)) return
+      const withTeam = next.people.filter((p) => p.team).length
+      if (!confirm(`Importare ${next.people.length} risorse e ${Object.keys(next.assignments).length} turni? I dati condivisi attuali verranno sostituiti per tutti gli utenti.${withTeam ? `\n\nAttenzione: ${withTeam} risorse hanno un team nel file; il capo di ciascun team vedrà RAL, livello e importi delle sue risorse (oltre a Space admin, Governance e HR).` : ''}`)) return
       await replace(next)
       setNotice(warnings.length
         ? { tone: 'warn', text: `Configurazione importata con avvisi: ${warnings.join('; ')}.` }
@@ -260,7 +266,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       </Section>
     ),
     params: (
-      <Section id="params" letter="A" title="Parametri economici & ricavi" subtitle="Ogni modifica ricalcola istantaneamente vincoli, consuntivo e marginalità.">
+      <Section id="params" title="Parametri economici & ricavi" subtitle="Ogni modifica ricalcola istantaneamente vincoli, consuntivo e marginalità.">
         <fieldset disabled={!editable} className="min-w-0"><ParamsPanel params={data.params} onChange={(params) => setData((d) => ({ ...d, params }))} /></fieldset>
       </Section>
     ),
@@ -270,7 +276,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
     ),
     planner: (
-      <Section id="planner" letter="C" title={`Pianificatore calendario ${HORIZON_LABEL}`} subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto."
+      <Section id="planner" title={`Pianificatore calendario ${HORIZON_LABEL}`} subtitle="Le persone che violerebbero un vincolo sono disabilitate nel menu; il pannello a destra spiega il motivo esatto."
         actions={<>
           <Button onClick={() => setExportFormat('xlsx')}>Esporta turni (Excel)</Button>
           <Button onClick={() => setExportFormat('pdf')}>Esporta turni (PDF)</Button>
@@ -283,7 +289,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       </Section>
     ),
     payroll: (
-      <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone integrativo e totale lordo."
+      <Section id="payroll" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone integrativo e totale lordo."
         actions={<>
           <Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>
           <Button variant="primary" onClick={() => setPayExport(true)}>Esporta per paghe (Excel)</Button>
@@ -294,12 +300,12 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       </Section>
     ),
     pnl: (
-      <Section id="pnl" letter="E" title="Dashboard economica & marginalità (P&L)" actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
+      <Section id="pnl" title="Dashboard economica & marginalità (P&L)" actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
         <Dashboard people={data.people} assignments={data.assignments} params={data.params} excludedDays={data.excludedDays} nd={serverChecks?.nd} />
       </Section>
     ),
     interventi: canReadPlan(role) ? (
-      <Section id="interventi" title="Interventi in reperibilità" subtitle="Dichiarati dai turnisti; li approvano o rifiutano i Director del team della persona, i PM e il super admin. Si pagano come straordinario CCNL, in aggiunta a indennità e gettone.">
+      <Section id="interventi" title="Interventi in reperibilità" subtitle="Dichiarati dai turnisti; li approvano o rifiutano i Director del team della persona, i PM e lo space admin. Si pagano come straordinario CCNL, in aggiunta a indennità e gettone.">
         <InterventionsReview ivs={ivs} noInt={noInt} people={data.people} assignments={data.assignments} params={data.params} me={me} myPersonId={myPersonId} teams={teams} />
       </Section>
     ) : null,
@@ -309,7 +315,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       </Section>
     ) : null,
     users: canManageUsers(role) ? (
-      <Section id="users" title="Utenti e livelli di accesso" subtitle="Solo il super admin vede questa pagina.">
+      <Section id="users" title="Utenti e livelli di accesso" subtitle="Solo lo space admin vede questa pagina.">
         <UsersPage me={profile} people={data.people} flush={flush} />
       </Section>
     ) : null,
@@ -318,36 +324,56 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   return (
     <div className="min-h-screen">
       <header ref={headerRef} className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
-          <a href="#/doc" className="font-semibold text-slate-900">Piano reperibilità <span className="text-blue-700">- ARM</span></a>
-          <nav className="flex flex-wrap gap-1 text-sm" aria-label="Sezioni">
-            {NAV.filter(([id]) => allowed.includes(id)).map(([id, label]) => (
-              <a key={id} href={`#/${id}`} aria-current={page === id ? 'page' : undefined}
-                className={`rounded-md px-2.5 py-1.5 font-medium ${page === id ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
-                {label}
-                {id === 'interventi' && pendingCount > 0 && <span className="ml-1.5 rounded-full bg-yellow-100 px-1.5 text-xs font-semibold text-yellow-900 ring-1 ring-yellow-300" title="Interventi in approvazione">{pendingCount}</span>}
-              </a>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-2">
-            <SyncBadge status={status} />
-            {editable && fullConfig && (
-              <div className="relative">
-                <Button onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen} aria-haspopup="menu">Dati ▾</Button>
-                {menuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
-                    <div role="menu" className="absolute right-0 z-50 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
-                      <MenuItem onClick={() => { setMenuOpen(false); setConfirmExport(true) }}>Esporta configurazione JSON</MenuItem>
-                      <MenuItem onClick={() => { setMenuOpen(false); openImport() }}>Importa configurazione JSON</MenuItem>
-                    </div>
-                  </>
-                )}
-                <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => importJson(e.target.files?.[0])} />
-              </div>
-            )}
-            <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} />
+        {/* Riga 1: nome, periodo, stato, utente */}
+        <div className="border-b border-slate-100">
+          <div className="mx-auto flex max-w-[1500px] items-center gap-4 px-4 py-2">
+            <a href="#/doc" className="whitespace-nowrap font-semibold text-slate-900">Piano reperibilità <span className="text-blue-700">- ARM</span></a>
+            <span className="hidden text-xs text-slate-500 sm:inline">{HORIZON_LABEL}</span>
+            <div className="ml-auto flex items-center gap-3">
+              <SyncBadge status={status} />
+              <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} />
+            </div>
           </div>
+        </div>
+        {/* Riga 2: schede nell'ordine del lavoro; a destra Dati e Utenti. Su schermi stretti scorre in orizzontale. */}
+        <div className="relative mx-auto max-w-[1500px]">
+          <nav aria-label="Sezioni" className="flex items-stretch gap-5 overflow-x-auto px-4 text-sm">
+            {NAV.filter(([id]) => allowed.includes(id) && id !== 'miei' && id !== 'users').map(([id, label]) => (
+              <NavTab key={id} id={id} active={page === id}>
+                {label}
+                {id === 'interventi' && pendingCount > 0 && <span className="rounded-full bg-yellow-100 px-1.5 text-xs font-semibold text-yellow-900 ring-1 ring-yellow-300" title="Interventi in approvazione">{pendingCount}</span>}
+              </NavTab>
+            ))}
+            {allowed.includes('miei') && (
+              <>
+                <span className="my-2.5 w-px shrink-0 bg-slate-200" aria-hidden />
+                <NavTab id="miei" active={page === 'miei'}>
+                  I miei interventi
+                  {myTodo > 0 && <span className="rounded-full bg-orange-100 px-1.5 text-xs font-semibold text-orange-900 ring-1 ring-orange-300" title="Turni da compilare o interventi da correggere">{myTodo}</span>}
+                </NavTab>
+              </>
+            )}
+            <span className="ml-auto flex shrink-0 items-stretch gap-5">
+              {editable && fullConfig && (
+                <button type="button" onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen} aria-haspopup="menu"
+                  className={`inline-flex items-center gap-1 whitespace-nowrap border-b-2 px-0.5 py-2.5 font-medium ${menuOpen ? 'border-slate-300 text-slate-900' : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900'}`}>
+                  Dati
+                  <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M5 8l5 5 5-5" /></svg>
+                </button>
+              )}
+              {allowed.includes('users') && <NavTab id="users" active={page === 'users'}>Utenti</NavTab>}
+            </span>
+          </nav>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
+              <div role="menu" className="absolute right-4 top-full z-50 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+                <MenuItem onClick={() => { setMenuOpen(false); setConfirmExport(true) }}>Esporta configurazione JSON</MenuItem>
+                <MenuItem onClick={() => { setMenuOpen(false); openImport() }}>Importa configurazione JSON</MenuItem>
+              </div>
+            </>
+          )}
+          {editable && fullConfig && <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => importJson(e.target.files?.[0])} />}
         </div>
       </header>
 
@@ -386,7 +412,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
 function TeamPage({ verify, editable, role, myTeam, people, assignments, superAdmin, flush, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; role: Role; myTeam: TeamId | null; people: Person[]; assignments: Assignments; superAdmin: boolean; flush: () => Promise<void>; onChange: (people: Person[], assignments?: Assignments) => void }) {
   const { revealed, toggle, dialog } = useRevealSensitive(verify)
   const teams = useTeams()
-  // Solo il super admin vede il tipo di account di ogni risorsa e può creare quello da Turnista
+  // Solo lo space admin vede il tipo di account di ogni risorsa e può creare quello da Turnista
   const { accounts, loaded, reload } = useAccounts(superAdmin)
   const [creds, setCreds] = useState<Credential[] | null>(null)
   const createAccount = async (p: Person) => {
@@ -397,7 +423,7 @@ function TeamPage({ verify, editable, role, myTeam, people, assignments, superAd
   }
   return (
     <>
-      <Section id="team" letter="B" title="Anagrafica team" subtitle="Chi ha dato KO resta in anagrafica ma non compare nel calendario. La disponibilità guida l'auto-compilazione."
+      <Section id="team" title="Anagrafica team" subtitle="Chi ha dato KO resta in anagrafica ma non compare nel calendario. La disponibilità guida l'auto-compilazione."
         actions={<>
           <Button onClick={toggle} aria-pressed={revealed} className={revealed ? 'ring-blue-300 bg-blue-50 text-blue-800' : ''}>
             <EyeIcon off={revealed} /> {revealed ? 'Oscura RAL e livello' : 'Mostra RAL e livello'}
@@ -415,13 +441,28 @@ function TeamPage({ verify, editable, role, myTeam, people, assignments, superAd
   )
 }
 
+/** Scheda della riga di navigazione: sottolineata quando è la pagina corrente. */
+function NavTab({ id, active, children }: { id: string; active: boolean; children: React.ReactNode }) {
+  return (
+    <a href={`#/${id}`} aria-current={active ? 'page' : undefined}
+      className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-0.5 py-2.5 ${active ? 'border-blue-700 font-semibold text-blue-800' : 'border-transparent font-medium text-slate-600 hover:border-slate-300 hover:text-slate-900'}`}>
+      {children}
+    </a>
+  )
+}
+
 function SyncBadge({ status }: { status: SyncStatus }) {
-  const map: Record<SyncStatus, [string, string]> = {
-    loading: ['Caricamento…', 'text-slate-400'],
-    synced: ['● Sincronizzato', 'text-emerald-700'],
-    saving: ['● Salvataggio…', 'text-amber-700'],
-    error: ['● Errore di sincronizzazione', 'text-red-700'],
+  const map: Record<SyncStatus, [string, string, string]> = {
+    loading: ['Caricamento…', 'text-slate-500', 'bg-slate-300'],
+    synced: ['Sincronizzato', 'text-emerald-700', 'bg-emerald-500'],
+    saving: ['Salvataggio…', 'text-amber-700', 'bg-amber-500'],
+    error: ['Errore di sincronizzazione', 'text-red-700', 'bg-red-600'],
   }
-  const [label, cls] = map[status]
-  return <span className={`hidden text-xs xl:inline ${cls}`}>{label}</span>
+  const [label, cls, dot] = map[status]
+  return (
+    <span className={`flex items-center gap-1.5 whitespace-nowrap text-xs ${cls}`} title={label}>
+      <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden />
+      <span className="hidden sm:inline">{label}</span>
+    </span>
+  )
 }

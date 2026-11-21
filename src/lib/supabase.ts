@@ -29,5 +29,5 @@ export async function callFunction<T = Record<string, unknown>>(name: string, bo
   return data as T
 }
 
-/** Gestione account (super admin, cambio password). */
+/** Gestione account (space admin, cambio password). */
 export const adminCall = <T = Record<string, unknown>>(body: Record<string, unknown>) => callFunction<T>('admin-users', body)

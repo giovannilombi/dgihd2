@@ -148,7 +148,7 @@ function OvertimeSection({ p }: { p: Params }) {
   ]
   return (
     <>
-      <P>Gli interventi effettivi durante la reperibilità, anche da remoto, sono orario di lavoro: si pagano come <strong>lavoro straordinario</strong> con le maggiorazioni del CCNL (art. 7, lavoratori non turnisti), sempre <strong>in aggiunta</strong> a indennità di reperibilità e gettone integrativo (nessuno storno). Il turnista li dichiara a fine turno (oppure indica "Nessun intervento"); li approva il director del suo team o il super admin. Entrano nel consuntivo solo gli interventi approvati.</P>
+      <P>Gli interventi effettivi durante la reperibilità, anche da remoto, sono orario di lavoro: si pagano come <strong>lavoro straordinario</strong> con le maggiorazioni del CCNL (art. 7, lavoratori non turnisti), sempre <strong>in aggiunta</strong> a indennità di reperibilità e gettone integrativo (nessuno storno). Il turnista li dichiara a fine turno (oppure indica "Nessun intervento"); li approva il director del suo team o lo space admin. Entrano nel consuntivo solo gli interventi approvati.</P>
       <H>4.1 Ore riconosciute</H>
       <UL>
         <li>Ogni intervento vale almeno <strong>{fmtNum(p.otMinHours)} {p.otMinHours === 1 ? 'ora' : 'ore'}</strong>; oltre, si contano le ore intere e i minuti oltre l'ora solo se superano <strong>{fmtNum(p.otToleranceMin)} minuti</strong> (es. 1h{String(p.otToleranceMin).padStart(2, '0')} → 1 ora, 1h{String(Math.min(59, p.otToleranceMin + 1)).padStart(2, '0')} → 2 ore).</li>

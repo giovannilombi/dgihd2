@@ -1,7 +1,7 @@
 // Gestione account del Piano reperibilità ARM.
 // - change_password: qualsiasi utente autenticato cambia la propria password (obbligatorio al primo accesso)
-// - list / create / reset / set_role / set_team / set_person / set_view / delete: solo super admin
-//   (il Super admin è uno solo: non si assegna, non si cambia e non si elimina dall'app)
+// - list / create / reset / set_role / set_team / set_person / set_view / delete: solo Space admin
+//   (lo Space admin è uno solo: non si assegna, non si cambia e non si elimina dall'app)
 // - process_requests: elabora la coda public.admin_requests (chiamata firmata dal database con il token del Vault)
 // La chiave di servizio resta lato server: non è mai inviata al browser.
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
@@ -13,9 +13,9 @@ const CORS = {
 }
 const ROLES = ['super_admin', 'governance', 'director', 'hr', 'pm', 'viewer', 'turnista'] as const
 type Role = (typeof ROLES)[number]
-/** Profili assegnabili: il Super admin è uno solo e non si assegna, cambia o elimina dall'app. */
+/** Profili assegnabili: lo Space admin è uno solo e non si assegna, cambia o elimina dall'app. */
 const ASSIGNABLE: readonly Role[] = ROLES.filter((r) => r !== 'super_admin')
-/** Team esistente (tabella teams, gestita dal super admin), oppure null (nessun team: RAL e livello non visibili). */
+/** Team esistente (tabella teams, gestita dallo Space admin), oppure null (nessun team: RAL e livello non visibili). */
 async function parseTeam(admin: ReturnType<typeof createClient>, t: unknown): Promise<string | null | undefined> {
   if (t === null || t === undefined || t === '') return null
   if (typeof t !== 'string' || !/^[a-z0-9][a-z0-9-]{0,31}$/.test(t)) return undefined
@@ -77,7 +77,7 @@ const allowSignup = (admin: ReturnType<typeof createClient>, email: string) =>
 const clearSignup = (admin: ReturnType<typeof createClient>, email: string) =>
   admin.from('signup_allowlist').delete().eq('email', email)
 /**
- * Password temporanea conservata finché la persona non la cambia: il super admin può ricopiarla dalla
+ * Password temporanea conservata finché la persona non la cambia: lo Space admin può ricopiarla dalla
  * lista utenti. Tabella non leggibile dagli utenti; la riga sparisce al cambio password.
  */
 const storeTemp = (admin: ReturnType<typeof createClient>, userId: string, password: string) =>
@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
   const action = String(body.action ?? '')
 
   const { data: me } = await admin.from('profiles').select('role, must_change_password').eq('id', caller.id).maybeSingle()
-  if (!me) return fail('Account senza profilo: contatta il super admin.', 403)
+  if (!me) return fail('Account senza profilo: contatta lo Space admin.', 403)
 
   // --- Cambio password personale (anche con password temporanea) ---
   if (action === 'change_password') {
@@ -143,8 +143,8 @@ Deno.serve(async (req) => {
     return json({ ok: true })
   }
 
-  // --- Da qui solo super admin che ha già cambiato la password temporanea ---
-  if (me.role !== 'super_admin' || me.must_change_password) return fail('Operazione riservata al super admin.', 403)
+  // --- Da qui solo Space admin che ha già cambiato la password temporanea ---
+  if (me.role !== 'super_admin' || me.must_change_password) return fail('Operazione riservata allo Space admin.', 403)
 
   const validRole = (r: unknown): r is Role => ASSIGNABLE.includes(r as Role)
 
@@ -199,7 +199,7 @@ Deno.serve(async (req) => {
   }
 
   if (action === 'set_role') {
-    if (target.role === 'super_admin') return fail('Il Super admin è uno solo e non si cambia da qui.')
+    if (target.role === 'super_admin') return fail('Lo Space admin è uno solo e non si cambia da qui.')
     if (!validRole(body.role)) return fail('Profilo non valido.')
     const { error } = await admin.from('profiles').update({ role: body.role }).eq('id', userId)
     if (error) return fail(error.message, 500)
@@ -231,7 +231,7 @@ Deno.serve(async (req) => {
   }
 
   if (action === 'delete') {
-    if (target.role === 'super_admin') return fail('Il Super admin non si elimina.')
+    if (target.role === 'super_admin') return fail('Lo Space admin non si elimina.')
     if (userId === caller.id && target.role !== 'super_admin') return fail('Non puoi eliminare il tuo account.')
     const { error } = await admin.auth.admin.deleteUser(userId)
     if (error) return fail(`Eliminazione non riuscita: ${error.message}`, 500)
@@ -279,7 +279,7 @@ async function processQueue(admin: Admin) {
           await storeTemp(admin, target.id, password)
           await done({ status: 'done', temp_password: password })
         } else if (r.action === 'set_role') {
-          if (target.role === 'super_admin') throw new Error('Il Super admin è uno solo e non si cambia.')
+          if (target.role === 'super_admin') throw new Error('Lo Space admin è uno solo e non si cambia.')
           if (!r.role || !ASSIGNABLE.includes(r.role)) throw new Error('Profilo non valido.')
           await admin.from('profiles').update({ role: r.role }).eq('id', target.id)
           await done({ status: 'done' })
@@ -295,7 +295,7 @@ async function processQueue(admin: Admin) {
           if (error) throw new Error(personError(error.message))
           await done({ status: 'done' })
         } else if (r.action === 'delete') {
-          if (target.role === 'super_admin') throw new Error('Il Super admin non si elimina.')
+          if (target.role === 'super_admin') throw new Error('Lo Space admin non si elimina.')
           const { error } = await admin.auth.admin.deleteUser(target.id)
           if (error) throw new Error(error.message)
           await done({ status: 'done' })

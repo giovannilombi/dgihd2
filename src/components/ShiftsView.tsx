@@ -32,7 +32,7 @@ const CHIP: Record<CellTone, string> = {
 
 /**
  * Vista del Turnista: solo il calendario dei turni, con i propri evidenziati. I dati arrivano dalla
- * funzione del database `turnista_calendar()`, che include i nomi degli altri solo se il super admin
+ * funzione del database `turnista_calendar()`, che include i nomi degli altri solo se lo space admin
  * lo consente; si aggiornano ogni 5 minuti e quando si torna sulla scheda.
  */
 export function TurnistaApp({ profile, onLogout, onChangePassword }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void> }) {
@@ -125,7 +125,7 @@ function ShiftsCalendar({ cal }: { cal: TurnistaCalendar }) {
         </Section>
       ) : (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Il tuo account non è ancora collegato alla tua scheda nel piano: chiedi al super admin di collegarlo per vedere evidenziati i tuoi turni.
+          Il tuo account non è ancora collegato alla tua scheda nel piano: chiedi allo space admin di collegarlo per vedere evidenziati i tuoi turni.
         </p>
       )}
 

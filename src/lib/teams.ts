@@ -1,5 +1,5 @@
 /**
- * Team di risorse e account: solo appartenenza. Li gestisce il super admin (tabella `teams`).
+ * Team di risorse e account: solo appartenenza. Li gestisce lo space admin (tabella `teams`).
  * Chi vede le RAL e chi approva lo decide il profilo dell'account (vedi roles.ts).
  * Logica pura, usata anche dalla funzione server `planner`.
  */

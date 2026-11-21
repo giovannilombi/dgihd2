@@ -2,7 +2,7 @@ import type { Role } from './roles'
 import { adminCall } from './supabase'
 import type { Person } from './types'
 
-/** Account come lo restituisce la funzione "admin-users" (solo al super admin). */
+/** Account come lo restituisce la funzione "admin-users" (solo allo space admin). */
 export interface AccountInfo {
   id: string
   email: string

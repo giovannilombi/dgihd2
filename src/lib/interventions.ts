@@ -84,7 +84,7 @@ export function resolveTimes(slot: string, startTime: string, endTime: string): 
   return { start, end }
 }
 
-/** Chi decide: super admin, PM (tutti i team) o Director del team della persona; mai sui propri interventi, salvo il super admin. */
+/** Chi decide: space admin, PM (tutti i team) o Director del team della persona; mai sui propri interventi, salvo lo space admin. */
 export const canDecide = (person: Pick<Person, 'id' | 'team'> | undefined, me: Me, myPersonId: string | null) =>
   !!person && (me.role === 'super_admin' || ((me.role === 'pm' || isDirectorOf(person.team, me)) && person.id !== myPersonId))
 

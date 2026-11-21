@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { AccountInfo } from './accounts'
 import { adminCall } from './supabase'
 
-/** Elenco degli account (solo per il super admin: per gli altri resta vuoto e non chiama il server). */
+/** Elenco degli account (solo per lo space admin: per gli altri resta vuoto e non chiama il server). */
 export function useAccounts(enabled: boolean) {
   const [accounts, setAccounts] = useState<AccountInfo[]>([])
   const [error, setError] = useState('')

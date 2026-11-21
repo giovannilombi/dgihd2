@@ -18,7 +18,7 @@ const data = (people: Person[], assignments: Record<string, string> = {}): AppDa
 const me = (role: Role, team: TeamId | null) => ({ role, team })
 
 describe('visibilità RAL per profilo (stessa regola della RLS)', () => {
-  it('Super admin, Governance e HR vedono tutti i team, anche le risorse senza team', () => {
+  it('Space admin, Governance e HR vedono tutti i team, anche le risorse senza team', () => {
     for (const r of ['super_admin', 'governance', 'hr'] as const) {
       expect(seesAllSalaries(r)).toBe(true)
       expect(canSeeSalaryOf(me(r, 'tech'), 'pm')).toBe(true)

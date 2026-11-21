@@ -700,7 +700,7 @@ const canEdit = (r) => r === "super_admin" || r === "governance" || r === "direc
 const canReadFull = (r) => canEdit(r) || r === "hr";
 /** Vede RAL, livello e importi di tutti i team */
 const seesAllSalaries = (r) => r === "super_admin" || r === "governance" || r === "hr";
-/** Stessa regola del database: tutti per Super admin, Governance e HR; il Director solo il proprio team. */
+/** Stessa regola del database: tutti per Space admin, Governance e HR; il Director solo il proprio team. */
 const canSeeSalaryOf = (me, personTeam) => seesAllSalaries(me.role) || me.role === "director" && !!me.team && me.team === personTeam;
 // src/lib/salaryChecks.ts
 /**

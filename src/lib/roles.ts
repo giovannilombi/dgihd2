@@ -2,7 +2,7 @@ import { teamLabel, type TeamDir, type TeamId } from './teams'
 
 /**
  * Profili degli account (uno per account; il team indica solo l'appartenenza):
- * - Super admin: unico; tutto, utenti compresi
+ * - Space admin: unico; tutto, utenti compresi
  * - Governance: modifica tutto, vede RAL e importi di tutti
  * - Director: modifica il piano; RAL e importi solo del proprio team; approva gli interventi del proprio team
  * - HR: sola lettura, RAL e importi di tutti; consuntiva ed esporta le paghe
@@ -13,7 +13,7 @@ import { teamLabel, type TeamDir, type TeamId } from './teams'
 export type Role = 'super_admin' | 'governance' | 'director' | 'hr' | 'pm' | 'viewer' | 'turnista'
 
 export const ROLE_LABEL: Record<Role, string> = {
-  super_admin: 'Super admin',
+  super_admin: 'Space admin',
   governance: 'Governance',
   director: 'Director',
   hr: 'HR',
@@ -23,9 +23,9 @@ export const ROLE_LABEL: Record<Role, string> = {
 }
 
 export const ROLE_HELP: Record<Role, string> = {
-  super_admin: 'Unico: legge e modifica tutto, gestisce utenti e team',
+  super_admin: 'Unico: legge e modifica tutto, gestisce utenti e team; può essere a capo di un team',
   governance: 'Modifica tutto il piano; vede RAL e importi di tutti i team',
-  director: 'Modifica il piano; RAL e importi solo del proprio team; approva gli interventi del team',
+  director: 'Capo del proprio team (uno per team): modifica il piano; RAL e importi solo del team; approva gli interventi del team',
   hr: 'Sola lettura; vede RAL e importi di tutti; consuntiva ed esporta le paghe',
   pm: 'Approccio, calendario e interventi (solo ore, nessuna RAL); approva gli interventi di tutti i team',
   viewer: 'Vede solo il calendario dei turni',
@@ -33,7 +33,7 @@ export const ROLE_HELP: Record<Role, string> = {
 }
 
 export const ROLES: Role[] = ['super_admin', 'governance', 'director', 'hr', 'pm', 'viewer', 'turnista']
-/** Profili assegnabili dalla pagina Utenti: il Super admin è uno solo e non si assegna. */
+/** Profili assegnabili dalla pagina Utenti: lo Space admin è uno solo e non si assegna. */
 export const ASSIGNABLE_ROLES: Role[] = ROLES.filter((r) => r !== 'super_admin')
 export const isRole = (r: unknown): r is Role => ROLES.includes(r as Role)
 
@@ -59,12 +59,12 @@ export const canManageUsers = (r: Role) => r === 'super_admin'
 export const seesAllSalaries = (r: Role) => r === 'super_admin' || r === 'governance' || r === 'hr'
 
 export interface Me { id: string; role: Role; team: TeamId | null }
-/** Stessa regola del database: tutti per Super admin, Governance e HR; il Director solo il proprio team. */
+/** Stessa regola del database: tutti per Space admin, Governance e HR; il Director solo il proprio team. */
 export const canSeeSalaryOf = (me: Pick<Me, 'role' | 'team'>, personTeam: TeamId | null | undefined) =>
   seesAllSalaries(me.role) || (me.role === 'director' && !!me.team && me.team === personTeam)
-/** Director del team: account con profilo Director e quel team (possono essere più di uno). */
+/** Capo del team: il suo Director (uno solo per team) o lo Space admin assegnato a quel team. Stessa regola del database. */
 export const isDirectorOf = (team: TeamId | null | undefined, me: Pick<Me, 'role' | 'team'>) =>
-  !!team && me.role === 'director' && me.team === team
+  !!team && (me.role === 'director' || me.role === 'super_admin') && me.team === team
 
 export interface Profile {
   id: string
@@ -109,7 +109,7 @@ export function roleAccess(role: Role, team: TeamId | null, teams: TeamDir, turn
   ]
   switch (role) {
     case 'super_admin':
-      return { sees: [...fullRead, 'Modifica tutto; gestisce utenti e team.'], excluded: [], ral, ralText, managesUsers: true }
+      return { sees: [...fullRead, 'Modifica tutto; gestisce utenti e team.', ...(team ? [`A capo del team ${teamName}: ne approva gli interventi e sblocca i giorni dei turni.`] : [])], excluded: [], ral, ralText, managesUsers: true }
     case 'governance':
       return { sees: [...fullRead, 'Modifica anagrafica (team delle risorse compreso), parametri e calendario; segna gli erogati.'], excluded: ['Gestione utenti.'], ral, ralText, managesUsers: false }
     case 'director':

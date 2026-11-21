@@ -34,7 +34,7 @@ describe('orari del modulo', () => {
 describe('chi decide e chi vede gli importi', () => {
   const person = (id: string, team: string, extra: Partial<Person> = {}): Person => ({ id, name: id, level: 'B1', ral: 30000, active: true, color: '#000', team, ...extra })
   const director = { id: 'dir', role: 'director' as const, team: 'tech' }
-  it('Director del team, PM (tutti i team) o super admin; mai sui propri interventi (salvo super admin)', () => {
+  it('Director del team, PM (tutti i team) o space admin; mai sui propri interventi (salvo space admin)', () => {
     expect(canDecide(person('t1', 'tech'), director, 'own')).toBe(true)
     expect(canDecide(person('p1', 'pm'), director, 'own')).toBe(false)
     expect(canDecide(person('own', 'tech'), director, 'own')).toBe(false)

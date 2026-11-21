@@ -40,7 +40,7 @@ export function Login({ onSignIn, notice }: { onSignIn: (email: string, password
         <button type="submit" disabled={busy || !email || !pwd} className="mt-5 w-full rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
           {busy ? 'Accesso…' : 'Accedi'}
         </button>
-        <p className="mt-4 text-xs text-slate-500">Password dimenticata? Chiedi al super admin di reimpostarla: riceverai una password temporanea da cambiare al primo accesso.</p>
+        <p className="mt-4 text-xs text-slate-500">Password dimenticata? Chiedi allo space admin di reimpostarla: riceverai una password temporanea da cambiare al primo accesso.</p>
       </form>
     </div>
   )

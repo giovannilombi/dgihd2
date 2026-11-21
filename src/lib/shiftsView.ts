@@ -7,7 +7,7 @@ import type { Slot } from './types'
  * quindi quelli degli altri non raggiungono mai il browser.
  */
 export type NamesMode = 'all' | 'own'
-/** Impostazione generale del super admin: per tutti, oppure "per persona" (vale la Visibilità di ciascuno). */
+/** Impostazione generale dello space admin: per tutti, oppure "per persona" (vale la Visibilità di ciascuno). */
 export type NamesSetting = NamesMode | 'per_user'
 export const parseNamesSetting = (v: unknown): NamesSetting => (v === 'own' || v === 'per_user' ? v : 'all')
 /** Cosa vede davvero un Turnista: l'impostazione generale, o la sua Visibilità se è "per persona". */

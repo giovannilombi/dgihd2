@@ -49,7 +49,7 @@ describe('stato dei giorni', () => {
 
 describe('permessi sui giorni (stesse regole del database)', () => {
   const me = (id: string, role: Me['role'], team: string | null): Me => ({ id, role, team })
-  it('Super admin, Governance e Director segnano erogato e consuntivano; sblocca il super admin', () => {
+  it('Space admin, Governance e Director segnano erogato e consuntivano; sblocca lo space admin', () => {
     expect(dayPerms('2026-12-21', me('g', 'governance', 'governance'), people, a)).toEqual({ mark: true, close: true, unlock: false })
     expect(dayPerms('2026-12-21', me('s', 'super_admin', null), people, a)).toEqual({ mark: true, close: true, unlock: true })
   })
@@ -58,6 +58,10 @@ describe('permessi sui giorni (stesse regole del database)', () => {
     expect(isDirectorOf('tech', d)).toBe(true)
     expect(dayPerms('2026-12-19', d, people, a)).toEqual({ mark: true, close: true, unlock: true })
     expect(dayPerms('2026-12-21', d, people, a)).toEqual({ mark: true, close: true, unlock: false })
+  })
+  it('lo Space admin assegnato a un team ne è il capo', () => {
+    expect(isDirectorOf('pm', me('s', 'super_admin', 'pm'))).toBe(true)
+    expect(isDirectorOf('tech', me('s', 'super_admin', 'pm'))).toBe(false)
   })
   it('è Director di un team solo con profilo Director e quel team', () => {
     expect(isDirectorOf('tech', me('d', 'director', 'pm'))).toBe(false)

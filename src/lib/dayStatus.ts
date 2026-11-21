@@ -66,11 +66,11 @@ export const shortName = (name: string) => {
 export type { Me } from './roles'
 
 export interface DayPerms {
-  /** Segna erogato (dalla fine del turno): Super admin, Governance, Director. */
+  /** Segna erogato (dalla fine del turno): Space admin, Governance, Director. */
   mark: boolean
   /** Consuntiva: chi può segnare l'erogato e HR. */
   close: boolean
-  /** Sblocca: super admin o director di un team con un turno quel giorno. */
+  /** Sblocca: space admin o director di un team con un turno quel giorno. */
   unlock: boolean
 }
 

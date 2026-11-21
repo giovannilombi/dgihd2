@@ -31,7 +31,7 @@ interface Props {
 
 /**
  * Interventi da approvare e storico. Ore e fasce le vede chi legge il piano; gli importi chi vede la RAL della
- * persona. Approvano e rifiutano i Director del team della persona, i PM (tutti i team) e il super admin;
+ * persona. Approvano e rifiutano i Director del team della persona, i PM (tutti i team) e lo space admin;
  * un intervento approvato o rifiutato si può riportare in approvazione.
  */
 export function InterventionsReview({ ivs, noInt, people, assignments, params, me, myPersonId, teams }: Props) {
@@ -109,7 +109,7 @@ export function InterventionsReview({ ivs, noInt, people, assignments, params, m
             </select>
           </label>
         )}
-        <span className="ml-auto text-xs text-slate-500">Approvano i Director del team della persona, i PM e il super admin.</span>
+        <span className="ml-auto text-xs text-slate-500">Approvano i Director del team della persona, i PM e lo space admin.</span>
       </div>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 

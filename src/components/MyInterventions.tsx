@@ -47,7 +47,7 @@ export function MyInterventions({ data, error, reload, rules }: { data: MyShifts
   }, [data, stamp])
 
   if (!data || !view) return error ? <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">Interventi non disponibili: {error}</p> : <p className="py-10 text-center text-sm text-slate-500">Caricamento…</p>
-  if (!data.me) return <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Il tuo account non è collegato a una scheda del piano: chiedi al super admin di collegarlo per segnalare gli interventi.</p>
+  if (!data.me) return <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Il tuo account non è collegato a una scheda del piano: chiedi allo space admin di collegarlo per segnalare gli interventi.</p>
 
   const current: Tab = tab ?? (view.todo.length ? 'todo' : view.rejected.length ? 'rejected' : 'pending')
   const run = async (fn: () => Promise<unknown>, ok: string) => {
