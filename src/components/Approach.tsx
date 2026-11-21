@@ -37,7 +37,12 @@ export function Approach({ params: p, people }: { params: Params; people: Person
     <div className="space-y-3">
       {/* 1. Sintesi dell'approccio – sempre visibile */}
       <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-5">
-        <h3 className="font-semibold text-blue-950">1. In sintesi</h3>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h3 className="font-semibold text-blue-950">1. In sintesi</h3>
+          <span className="inline-flex items-center rounded-md bg-white px-2.5 py-1 text-xs text-slate-700 ring-1 ring-blue-200">
+            <strong className="mr-1 text-slate-900">CCNL applicato:</strong> Metalmeccanici Industria · codice CNEL C011
+          </span>
+        </div>
         <p className="mt-2 text-sm leading-relaxed text-slate-700">
           La reperibilità del periodo <strong>{HORIZON_LABEL}</strong> (solo nelle giornate richieste dal cliente) copre le notti feriali (<strong>18:00–09:00</strong>) e l'intera giornata di <strong>sabati, domeniche e festivi</strong>, suddivisa in due turni: Diurno <code>09:00–18:00</code> e Notturno <code>18:00–09:00</code>.
           L'approccio parte da un principio semplice: <strong>chi dà la propria disponibilità deve sapere in anticipo quanto riceve, avere i riposi garantiti e partecipare a una rotazione equa</strong>, con un modello economicamente sostenibile.
@@ -99,7 +104,7 @@ export function Approach({ params: p, people }: { params: Params; people: Person
 
       {/* 3. Tutele e conformità */}
       <Collapsible title="3. Tutele, riposi e riferimenti normativi">
-        <P>L'approccio è costruito nel rispetto del D.Lgs. 66/2003 sull'orario di lavoro, del CCNL Metalmeccanici Industria e della tutela assicurativa INAIL, con un'attenzione particolare all'equilibrio tra disponibilità richiesta e tempo di recupero.</P>
+        <P>L'approccio è costruito nel rispetto del D.Lgs. 66/2003 sull'orario di lavoro, del CCNL Metalmeccanici Industria (codice CNEL C011) e della tutela assicurativa INAIL, con un'attenzione particolare all'equilibrio tra disponibilità richiesta e tempo di recupero.</P>
         <H>3.1 Conformità ai riposi giornalieri e settimanali (artt. 7 e 9 D.Lgs. 66/2003)</H>
         <UL>
           <li><strong>Riposo giornaliero (11 ore consecutive ogni 24).</strong> La reperibilità passiva non costituisce prestazione lavorativa effettiva e non interrompe il riposo. In caso di <strong>chiamata effettiva</strong> durante la notte, il conteggio delle 11 ore riparte integralmente dal termine dell'intervento: se l'orario del mattino successivo ricade entro tali 11 ore, il lavoratore posticipa l'ingresso o salta la frazione/giornata lavorativa senza penalizzazioni.</li>

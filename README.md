@@ -2,6 +2,8 @@
 
 Periodo pianificato: Novembre 2026 – Febbraio 2027 (gennaio e febbraio partono come giorni non richiesti).
 
+Contratto di riferimento: **CCNL Metalmeccanici Industria, codice CNEL C011** (indennità di reperibilità, maggiorazioni dello straordinario e paga oraria seguono questo contratto).
+
 Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilità:
 
 - **Approccio**: presentazione del modello (sintesi sempre visibile; calcolo del gettone integrativo, tutele e riferimenti normativi, valori per RAL in sezioni espandibili), con valori ricalcolati sui parametri correnti.
