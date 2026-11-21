@@ -39,6 +39,8 @@ import { amountsVisible, bySlot, shiftChip } from './lib/interventions'
 import { useInterventions, useMyShifts } from './lib/useInterventions'
 import { InterventionsReview } from './components/InterventionsReview'
 import { MyInterventions } from './components/MyInterventions'
+import { PayrollExportDialog } from './components/PayrollExportDialog'
+import { buildPayrollXlsx, type PayrollExport } from './lib/payrollExport'
 import { consuntivaDay, consuntivaMonth, markDayErogato, unlockDay, useDayStatus } from './lib/useDayStatus'
 import type { DayActions } from './components/Planner'
 
@@ -156,6 +158,19 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat | null>(null)
+  const [payExport, setPayExport] = useState(false)
+  /** Export per le paghe: il file resta sul computer di chi lo scarica (contiene importi personali). */
+  const runPayrollExport = async (x: PayrollExport, fileName: string) => {
+    setExporting(true)
+    try {
+      download(fileName, await buildPayrollXlsx(x, teams, data.params), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      setPayExport(false)
+    } catch (e) {
+      setNotice({ tone: 'error', text: `Export non riuscito: ${(e as Error).message}` })
+    } finally {
+      setExporting(false)
+    }
+  }
 
   /** Genera il file del formato scelto, limitato al periodo indicato nella finestra di export. */
   const runExport = async (format: ExportFormat, range: ExportRange, fileName: string) => {
@@ -265,7 +280,10 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     ),
     payroll: (
       <Section id="payroll" letter="D" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone integrativo e totale lordo."
-        actions={<Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>}>
+        actions={<>
+          <Button onClick={() => setExportFormat('csv')}>Esporta report (CSV)</Button>
+          <Button variant="primary" onClick={() => setPayExport(true)}>Esporta per paghe (Excel)</Button>
+        </>}>
         <Payroll people={data.people} assignments={data.assignments} params={data.params} nd={serverChecks?.nd}
           days={days} canCloseMonth={editable || (canReadFull(role) && seesAllSalaries(teams, profile.team)) || teams.list.some((t) => t.directorId === profile.id)} onCloseMonth={closeMonth}
           interventions={ivs} ivChip={ivChip} showAmounts={(p) => amountsVisible(p, me, teams)} />
@@ -342,6 +360,10 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
       {exportFormat && (
         <ExportDialog format={exportFormat} busy={exporting} onClose={() => setExportFormat(null)}
           onExport={(range, fileName) => runExport(exportFormat, range, fileName)} />
+      )}
+      {payExport && (
+        <PayrollExportDialog busy={exporting} onClose={() => setPayExport(false)} onExport={(x, f) => void runPayrollExport(x, f)}
+          input={{ people: data.people, assignments: data.assignments, params: data.params, nd: serverChecks?.nd, days, interventions: ivs, showAmounts: (p) => amountsVisible(p, me, teams) }} />
       )}
       {confirmExport && (
         <PasswordDialog

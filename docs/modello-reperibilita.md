@@ -272,6 +272,18 @@ Periodo selezionabile: **mese** o **settimana**. File Excel con 4 fogli:
 
 Solo turni erogati e interventi approvati.
 
+Dettagli dell'implementazione (D · Consuntivo → "Esporta per paghe (Excel)"):
+- settimana = lunedì–domenica (settimana ISO); il file si chiama `AAAAMMGG-ARM-HD2-paghe-<mese>.xlsx` o
+  `…-paghe-settimana-<lunedì>.xlsx` e resta solo sul computer di chi lo scarica (contiene dati personali);
+- colonne: persona, email, team; nel foglio 1 anche il livello; nel foglio 3 inizio, fine, durata, ore
+  riconosciute, ore per voce (feriale diurno prime 2 h, successive, notturno feriale, festivo, notturno
+  festivo), straordinario, compenso per chiamata (escluso dal TFR), totale, nota;
+- importi arrotondati al centesimo riga per riga; i totali sono la somma delle righe;
+- le persone di cui l'utente non vede la RAL restano fuori, con un avviso nel file; per RAL Q/ o non
+  inserita, e per chi non può vedere gli importi degli interventi, lo straordinario riporta solo le ore;
+- le prime 2 ore feriali diurne si contano per giorno su tutti gli interventi approvati della persona,
+  anche se il periodo esportato taglia una giornata.
+
 ## 11. Quadro normativo (sintesi)
 
 - D.Lgs. 66/2003: riposo giornaliero 11 ore (art. 7), riposo settimanale 24 ore + 11 (art. 9), durata
