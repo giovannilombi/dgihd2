@@ -93,9 +93,10 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * Con `forecast` anche i turni programmati nel calendario e non ancora erogati; gli interventi restano
  * solo quelli effettuati e approvati.
  */
-export function buildHoursReport(input: HoursInput, period: PayPeriod, team: TeamId | null = null, { forecast = false, person: only }: { forecast?: boolean; person?: string } = {}): HoursReport {
+export function buildHoursReport(input: HoursInput, period: PayPeriod, team: TeamId | null = null, { forecast = false, person: only, persons }: { forecast?: boolean; person?: string; persons?: readonly string[] } = {}): HoursReport {
   const { people, assignments, params, days, interventions, noInt, now } = input
-  const inTeam = (p: Person | undefined): p is Person => !!p && (!team || p.team === team) && (!only || p.id === only)
+  const chosen = persons?.length ? new Set(persons) : null
+  const inTeam = (p: Person | undefined): p is Person => !!p && (!team || p.team === team) && (!only || p.id === only) && (!chosen || chosen.has(p.id))
   const byId = new Map(people.map((p) => [p.id, p]))
   const inPeriod = (d: string) => d >= period.from && d <= period.to
 
@@ -195,7 +196,7 @@ const rateTitle = (k: RateKey, p: Params) => `${rateLabel(k, p)} (${rateHours(k,
 const WEEKDAY = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato']
 const dateCell = (iso: string) => new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)))
 const stampCell = (s: string) => new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10), +s.slice(11, 13), +s.slice(14, 16)))
-/** File Excel senza importi: Riepilogo per persona, Reperibilità, Interventi. */
+/** File Excel senza importi: Riepilogo per persona, Turni di reperibilità, Interventi. */
 export async function buildHoursXlsx(x: HoursReport, teams: TeamDir, params: Params): Promise<ArrayBuffer> {
   const { default: ExcelJS } = await import('exceljs')
   const wb = new ExcelJS.Workbook()
@@ -205,7 +206,7 @@ export async function buildHoursXlsx(x: HoursReport, teams: TeamDir, params: Par
   type Ws = import('exceljs').Worksheet
   const title = (ws: Ws, text: string) => {
     ws.addRow([text]).font = { bold: true, size: 13 }
-    const scope = x.forecast ? 'previsionale: turni effettuati e programmati, interventi solo approvati' : 'solo turni erogati e interventi approvati'
+    const scope = x.forecast ? 'previsionale: turni di reperibilità effettuati e programmati, interventi solo approvati' : 'solo turni di reperibilità erogati e interventi approvati'
     ws.addRow([`Periodo: ${periodText(x.period)}${x.team ? ` · team ${teamLabel(teams, x.team)}` : ''} · ${scope} · nessun importo · generato il ${new Date().toLocaleString('it-IT')}`]).font = { size: 9, color: { argb: 'FF64748B' } }
     for (const n of x.notes) ws.addRow([n]).font = { size: 9, color: { argb: 'FFB45309' } }
     ws.addRow([])
@@ -231,9 +232,9 @@ export async function buildHoursXlsx(x: HoursReport, teams: TeamDir, params: Par
   // 1. Riepilogo per persona
   const ws1 = wb.addWorksheet('Riepilogo per persona')
   title(ws1, 'Turni di reperibilità e ore di intervento per persona')
-  const doneLabel = fc ? 'Effettuati' : 'Turni'
+  const doneLabel = fc ? 'Turni di reperibilità effettuati' : 'Turni di reperibilità'
   header(ws1, ['Persona', 'Email', 'Team', ...SHIFT_CATS.map((c) => `${doneLabel} ${SHIFT_CAT_LABEL[c].toLowerCase()}`), `${doneLabel} totali`,
-    ...(fc ? [...SHIFT_CATS.map((c) => `Programmati ${SHIFT_CAT_LABEL[c].toLowerCase()}`), 'Programmati totali'] : []), 'Interventi',
+    ...(fc ? [...SHIFT_CATS.map((c) => `Turni di reperibilità programmati ${SHIFT_CAT_LABEL[c].toLowerCase()}`), 'Turni di reperibilità programmati totali'] : []), 'Interventi',
     ...RATE_KEYS.map((k) => `Ore riconosciute ${rateTitle(k, params).toLowerCase()}`), 'Ore riconosciute totali',
     'Ore effettive totali', ...BANDS.map((b) => `Ore effettive ${BAND_LABEL[b].toLowerCase()}`)])
   for (const r of people) {
@@ -251,7 +252,7 @@ export async function buildHoursXlsx(x: HoursReport, teams: TeamDir, params: Par
     { width: 12, style: { numFmt: HRS } }, ...BANDS.map(() => ({ width: 13, style: { numFmt: HRS } }))]
 
   // 2. Reperibilità: un turno per riga, con il tipo di gettone
-  const ws2 = wb.addWorksheet('Reperibilità')
+  const ws2 = wb.addWorksheet('Turni di reperibilità')
   title(ws2, `Reperibilità ${fc ? 'effettuate e programmate' : 'effettuate (giorni erogati)'}: tipo di gettone per turno (giorno di riferimento = giorno di inizio)`)
   header(ws2, ['Persona', 'Email', 'Team', 'Giorno di riferimento', 'Giorno', 'Tipo di gettone', 'Inizio', 'Fine', 'Stato', 'Interventi approvati', 'Ore riconosciute'])
   const byPersonDate = [...shifts].sort((a, b) => a.person.name.localeCompare(b.person.name, 'it') || a.slot.localeCompare(b.slot))
@@ -336,7 +337,7 @@ export async function buildHoursPdf(x: HoursReport, teams: TeamDir, params: Para
     const sum = (f: (r: HoursPerson) => number) => x.people.reduce((t, r) => t + f(r), 0)
     autoTable(doc, {
       ...base, startY: y + 1,
-      head: [['Persona', 'Team', ...catHead, 'Reperibilità', 'Interventi', ...rateHead, 'Ore riconosciute']],
+      head: [['Persona', 'Team', ...catHead, 'Turni di reperibilità', 'Interventi', ...rateHead, 'Ore riconosciute']],
       body: x.people.map((r) => [r.person.name, teamLabel(teams, r.person.team), ...SHIFT_CATS.map((c) => catCell(r.shifts[c], r.planned[c])), catCell(r.totalShifts, r.totalPlanned),
         r.interventions || '–', ...RATE_KEYS.map((k) => hrs(r.byRate[k])), r.hours ? `${r.hours} h` : '–']),
       foot: [['Totale', '', ...SHIFT_CATS.map((c) => catCell(sum((r) => r.shifts[c]), sum((r) => r.planned[c]))), catCell(sum((r) => r.totalShifts), sum((r) => r.totalPlanned)),
@@ -354,7 +355,7 @@ export async function buildHoursPdf(x: HoursReport, teams: TeamDir, params: Para
     doc.text(`${teamLabel(teams, r.person.team)}${r.person.email ? ` · ${r.person.email}` : ''}`, 14, 25)
     autoTable(doc, {
       ...base, startY: 28,
-      head: [[...catHead, 'Reperibilità', 'Interventi', ...rateHead, 'Ore riconosciute']],
+      head: [[...catHead, 'Turni di reperibilità', 'Interventi', ...rateHead, 'Ore riconosciute']],
       body: [[...SHIFT_CATS.map((c) => catCell(r.shifts[c], r.planned[c])), catCell(r.totalShifts, r.totalPlanned), r.interventions || '–',
         ...RATE_KEYS.map((k) => hrs(r.byRate[k])), r.hours ? `${r.hours} h` : '–']],
       columnStyles: right(0, SHIFT_CATS.length + 2 + RATE_KEYS.length + 1),
@@ -362,7 +363,7 @@ export async function buildHoursPdf(x: HoursReport, teams: TeamDir, params: Para
 
     const sh = x.shifts.filter((s) => s.person.id === r.person.id)
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...INK)
-    doc.text(`Reperibilità (${sh.length})`, 14, lastY() + 7)
+    doc.text(`Turni di reperibilità (${sh.length})`, 14, lastY() + 7)
     doc.setFont('helvetica', 'normal')
     autoTable(doc, {
       ...base, startY: lastY() + 9,

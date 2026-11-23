@@ -305,7 +305,7 @@ esporta il file per l'ufficio paghe, che calcola gli importi con livello e RAL c
   `…-daAAAAMMGG_aAAAAMMGG`, con `-<persona>` per i file singoli). L'Excel ha 3 fogli:
   1. Riepilogo per persona – turni per categoria, interventi, ore effettive per fascia, ore riconosciute
      per voce;
-  2. Reperibilità – giorno di riferimento, giorno della settimana, tipo di gettone (categoria), inizio,
+  2. Turni di reperibilità – giorno di riferimento, giorno della settimana, tipo di gettone (categoria), inizio,
      fine, stato, interventi approvati e ore riconosciute del turno;
   3. Interventi – giorno e categoria del turno, inizio, fine, durata, minuti per fascia, ore riconosciute
      e ore per voce, nota.

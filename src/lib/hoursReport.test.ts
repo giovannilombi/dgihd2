@@ -97,7 +97,7 @@ describe('riepilogo per le paghe senza importi', () => {
     const { default: ExcelJS } = await import('exceljs')
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    expect(wb.worksheets.map((w) => w.name)).toEqual(['Riepilogo per persona', 'Reperibilità', 'Interventi'])
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Riepilogo per persona', 'Turni di reperibilità', 'Interventi'])
     for (const ws of wb.worksheets) {
       const values: string[] = []
       ws.eachRow((r) => r.eachCell((c) => values.push(String(c.value))))
@@ -122,8 +122,8 @@ describe('riepilogo per le paghe senza importi', () => {
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(await buildHoursXlsx(f, DEFAULT_TEAMS, P))
     const cells = (name: string) => { const v: string[] = []; wb.getWorksheet(name)!.eachRow((r) => r.eachCell((c) => v.push(String(c.value)))); return v }
-    expect(cells('Riepilogo per persona')).toEqual(expect.arrayContaining(['Effettuati feriale notturno', 'Programmati feriale notturno', 'Programmati totali']))
-    expect(cells('Reperibilità').filter((v) => v === 'Programmato')).toHaveLength(1)
+    expect(cells('Riepilogo per persona')).toEqual(expect.arrayContaining(['Turni di reperibilità effettuati feriale notturno', 'Turni di reperibilità programmati feriale notturno', 'Turni di reperibilità programmati totali']))
+    expect(cells('Turni di reperibilità').filter((v) => v === 'Programmato')).toHaveLength(1)
     expect(hoursFileName(nov, new Date(2026, 11, 3), true)).toBe('20261203-ARM-HD2-previsionale-novembre-2026.xlsx')
   })
 
@@ -165,7 +165,7 @@ describe('riepilogo per le paghe senza importi', () => {
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(await buildHoursXlsx(xr, DEFAULT_TEAMS, P))
     const sub: string[] = []
-    wb.getWorksheet('Reperibilità')!.eachRow((row) => sub.push(String(row.getCell(1).value)))
+    wb.getWorksheet('Turni di reperibilità')!.eachRow((row) => sub.push(String(row.getCell(1).value)))
     expect(sub.some((v) => v.startsWith('Periodo: Dal 27/11/2026 al 28/11/2026'))).toBe(true)
   })
 
@@ -177,5 +177,13 @@ describe('riepilogo per le paghe senza importi', () => {
     const zip = await zipFiles([{ name: 'a.pdf', data: single.buffer }, { name: 'b.xlsx', data: await buildHoursXlsx(buildHoursReport(input, nov, null, { person: 'b' }), DEFAULT_TEAMS, P) }])
     const { unzipSync } = await import('fflate')
     expect(Object.keys(unzipSync(zip)).sort()).toEqual(['a.pdf', 'b.xlsx'])
+  })
+
+  it('filtro per persone: tabella, dettagli e avvisi solo delle persone scelte', () => {
+    const only = buildHoursReport(input, nov, null, { persons: ['b'] })
+    expect(only.people.map((r) => r.person.id)).toEqual(['b'])
+    expect(only.shifts.every((s) => s.person.id === 'b')).toBe(true)
+    expect(only.notes.some((n) => /in approvazione/.test(n))).toBe(false) // l'intervento in approvazione è di a
+    expect(buildHoursReport(input, nov, null, { persons: [] }).people).toHaveLength(2)
   })
 })

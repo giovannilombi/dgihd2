@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { daysInRange, fmtDay, HORIZON_END, HORIZON_START, monthKey } from '../lib/calendar'
 import { dayState, romeNow, romeToday, type DayStatusMap } from '../lib/dayStatus'
 import { validateRange } from '../lib/exportRange'
@@ -28,6 +28,60 @@ interface Props {
 
 const dur = (m: number) => (m > 0 ? fmtMinutes(m) : '–')
 const th = 'py-2 pr-3 font-medium'
+/** Tabelle lunghe: scorrono dentro il riquadro, con intestazione (e totali) sempre visibili. */
+const scrollBox = 'max-h-[calc(100vh-var(--app-header-h,57px)-2rem)] overflow-auto'
+
+/** Filtro per persona: caselle di spunta; nessuna scelta = tutte. */
+function PeopleFilter({ options, selected, onChange }: { options: Person[]; selected: string[]; onChange: (ids: string[]) => void }) {
+  const teams = useTeams()
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const out = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', out)
+    return () => document.removeEventListener('mousedown', out)
+  }, [open])
+  const names = new Map(options.map((p) => [p.id, p.name]))
+  const label = !selected.length ? 'Tutte le persone' : selected.length === 1 ? names.get(selected[0]) ?? '1 persona' : `${selected.length} persone`
+  const shown = options.filter((p) => p.name.toLowerCase().includes(q.trim().toLowerCase()))
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
+  return (
+    <div ref={box} className="relative" onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog"
+        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm ring-1 ring-inset ${selected.length ? 'bg-blue-50 text-blue-900 ring-blue-300' : 'bg-white text-slate-800 ring-slate-300'}`}>
+        {label}
+        <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M5 8l5 5 5-5" /></svg>
+      </button>
+      {open && (
+        <div role="dialog" aria-label="Scegli le persone" className="absolute left-0 z-40 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca per nome" aria-label="Cerca per nome"
+            className="w-full rounded-lg px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300 outline-none focus:ring-2 focus:ring-blue-600" />
+          <div className="mt-2 flex items-center justify-between px-1 text-xs">
+            <span className="text-slate-500">{selected.length ? `${selected.length} su ${options.length}` : `Tutte (${options.length})`}</span>
+            <span className="flex gap-3">
+              <button type="button" className="font-medium text-blue-700 hover:underline" onClick={() => onChange(shown.map((p) => p.id))}>Seleziona {q ? 'trovate' : 'tutte'}</button>
+              <button type="button" className="font-medium text-slate-600 hover:underline disabled:opacity-40" disabled={!selected.length} onClick={() => onChange([])}>Azzera</button>
+            </span>
+          </div>
+          <ul className="mt-1.5 max-h-72 overflow-y-auto">
+            {shown.map((p) => (
+              <li key={p.id}>
+                <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-slate-50">
+                  <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} className="h-4 w-4 accent-blue-700" />
+                  <span className="min-w-0 flex-1 truncate text-slate-900">{p.name}</span>
+                  <span className="text-xs text-slate-400">{teamLabel(teams, p.team)}</span>
+                </label>
+              </li>
+            ))}
+            {!shown.length && <li className="px-1.5 py-2 text-sm text-slate-500">Nessuna persona{q ? ' con questo nome' : ' nel periodo'}.</li>}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** Intestazione di una fascia CCNL dello straordinario, con la sua maggiorazione. */
 function RateHead({ k, params }: { k: RateKey; params: Params }) {
@@ -68,6 +122,8 @@ export function HoursSummary({ people, assignments, params, days, interventions,
   const [rangeTo, setRangeTo] = useState(thisMonth.to)
   const rangeError = kind === 'range' ? validateRange({ from: rangeFrom, to: rangeTo }) : undefined
   const [team, setTeam] = useState<TeamId | null>(defaultTeam)
+  /** Persone scelte con il filtro; vuoto = tutte */
+  const [selected, setSelected] = useState<string[]>([])
   const [exportOpen, setExportOpen] = useState(false)
   /** Previsionale: anche i turni programmati nel calendario e non ancora erogati */
   const [forecast, setForecast] = useState(false)
@@ -77,7 +133,13 @@ export function HoursSummary({ people, assignments, params, days, interventions,
     : kind === 'week' ? weeks.find((w) => w.key === weekSel)!
     : rangeError ? thisMonth : rangePeriod(rangeFrom, rangeTo)
   const input = useMemo(() => ({ people, assignments, params, days, interventions, noInt, now: romeNow() }), [people, assignments, params, days, interventions, noInt])
-  const report = useMemo(() => buildHoursReport(input, period, team, { forecast }), [input, period, team, forecast])
+  const base = useMemo(() => buildHoursReport(input, period, team, { forecast }), [input, period, team, forecast])
+  const report = useMemo(() => (selected.length ? buildHoursReport(input, period, team, { forecast, persons: selected }) : base), [base, input, period, team, forecast, selected])
+  // nel filtro: le persone con reperibilità o interventi nel periodo, più quelle già scelte
+  const options = useMemo(() => {
+    const ids = new Set([...base.people.map((r) => r.person.id), ...selected])
+    return people.filter((p) => ids.has(p.id)).sort((a, b) => a.name.localeCompare(b.name, 'it'))
+  }, [base, people, selected])
   const rows = report.people
   const empty = !!rangeError || (!report.shifts.length && !report.interventions.length)
 
@@ -153,17 +215,18 @@ export function HoursSummary({ people, assignments, params, days, interventions,
         <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-sm" role="radiogroup" aria-label="Turni da mostrare">
           {([[false, 'Solo effettuati'], [true, 'Anche programmati']] as const).map(([k, l]) => (
             <button key={l} type="button" role="radio" aria-checked={forecast === k} onClick={() => setForecast(k)}
-              title={k ? 'Previsionale: anche i turni del calendario non ancora erogati; gli interventi restano solo quelli effettuati' : 'Solo i turni dei giorni erogati'}
+              title={k ? 'Previsionale: anche i turni di reperibilità del calendario non ancora erogati; gli interventi restano solo quelli effettuati' : 'Solo i turni di reperibilità dei giorni erogati'}
               className={`rounded-md px-3 py-1.5 font-medium ${forecast === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
           ))}
         </div>
         <label className="text-xs font-medium text-slate-600">
           <span className="sr-only">Team</span>
-          <select value={team ?? ''} onChange={(e) => setTeam(e.target.value || null)} className={select}>
+          <select value={team ?? ''} onChange={(e) => { setTeam(e.target.value || null); setSelected([]) }} className={select}>
             <option value="">Tutti i team</option>
             {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
         </label>
+        <PeopleFilter options={options} selected={selected} onChange={setSelected} />
         <div className="ml-auto flex flex-wrap gap-2">
           {canCloseMonth && toClose > 0 && (
             <Button disabled={busy !== null} onClick={() => void closeMonth()} title="Chiude l'inserimento degli interventi su tutti i giorni erogati del mese">
@@ -180,23 +243,23 @@ export function HoursSummary({ people, assignments, params, days, interventions,
       {report.notes.map((n) => <p key={n} className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{n}</p>)}
       <p className="text-sm text-slate-600">
         {forecast
-          ? <>Previsionale: turni <strong>effettuati</strong> (giorni erogati) e, con <span className="rounded bg-sky-50 px-1 text-xs font-medium text-sky-800 ring-1 ring-inset ring-sky-200">+N</span>, quelli <strong>programmati</strong> nel calendario e non ancora erogati. Gli interventi sono solo quelli effettuati e approvati.</>
-          : <>Solo turni dei giorni <strong>erogati</strong> e interventi <strong>approvati</strong>.</>} Il turno conta nel giorno in cui <strong>inizia</strong>: la notte di domenica, dalle 18:00 alle 09:00 di lunedì, è "domenica/festivo notturno".
-        Le ore riconosciute di ogni intervento (minimo, tolleranza e arrotondamento applicati) sono divise nelle fasce CCNL secondo il giorno e l'ora di ogni minuto; i minuti aggiunti o tolti dall'arrotondamento vanno nella fascia in cui l'intervento finisce. Sotto la tabella e nei file (Excel o PDF) c'è il dettaglio di reperibilità e interventi.
+          ? <>Previsionale: turni di reperibilità <strong>effettuati</strong> (giorni erogati) e, con <span className="rounded bg-sky-50 px-1 text-xs font-medium text-sky-800 ring-1 ring-inset ring-sky-200">+N</span>, quelli <strong>programmati</strong> nel calendario e non ancora erogati. Gli interventi sono solo quelli effettuati e approvati.</>
+          : <>Solo turni di reperibilità dei giorni <strong>erogati</strong> e interventi <strong>approvati</strong>.</>} Il turno conta nel giorno in cui <strong>inizia</strong>: la notte di domenica, dalle 18:00 alle 09:00 di lunedì, è "domenica/festivo notturno".
+        Le ore riconosciute di ogni intervento (minimo, tolleranza e arrotondamento applicati) sono divise nelle fasce CCNL secondo il giorno e l'ora di ogni minuto; i minuti aggiunti o tolti dall'arrotondamento vanno nella fascia in cui l'intervento finisce. Sotto la tabella e nei file (Excel o PDF) c'è il dettaglio dei turni di reperibilità e degli interventi.
       </p>
 
       {empty ? (
-        <p className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">Nel periodo non ci sono ancora turni {forecast ? 'nel calendario' : 'erogati né interventi approvati'}{team ? ` per il team ${teamLabel(teams, team)}` : ''}.</p>
+        <p className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">Nel periodo non ci sono ancora turni {forecast ? 'nel calendario' : 'erogati né interventi approvati'}{team ? ` per il team ${teamLabel(teams, team)}` : ''}{selected.length ? ' per le persone scelte' : ''}.</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
+        <div className={`${scrollBox} rounded-xl border border-slate-200 bg-white`}>
           <table className="num w-full min-w-[1250px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
-                <th className={`${th} pl-4`} rowSpan={2}>Persona</th>
-                <th className="pt-2 pr-3 text-center font-semibold text-slate-700" colSpan={SHIFT_CATS.length + 1}>{forecast ? 'Turni effettuati + programmati' : 'Turni'}</th>
+            <thead className="sticky top-0 z-20 bg-slate-50 shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-slate-50">
+              <tr className="text-left text-xs text-slate-500">
+                <th className={`${th} sticky left-0 z-30 bg-slate-50 pl-4`} rowSpan={2}>Persona</th>
+                <th className="pt-2 pr-3 text-center font-semibold text-slate-700" colSpan={SHIFT_CATS.length + 1}>{forecast ? 'Turni di reperibilità effettuati + programmati' : 'Turni di reperibilità'}</th>
                 <th className="pt-2 pr-3 text-center font-semibold text-slate-700" colSpan={RATE_KEYS.length + 3}>Interventi approvati · ore riconosciute per fascia CCNL</th>
               </tr>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
+              <tr className="text-left text-xs text-slate-500">
                 {SHIFT_CATS.map((c) => <th key={c} className={`${th} text-right`}>{SHIFT_CAT_LABEL[c]}</th>)}
                 <th className={`${th} text-right`}>Totale</th>
                 <th className={`${th} text-right`}>N.</th>
@@ -208,7 +271,7 @@ export function HoursSummary({ people, assignments, params, days, interventions,
             <tbody>
               {rows.map((r) => (
                 <tr key={r.person.id} className="border-b border-slate-100">
-                  <td className="py-2 pl-4 pr-3"><div className="whitespace-nowrap font-medium text-slate-900">{r.person.name}</div><div className="text-xs text-slate-500">{teamLabel(teams, r.person.team)}</div></td>
+                  <td className="sticky left-0 z-10 bg-white py-2 pl-4 pr-3"><div className="whitespace-nowrap font-medium text-slate-900">{r.person.name}</div><div className="text-xs text-slate-500">{teamLabel(teams, r.person.team)}</div></td>
                   {SHIFT_CATS.map((c) => <td key={c} className="whitespace-nowrap py-2 pr-3 text-right"><Shifts done={r.shifts[c]} planned={r.planned[c]} forecast={forecast} /></td>)}
                   <td className="whitespace-nowrap py-2 pr-3 text-right"><Shifts done={r.totalShifts} planned={r.totalPlanned} forecast={forecast} strong /></td>
                   <td className={`whitespace-nowrap py-2 pr-3 text-right ${r.interventions ? 'text-slate-900' : 'text-slate-300'}`}>{r.interventions || '–'}</td>
@@ -218,9 +281,9 @@ export function HoursSummary({ people, assignments, params, days, interventions,
                 </tr>
               ))}
             </tbody>
-            <tfoot>
+            <tfoot className="sticky bottom-0 z-20 bg-slate-50 shadow-[inset_0_1px_0_#e2e8f0]">
               <tr className="bg-slate-50 font-semibold text-slate-900">
-                <td className="py-2 pl-4 pr-3">Totale</td>
+                <td className="sticky left-0 z-10 bg-slate-50 py-2 pl-4 pr-3">Totale</td>
                 {SHIFT_CATS.map((c) => <td key={c} className="whitespace-nowrap py-2 pr-3 text-right"><Shifts done={sum((r) => r.shifts[c])} planned={sum((r) => r.planned[c])} forecast={forecast} strong /></td>)}
                 <td className="whitespace-nowrap py-2 pr-3 text-right"><Shifts done={sum((r) => r.totalShifts)} planned={sum((r) => r.totalPlanned)} forecast={forecast} strong /></td>
                 <td className="whitespace-nowrap py-2 pr-3 text-right">{report.interventions.length}</td>
@@ -234,11 +297,11 @@ export function HoursSummary({ people, assignments, params, days, interventions,
       )}
 
       {!empty && report.shifts.length > 0 && (
-        <Collapsible title={<span className="font-medium">Dettaglio delle reperibilità ({report.shifts.length}{forecast ? `, di cui ${report.shifts.filter((x) => x.state === 'programmato').length} programmate` : ''})</span>}>
-          <div className="overflow-x-auto">
+        <Collapsible title={<span className="font-medium">Dettaglio dei turni di reperibilità ({report.shifts.length}{forecast ? `, di cui ${report.shifts.filter((x) => x.state === 'programmato').length} programmati` : ''})</span>}>
+          <div className={scrollBox}>
             <table className="num w-full min-w-[900px] text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+              <thead className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-white">
+                <tr className="text-left text-xs text-slate-500">
                   <th className={th}>Persona</th><th className={th}>Giorno di riferimento</th><th className={th} title="Il tipo di reperibilità decide indennità CCNL e gettone">Tipo di gettone</th>
                   <th className={th}>Orario</th><th className={th}>Stato</th><th className={`${th} text-right`}>Interventi approvati</th><th className={`${th} text-right`}>Ore riconosciute</th>
                 </tr>
@@ -265,10 +328,10 @@ export function HoursSummary({ people, assignments, params, days, interventions,
 
       {!empty && report.interventions.length > 0 && (
         <Collapsible title={<span className="font-medium">Dettaglio degli interventi approvati ({report.interventions.length})</span>}>
-          <div className="overflow-x-auto">
+          <div className={scrollBox}>
             <table className="num w-full min-w-[1100px] text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+              <thead className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-white">
+                <tr className="text-left text-xs text-slate-500">
                   <th className={th}>Persona</th><th className={th}>Turno</th><th className={th}>Orario e durata effettiva per fascia</th><th className={`${th} text-right`}>Durata</th>
                   {RATE_KEYS.map((k) => <RateHead key={k} k={k} params={params} />)}
                   <th className={`${th} text-right`}>Ore riconosciute</th>
@@ -310,14 +373,14 @@ function ExportHoursDialog({ period, forecast, people, busy, onClose, onExport }
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="hx-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
       <form onSubmit={(e) => { e.preventDefault(); onExport(format, split) }} className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
         <h3 id="hx-title" className="text-lg font-semibold text-slate-900">{forecast ? 'Esporta il previsionale' : "Esporta per l'ufficio paghe"}</h3>
-        <p className="mt-1 text-sm text-slate-600">Periodo: <strong>{period}</strong>. {forecast ? 'Reperibilità effettuate e programmate, interventi solo effettuati e approvati.' : 'Reperibilità effettuate (giorni erogati) e interventi approvati.'} Nessun importo.</p>
+        <p className="mt-1 text-sm text-slate-600">Periodo: <strong>{period}</strong>. {forecast ? 'Turni di reperibilità effettuati e programmati, interventi solo effettuati e approvati.' : 'Turni di reperibilità effettuati (giorni erogati) e interventi approvati.'} Nessun importo.</p>
         <div className="mt-4 text-xs font-medium text-slate-600">Formato</div>
         <div className="mt-1.5 flex gap-2" role="radiogroup" aria-label="Formato">
           <button type="button" role="radio" aria-checked={format === 'xlsx'} onClick={() => setFormat('xlsx')} className={choice(format === 'xlsx')}>
-            <strong className="block text-slate-900">Excel</strong><span className="text-xs text-slate-600">Riepilogo per persona, Reperibilità, Interventi.</span>
+            <strong className="block text-slate-900">Excel</strong><span className="text-xs text-slate-600">Riepilogo per persona, Turni di reperibilità, Interventi.</span>
           </button>
           <button type="button" role="radio" aria-checked={format === 'pdf'} onClick={() => setFormat('pdf')} className={choice(format === 'pdf')}>
-            <strong className="block text-slate-900">PDF</strong><span className="text-xs text-slate-600">Riepilogo e, per ogni persona, reperibilità e interventi.</span>
+            <strong className="block text-slate-900">PDF</strong><span className="text-xs text-slate-600">Riepilogo e, per ogni persona, turni di reperibilità e interventi.</span>
           </button>
         </div>
         <div className="mt-4 text-xs font-medium text-slate-600">File</div>
