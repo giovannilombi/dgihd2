@@ -299,10 +299,14 @@ esporta il file per l'ufficio paghe, che calcola gli importi con livello e RAL c
   effettuati e approvati. L'export segue la scelta (file `…-previsionale-<mese>.xlsx`, con colonne
   effettuati/programmati per categoria e lo stato di ogni turno). Avvisi per turni non ancora erogati, turni finiti senza
   risposta, interventi in approvazione o rifiutati.
-- File `AAAAMMGG-ARM-HD2-paghe-ore-<mese>.xlsx` (o `…-settimana-<lunedì>.xlsx`), 3 fogli:
+- Periodo: mese, settimana oppure intervallo di date (sempre scritto nei file).
+- Export in Excel o in PDF, in un file unico oppure uno per turnista (archivio ZIP con un file per persona,
+  stesso schema e dettaglio). File `AAAAMMGG-ARM-HD2-paghe-ore-<mese>.xlsx` (o `…-settimana-<lunedì>`,
+  `…-daAAAAMMGG_aAAAAMMGG`, con `-<persona>` per i file singoli). L'Excel ha 3 fogli:
   1. Riepilogo per persona – turni per categoria, interventi, ore effettive per fascia, ore riconosciute
      per voce;
-  2. Turni – giorno di riferimento, giorno della settimana, categoria, inizio, fine, stato del giorno;
+  2. Reperibilità – giorno di riferimento, giorno della settimana, tipo di gettone (categoria), inizio,
+     fine, stato, interventi approvati e ore riconosciute del turno;
   3. Interventi – giorno e categoria del turno, inizio, fine, durata, minuti per fascia, ore riconosciute
      e ore per voce, nota.
 - Nessuna RAL, livello, importo o regola di calcolo nel file: le regole restano in questo documento e

@@ -6,8 +6,8 @@ import { slotEcon, type NdData } from './reports'
 import { teamLabel, type TeamDir } from './teams'
 import type { Assignments, Params, Person, SlotKind } from './types'
 
-/** Periodo dell'export per le paghe: un mese di calendario o una settimana (lunedì–domenica). */
-export interface PayPeriod { kind: 'month' | 'week'; key: string; from: string; to: string; label: string }
+/** Periodo dell'export per le paghe: un mese di calendario, una settimana (lunedì–domenica) o un intervallo di date. */
+export interface PayPeriod { kind: 'month' | 'week' | 'range'; key: string; from: string; to: string; label: string }
 
 export function payPeriods(): { months: PayPeriod[]; weeks: PayPeriod[] } {
   const days = daysInRange()

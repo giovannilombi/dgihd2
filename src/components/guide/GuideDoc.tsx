@@ -463,7 +463,7 @@ function hr(c: GuideCtx): Sec[] {
       key: 'esportare', title: 'Esportare',
       body: <>
         <Table head={['File', 'Dove', 'Cosa contiene']} rows={[
-          [<UiBtn key="h" variant="primary" small>Esporta per paghe (Excel)</UiBtn>, 'Riepilogo', 'Per l\'ufficio paghe, per mese o settimana, senza importi. Tre fogli: Riepilogo per persona, Turni (con categoria e orari), Interventi (minuti per fascia e ore riconosciute). Solo turni erogati e interventi approvati.'],
+          [<UiBtn key="h" variant="primary" small>Esporta per paghe…</UiBtn>, 'Riepilogo', 'Per l\'ufficio paghe, senza importi, per mese, settimana o intervallo di date (sempre indicato nel file). Excel (Riepilogo per persona, Reperibilità con il tipo di gettone, Interventi con le ore per fascia CCNL) oppure PDF; un file unico o uno per turnista in un archivio ZIP. Solo turni erogati e interventi approvati, oppure il previsionale.'],
           ...(c.full ? [
             [<UiBtn key="p" variant="primary" small>Esporta per paghe (Excel)</UiBtn>, 'Consuntivo', 'Con gli importi, per mese o settimana. Quattro fogli: Reperibilità CCNL, Gettoni integrativi, Straordinario per interventi, Riepilogo paghe (una riga per persona). Solo turni erogati e interventi approvati.'],
             [<UiBtn key="c" small>Esporta report (CSV)</UiBtn>, 'Consuntivo, Conto economico', 'Per analisi e report: consuntivo cedolino per persona e conto economico del periodo scelto.'],
@@ -504,7 +504,7 @@ function riepilogoSection(c: GuideCtx): Sec {
         c.exact
           ? `Le ore di intervento si dividono per fascia secondo il giorno e l'ora di ogni minuto: notte dalle ${c.p.otNightStart} alle ${c.p.otNightEnd}, festivo la domenica e nei festivi. Dopo la mezzanotte di domenica è lunedì: notturno feriale.`
           : 'Le ore di intervento si dividono per fascia secondo il giorno e l\'ora di ogni minuto: dopo la mezzanotte di domenica è lunedì, notturno feriale.',
-        'Per ogni intervento contano le ore riconosciute, con minimo e tolleranza:',
+        'Per ogni intervento contano le ore riconosciute (minimo e tolleranza), divise nelle fasce CCNL: il Riepilogo le mostra fascia per fascia con la maggiorazione, e sotto l\'orario la durata effettiva in ogni fascia.',
       ]} />
       {hoursTable(c)}
       <Note>Il riepilogo e il suo file non contengono importi: l'ufficio paghe li calcola con livello e RAL che già conosce. Le regole di calcolo sono nella pagina <Ui>Approccio</Ui>.</Note>

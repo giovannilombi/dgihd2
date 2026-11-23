@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dayStatusMap } from './dayStatus'
-import { buildHoursReport, buildHoursXlsx, hoursFileName, shiftCategory } from './hoursReport'
+import { buildHoursPdf, buildHoursReport, buildHoursXlsx, hoursFileName, periodText, rangePeriod, shiftCategory, zipFiles } from './hoursReport'
 import type { Intervention } from './interventions'
 import { payPeriods } from './payrollExport'
 import { DEFAULT_TEAMS } from './teams'
@@ -97,11 +97,11 @@ describe('riepilogo per le paghe senza importi', () => {
     const { default: ExcelJS } = await import('exceljs')
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    expect(wb.worksheets.map((w) => w.name)).toEqual(['Riepilogo per persona', 'Turni', 'Interventi'])
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Riepilogo per persona', 'Reperibilità', 'Interventi'])
     for (const ws of wb.worksheets) {
       const values: string[] = []
       ws.eachRow((r) => r.eachCell((c) => values.push(String(c.value))))
-      expect(values.some((v) => /€|\bRAL\b|livell|maggiorazion|gettone|indennit/i.test(v))).toBe(false)
+      expect(values.some((v) => /€|\bRAL\b|livell|maggiorazion|indennit|%/i.test(v))).toBe(false)
     }
     expect(hoursFileName(nov, new Date(2026, 11, 3))).toBe('20261203-ARM-HD2-paghe-ore-novembre-2026.xlsx')
   })
@@ -123,7 +123,59 @@ describe('riepilogo per le paghe senza importi', () => {
     await wb.xlsx.load(await buildHoursXlsx(f, DEFAULT_TEAMS, P))
     const cells = (name: string) => { const v: string[] = []; wb.getWorksheet(name)!.eachRow((r) => r.eachCell((c) => v.push(String(c.value)))); return v }
     expect(cells('Riepilogo per persona')).toEqual(expect.arrayContaining(['Effettuati feriale notturno', 'Programmati feriale notturno', 'Programmati totali']))
-    expect(cells('Turni').filter((v) => v === 'Programmato')).toHaveLength(1)
+    expect(cells('Reperibilità').filter((v) => v === 'Programmato')).toHaveLength(1)
     expect(hoursFileName(nov, new Date(2026, 11, 3), true)).toBe('20261203-ARM-HD2-previsionale-novembre-2026.xlsx')
+  })
+
+  it('Excel: prima le ore riconosciute per fascia CCNL, poi la durata effettiva', async () => {
+    const { default: ExcelJS } = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await buildHoursXlsx(x, DEFAULT_TEAMS, P))
+    const head = (name: string) => { let h: string[] = []; wb.getWorksheet(name)!.eachRow((r) => { const v = (r.values as unknown[]).slice(1).map(String); if (v[0] === 'Persona') h = v }); return h }
+    const iv = head('Interventi')
+    expect(iv.slice(iv.indexOf('Fine') + 1, iv.indexOf('Fine') + 8)).toEqual([
+      'Ore riconosciute feriale diurno, prime 2 h (06–22)', 'Ore riconosciute feriale diurno, ore successive (06–22)', 'Ore riconosciute notturno feriale (22–06)',
+      'Ore riconosciute festivo diurno (06–22)', 'Ore riconosciute festivo notturno (22–06)', 'Ore riconosciute totali', 'Durata effettiva (min)',
+    ])
+    const r1 = head('Riepilogo per persona')
+    expect(r1.indexOf('Ore riconosciute totali')).toBeLessThan(r1.indexOf('Ore effettive totali'))
+  })
+
+  it('reperibilità con il tipo di gettone e gli interventi del turno; report di una sola persona', () => {
+    const s13 = x.shifts.find((s) => s.slot === '2026-11-27|N')!
+    expect(s13).toMatchObject({ cat: 'FN', ivCount: 2, ivHours: 3 })
+    expect(x.shifts.find((s) => s.slot === '2026-11-28|D')).toMatchObject({ ivCount: 0, ivHours: 0 })
+    const one = buildHoursReport(input, nov, null, { person: 'b' })
+    expect(one.people.map((r) => r.person.id)).toEqual(['b'])
+    expect(one.shifts.every((s) => s.person.id === 'b')).toBe(true)
+    expect(one.interventions.map((o) => o.iv.id)).toEqual(['y'])
+  })
+
+  it('periodo da data a data: indicato nei file e nel nome', async () => {
+    const r = rangePeriod('2026-11-27', '2026-11-28')
+    expect(periodText(r)).toBe('Dal 27/11/2026 al 28/11/2026')
+    expect(periodText(nov)).toBe('Novembre 2026 (dal 01/11/2026 al 30/11/2026)')
+    const xr = buildHoursReport(input, r)
+    expect(xr.shifts.map((s) => s.slot)).toEqual(['2026-11-27|N', '2026-11-28|D', '2026-11-28|N'])
+    const d = new Date(2026, 11, 3)
+    expect(hoursFileName(r, d)).toBe('20261203-ARM-HD2-paghe-ore-da20261127_a20261128.xlsx')
+    expect(hoursFileName(nov, d, false, 'pdf', 'Àlba Rossi')).toBe('20261203-ARM-HD2-paghe-ore-novembre-2026-alba-rossi.pdf')
+    expect(hoursFileName(nov, d, true, 'zip')).toBe('20261203-ARM-HD2-previsionale-novembre-2026.zip')
+    const { default: ExcelJS } = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await buildHoursXlsx(xr, DEFAULT_TEAMS, P))
+    const sub: string[] = []
+    wb.getWorksheet('Reperibilità')!.eachRow((row) => sub.push(String(row.getCell(1).value)))
+    expect(sub.some((v) => v.startsWith('Periodo: Dal 27/11/2026 al 28/11/2026'))).toBe(true)
+  })
+
+  it('PDF e archivio con un file per persona', async () => {
+    const pdf = new Uint8Array(await buildHoursPdf(x, DEFAULT_TEAMS, P))
+    expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe('%PDF-')
+    const single = new Uint8Array(await buildHoursPdf(buildHoursReport(input, nov, null, { person: 'a' }), DEFAULT_TEAMS, P))
+    expect(single.length).toBeGreaterThan(1000)
+    const zip = await zipFiles([{ name: 'a.pdf', data: single.buffer }, { name: 'b.xlsx', data: await buildHoursXlsx(buildHoursReport(input, nov, null, { person: 'b' }), DEFAULT_TEAMS, P) }])
+    const { unzipSync } = await import('fflate')
+    expect(Object.keys(unzipSync(zip)).sort()).toEqual(['a.pdf', 'b.xlsx'])
   })
 })
