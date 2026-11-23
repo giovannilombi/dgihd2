@@ -214,7 +214,7 @@ export function existingViolations(people: Person[], a: Assignments, p: Params):
 /**
  * Bozza automatica: riempie solo gli slot vuoti nel range, rispettando tutti i vincoli.
  * Priorità ai weekend/festivi (fatturati a giornata intera), poi alle notti feriali.
- * Tra i candidati validi preferisce chi ha meno turni nel mese, poi in totale, poi il costo minore.
+ * Tra i candidati validi preferisce chi ha meno turni nel mese, poi in totale, poi (se `useCost`) il costo minore.
  */
 /** Avviso (non bloccante) se l'assegnazione supera il tetto mensile preferito dalla persona. */
 export function preferenceWarning(person: Person, slotId: string, a: Assignments): string | undefined {
@@ -230,7 +230,7 @@ export function preferenceWarning(person: Person, slotId: string, a: Assignments
 /** Ordine di impiego nell'auto-compilazione: prima i volontari, poi chi ha dato una disponibilità limitata, infine chi non ha espresso preferenze. */
 const TIER = { volontario: 0, limitato: 1, nessuna: 2 } as const
 
-export function autoFill(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[] = [], random: () => number = Math.random): Assignments {
+export function autoFill(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[] = [], random: () => number = Math.random, useCost = true): Assignments {
   const result: Assignments = { ...a }
   const active = people.filter((x) => x.active)
   const excluded = new Set(excludedDays)
@@ -259,7 +259,7 @@ export function autoFill(people: Person[], a: Assignments, p: Params, from: stri
           tier: TIER[availabilityOf(x)],
           inMonth: ss.filter((s) => monthKey(s.date) === month).length,
           total: ss.length,
-          cost: slotEconomics(x, slot, p).cost,
+          cost: useCost ? slotEconomics(x, slot, p).cost : 0,
         }
       })
       // prima chi ha indicato disponibilità per quel giorno, poi volontari → limitati → senza preferenza
@@ -272,12 +272,13 @@ export function autoFill(people: Person[], a: Assignments, p: Params, from: stri
 /**
  * Rigenera il periodo [from, to]: mantiene i turni bloccati (e quelli fuori periodo),
  * scarta gli altri e riassegna tutto il resto rispettando vincoli e disponibilità.
+ * Con `useCost` falso RAL e livello non entrano nella scelta.
  */
-export function regenerate(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[], pinned: string[]): Assignments {
+export function regenerate(people: Person[], a: Assignments, p: Params, from: string, to: string, excludedDays: string[], pinned: string[], useCost = true): Assignments {
   const keep = new Set(pinned)
   const base = Object.fromEntries(Object.entries(a).filter(([sid]) => {
     const d = SLOT_BY_ID[sid]?.date
     return !d || d < from || d > to || keep.has(sid)
   }))
-  return autoFill(people, base, p, from, to, excludedDays)
+  return autoFill(people, base, p, from, to, excludedDays, Math.random, useCost)
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { bandAt, fmtMinutes, personOvertime, recognizedHours, shiftWindow, splitIntervention } from './overtime'
-import { DEFAULT_PARAMS as P } from './types'
+import { bandAt, callFeeText, fmtMinutes, personOvertime, recognizedHours, shiftWindow, splitIntervention } from './overtime'
+import { DEFAULT_PARAMS } from './types'
+
+const P = { ...DEFAULT_PARAMS, callFee: 5 } // compenso per intervento di prova (di default è 0)
 
 const iv = (id: string, start: string, end: string) => ({ id, start, end })
 
@@ -47,7 +49,7 @@ describe('fasce: giorno di calendario del minuto, sabato feriale, notte 22–06'
   })
 })
 
-describe('importi: prime 2 ore feriali diurne del giorno al 25%, poi 30%; 5 € a chiamata', () => {
+describe('importi: prime 2 ore feriali diurne del giorno al 25%, poi 30%; compenso per intervento', () => {
   const ral = 41000 // valore di prova
   const hourly = ral / P.hourlyDivisor
   it('somma gli interventi del giorno in ordine di orario', () => {
@@ -90,5 +92,14 @@ describe('turni e formati', () => {
     expect(fmtMinutes(95)).toBe("1 h 35'")
     expect(fmtMinutes(45)).toBe("45'")
     expect(fmtMinutes(120)).toBe('2 h')
+  })
+})
+
+describe('compenso per intervento', () => {
+  it('di default è 0 e nei testi è sempre "eventuale", con il valore impostato', () => {
+    expect(DEFAULT_PARAMS.callFee).toBe(0)
+    expect(personOvertime([iv('x', '2026-11-30T18:30', '2026-11-30T20:00')], 41000, DEFAULT_PARAMS).callFees).toBe(0)
+    expect(callFeeText(0).replace(/\s/g, ' ')).toBe('eventuale compenso per intervento (ad oggi impostato in piattaforma a 0,00 €)')
+    expect(callFeeText(5).replace(/\s/g, ' ')).toBe('eventuale compenso per intervento (ad oggi impostato in piattaforma a 5,00 €)')
   })
 })

@@ -15,7 +15,8 @@ const person = (id: string, team: TeamId | null, ral: number, extra: Partial<Per
 const data = (people: Person[], assignments: Record<string, string> = {}): AppData =>
   ({ version: 1, params: P, people, assignments, excludedDays: [], pinned: [] })
 
-const me = (role: Role, team: TeamId | null) => ({ role, team })
+// vista completa attiva: le regole per profilo valgono solo con quella
+const me = (role: Role, team: TeamId | null, full = true) => ({ role, team, full })
 
 describe('visibilità RAL per profilo (stessa regola della RLS)', () => {
   it('Space admin, Governance e HR vedono tutti i team, anche le risorse senza team', () => {
@@ -30,6 +31,12 @@ describe('visibilità RAL per profilo (stessa regola della RLS)', () => {
     expect(canSeeSalaryOf(me('director', 'tech'), 'pm')).toBe(false)
     expect(canSeeSalaryOf(me('director', 'tech'), null)).toBe(false)
     expect(canSeeSalaryOf(me('director', null), null)).toBe(false)
+  })
+  it('senza vista completa nessuno vede RAL, livelli o importi, né riceve importi Q/ dal server', () => {
+    for (const r of ['super_admin', 'governance', 'hr', 'director'] as const) {
+      expect(canSeeSalaryOf(me(r, 'tech', false), 'tech')).toBe(false)
+      expect(canSeeSalaryOf({ role: r, team: 'tech' }, 'tech')).toBe(false)
+    }
   })
   it('PM, Viewer e Turnista non vedono nessuna RAL, qualunque sia il team', () => {
     for (const r of ['pm', 'viewer', 'turnista'] as const) {
@@ -136,6 +143,9 @@ describe('RAL Q/: la media di riferimento resta sul server', () => {
   })
   it('importi delle persone Q/ di altri team: mai restituiti', () => {
     expect(salaryRuleChecks(serverData, me('director', 'pm')).nd).toEqual({})
+    // senza vista completa il server non restituisce importi
+    expect(salaryRuleChecks(serverData, me('director', 'tech', false)).nd).toEqual({})
+    expect(salaryRuleChecks(serverData, me('super_admin', null, false)).nd).toEqual({})
   })
   it('in pagina, senza i dati del server, la persona Q/ resta "in calcolo" (nessun importo con valori inventati)', () => {
     const local = data([q, t], { '2026-11-23|N': 'q1', '2026-11-24|N': 't1' }) // params senza ndRal, come nel browser

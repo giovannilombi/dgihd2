@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { diff, isEmpty, loadAll, persist, replaceAll, subscribe } from './remote'
+import { canSeeSalaryOf, type Me } from './roles'
 import { defaultData, type AppData } from './store'
 
 export type SyncStatus = 'loading' | 'synced' | 'saving' | 'error'
@@ -8,7 +9,9 @@ export type SyncStatus = 'loading' | 'synced' | 'saving' | 'error'
  * Dati condivisi su Supabase: le modifiche si applicano subito in pagina e vengono salvate
  * in coda; le modifiche degli altri utenti arrivano in tempo reale.
  */
-export function useRemoteData(readFull: boolean, editable: boolean, readParams = readFull) {
+export function useRemoteData(readFull: boolean, editable: boolean, readParams = readFull, salaryMe?: Pick<Me, 'role' | 'team' | 'full'>) {
+  const salaryRole = salaryMe?.full ? salaryMe.role : null
+  const salaryTeam = salaryMe?.team ?? null
   const [data, setLocal] = useState<AppData>(defaultData)
   const [status, setStatus] = useState<SyncStatus>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -20,7 +23,8 @@ export function useRemoteData(readFull: boolean, editable: boolean, readParams =
 
   const reload = useCallback(async () => {
     try {
-      const fresh = await loadAll(readFull, readParams)
+      const salaryOf = salaryRole ? (team: string | null) => canSeeSalaryOf({ role: salaryRole, team: salaryTeam, full: true }, team) : undefined
+      const fresh = await loadAll(readFull, readParams, salaryOf)
       current.current = fresh
       confirmed.current = fresh
       setLocal(fresh)
@@ -30,7 +34,7 @@ export function useRemoteData(readFull: boolean, editable: boolean, readParams =
       setStatus('error')
       setError(`Impossibile leggere i dati: ${(e as Error).message}`)
     }
-  }, [readFull, readParams])
+  }, [readFull, readParams, salaryRole, salaryTeam])
 
   useEffect(() => {
     void Promise.resolve().then(reload)

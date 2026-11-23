@@ -119,8 +119,10 @@ Titolo III; rinnovo firmato il 22/11/2025 (vigenza fino al 30/06/2028).
   maggiorazioni. **Non implementato**: gli interventi sono tutti da remoto.
 - Ore di intervento, anche da remoto: orario di lavoro, compensate con le maggiorazioni per straordinario,
   notturno e festivo; retribuite come straordinario se aggiuntive al normale orario.
-- **Compenso per chiamata** seguita da intervento effettivo: **5,00 €** fissi per chiamata, anche da remoto;
-  confermato per il 2026 (non soggetto a rivalutazione IPCA). **Escluso dalla base di calcolo del TFR.**
+- **Eventuale compenso per intervento** (compenso fisso per chiamata seguita da intervento effettivo, anche da
+  remoto): **da confermare con HR**. In piattaforma è il parametro "Eventuale compenso per intervento", di
+  default **0 €**; nei testi si cita sempre come "eventuale compenso per intervento (ad oggi impostato in
+  piattaforma a X)", con X il valore in vigore.
 - Indennità di reperibilità: si riconosce sempre intera; lo straordinario degli interventi è sempre **in
   aggiunta** (nessuno storno della quota oraria durante l'intervento).
 - Deroga al riposo di 11 ore ammessa in reperibilità, garantendo comunque almeno 8 ore consecutive.
@@ -170,7 +172,7 @@ Motivazione: per l'art. 6 gli interventi in reperibilità si pagano come straord
 al normale orario; di domenica o in un festivo non lavorato le ore sono aggiuntive, quindi si applicano le
 voci di straordinario festivo (55%) e straordinario notturno festivo (75%), non quelle di lavoro festivo in
 orario (50% / 60%). Tutte le percentuali restano parametri modificabili (Parametri → blocco B "Straordinari per
-interventi": maggiorazioni, fascia notturna, minimo, tolleranza, divisore della paga oraria, compenso per chiamata).
+interventi": maggiorazioni, fascia notturna, minimo, tolleranza, divisore della paga oraria, eventuale compenso per intervento).
 
 Conteggio delle soglie: le "prime 2 ore" del feriale diurno si contano per giornata (data di calendario del
 minuto lavorato), sommando in ordine di orario le ore diurne feriali di tutti gli interventi del giorno.
@@ -208,16 +210,16 @@ Altre regole dell'art. 7 rilevanti:
   le 22, giorno feriale/festivo, cambio di data a mezzanotte) e ogni parte si paga con la propria
   maggiorazione, esposta separatamente; i minuti aggiunti dall'arrotondamento vanno **sempre alla fascia in
   cui l'intervento termina**.
-- Ogni intervento dà diritto anche al compenso per chiamata di 5,00 € (§ 6.1).
+- A ogni intervento approvato si aggiunge l'eventuale compenso per intervento (§ 6.1; di default 0 €).
 - "Prime 2 ore / successive" dello straordinario diurno si contano per giornata.
-- Calcolo: `P_base = RAL ÷ divisore` (2.249 = 173 × 13), `S = Σ h_fascia × P_base × (1 + m_fascia) + n_chiamate × 5 €`.
+- Calcolo: `P_base = RAL ÷ divisore` (2.249 = 173 × 13), `S = Σ h_fascia × P_base × (1 + m_fascia) + n_interventi × c`, con `c` l'eventuale compenso per intervento.
   Si liquidano solo gli interventi **approvati**. Per le persone con RAL Q/ (o RAL non inserita) si mostrano
   solo le ore, con l'indicazione di inserire la RAL puntuale.
-- Esempi (RAL di esempio 30.000 €, paga oraria ≈ 13,34 €):
-  - giovedì 22:40 → venerdì 00:15 (95' → 2 h): 2 h notturno feriale al 50% → 40,02 € + 5 €;
+- Esempi (RAL di esempio 30.000 €, paga oraria ≈ 13,34 €; importi senza l'eventuale compenso per intervento):
+  - giovedì 22:40 → venerdì 00:15 (95' → 2 h): 2 h notturno feriale al 50% → 40,02 €;
   - sabato 23:30 → domenica 00:40 (70' → 1 h): 30' notturno feriale al 50% + 30' notturno festivo al 75%
-    → 21,68 € + 5 €;
-  - lunedì 18:30 → 20:00 (90' → 2 h) e 20:30 → 21:15 (45' → 1 h): 2 h al 25% + 1 h al 30% → 50,69 € + 10 €.
+    → 21,68 €;
+  - lunedì 18:30 → 20:00 (90' → 2 h) e 20:30 → 21:15 (45' → 1 h): 2 h al 25% + 1 h al 30% → 50,69 €.
 - Regole applicate dal database (funzioni `add_intervention`, `update_intervention`, `delete_intervention`,
   `declare_no_intervention`, `decide_intervention`, `my_shifts`):
   - si dichiara solo sui propri turni (account collegato alla scheda o con la stessa email), con inizio
@@ -252,21 +254,20 @@ Altre regole dell'art. 7 rilevanti:
 - Profili (uno per account; il team indica solo l'appartenenza):
   - **Space admin**: uno solo (vincolo nel database), non si assegna, cambia o elimina dall'app; può essere
     a capo di un team (oggi il team PM) e in quel caso ne è il capo;
-  - **Governance**: modifica tutto il piano (anche il team delle risorse), RAL e importi di tutti;
-  - **Director**: modifica il piano, RAL e importi del solo proprio team, approva gli interventi del team
-    e sblocca i giorni dei turni del team; **un solo capo per team** (Director, oppure lo Space admin
-    assegnato al team), vincolo nel database;
-  - **HR** (anche più di uno): sola lettura, RAL e importi di tutti, consuntiva ed esporta le paghe;
+  - **Governance**: modifica tutto il piano (anche il team delle risorse);
+  - **Director**: modifica il piano, approva gli interventi del team e sblocca i giorni dei turni del team;
+    **un solo capo per team** (Director, oppure lo Space admin assegnato al team), vincolo nel database;
+  - **HR** (anche più di uno): sola lettura, consuntiva ed esporta il riepilogo per le paghe;
   - **PM**: Approccio (con i parametri applicati, senza la pagina Parametri), calendario e interventi con le
-    sole ore; approva gli interventi di tutti i team; nessuna RAL;
+    sole ore; approva gli interventi di tutti i team;
   - **Viewer**: solo calendario; **Turnista**: calendario e i propri interventi.
-- Importi degli interventi: a chi vede la RAL della persona (stessa regola: dagli importi si ricaverebbe la
-  paga oraria). Ore e fasce a chi legge il piano (anche PM).
+- RAL e livelli restano nel database (tabella separata dall'anagrafica), protetti dalle regole di accesso:
+  il browser li riceve solo dove le regole lo consentono. Gli importi seguono la stessa regola (dagli importi
+  si ricaverebbe la paga oraria). Ore e fasce a chi legge il piano (anche PM).
 - Approvazione degli interventi: capo del team della persona, PM, space admin; mai sui propri interventi
   (salvo lo space admin).
-- Prima di ogni modifica che dà accesso alle RAL (nuovo account o cambio di profilo Governance, HR, Director;
-  cambio di team di un capo; spostamento di una risorsa in un altro team; import JSON con team) l'app dice
-  quante e quali RAL la persona vedrà e chiede conferma.
+- Prima di ogni modifica che può dare accesso alle RAL l'app dice quante e quali RAL la persona vedrà e
+  chiede conferma.
 - Persone con RAL "Q/": gli importi derivano da un valore medio riservato; non mostrare dati da cui
   ricavarlo. Per gli interventi si mostrano solo ore e fasce, con l'indicazione di inserire la RAL puntuale
   per calcolare gli importi.
@@ -275,6 +276,36 @@ Altre regole dell'art. 7 rilevanti:
 - Tutti i permessi sono applicati nel database (Row Level Security), non solo nell'interfaccia.
 
 ## 10. Export per l'ufficio paghe
+
+### 10.1 Riepilogo turni e interventi (senza importi)
+
+Pagina **Riepilogo** (Space admin, Governance, Director, HR): per mese o settimana, e per team, una riga per
+persona con i turni per categoria e gli interventi approvati in ore. Da qui si consuntiva il mese e si
+esporta il file per l'ufficio paghe, che calcola gli importi con livello e RAL che già conosce.
+
+- **Giorno di riferimento** del turno: quello in cui inizia. Notte 18:00 → 09:00 del giorno dopo; diurno di
+  sabato, domenica e festivi 09:00 → 18:00. La notte di domenica (18:00 di domenica → 09:00 di lunedì) è
+  "domenica/festivo notturno".
+- **Categorie**: feriale notturno (lunedì–venerdì non festivi), sabato diurno, sabato notturno,
+  domenica/festivo diurno, domenica/festivo notturno. Un sabato festivo conta come festivo: è la stessa
+  distinzione dell'indennità CCNL (§ 6.2).
+- **Interventi**: minuti effettivi per fascia (feriale diurno, notturno feriale, festivo diurno, festivo
+  notturno) secondo il giorno e l'ora di ogni minuto, quindi dopo la mezzanotte di domenica è notturno
+  feriale; poi ore riconosciute per voce con le regole del § 7 (minimo, tolleranza, arrotondamento nella
+  fascia in cui l'intervento finisce, prime 2 ore feriali diurne del giorno).
+- Solo turni dei giorni erogati e interventi approvati; un turno appartiene al periodo del suo giorno di
+  riferimento e gli interventi seguono il turno. Avvisi per turni non ancora erogati, turni finiti senza
+  risposta, interventi in approvazione o rifiutati.
+- File `AAAAMMGG-ARM-HD2-paghe-ore-<mese>.xlsx` (o `…-settimana-<lunedì>.xlsx`), 3 fogli:
+  1. Riepilogo per persona – turni per categoria, interventi, ore effettive per fascia, ore riconosciute
+     per voce;
+  2. Turni – giorno di riferimento, giorno della settimana, categoria, inizio, fine, stato del giorno;
+  3. Interventi – giorno e categoria del turno, inizio, fine, durata, minuti per fascia, ore riconosciute
+     e ore per voce, nota.
+- Nessuna RAL, livello, importo o regola di calcolo nel file: le regole restano in questo documento e
+  nella pagina Approccio.
+
+### 10.2 Export con gli importi
 
 Periodo selezionabile: **mese** o **settimana**. File Excel con 4 fogli:
 1. Reperibilità CCNL – indennità per turno erogato;
@@ -289,7 +320,7 @@ Dettagli dell'implementazione (Consuntivo → "Esporta per paghe (Excel)"):
   `…-paghe-settimana-<lunedì>.xlsx` e resta solo sul computer di chi lo scarica (contiene dati personali);
 - colonne: persona, email, team; nel foglio 1 anche il livello; nel foglio 3 inizio, fine, durata, ore
   riconosciute, ore per voce (feriale diurno prime 2 h, successive, notturno feriale, festivo, notturno
-  festivo), straordinario, compenso per chiamata (escluso dal TFR), totale, nota;
+  festivo), straordinario, eventuale compenso per intervento, totale, nota;
 - importi arrotondati al centesimo riga per riga; i totali sono la somma delle righe;
 - le persone di cui l'utente non vede la RAL restano fuori, con un avviso nel file; per RAL Q/ o non
   inserita, e per chi non può vedere gli importi degli interventi, lo straordinario riporta solo le ore;

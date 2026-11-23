@@ -1,7 +1,7 @@
 import { HORIZON_END, HORIZON_START, SLOT_BY_ID, addDays, daysInRange, fmtDayYear, isoWeekNumber, monthKey, monthLabel, weekStart } from './calendar'
 import type { DayStatusMap } from './dayStatus'
 import { payRal, type Intervention } from './interventions'
-import { personOvertime, RATE_KEYS, rateLabel, rateOf, type RateKey } from './overtime'
+import { callFeeText, personOvertime, RATE_KEYS, rateLabel, rateOf, type RateKey } from './overtime'
 import { slotEcon, type NdData } from './reports'
 import { teamLabel, type TeamDir } from './teams'
 import type { Assignments, Params, Person, SlotKind } from './types'
@@ -183,10 +183,10 @@ export async function buildPayrollXlsx(x: PayrollExport, teams: TeamDir, params:
 
   // 3. Straordinario per interventi
   const ws3 = wb.addWorksheet('Straordinario per interventi')
-  title(ws3, 'Interventi approvati: straordinario CCNL per fascia (ore riconosciute) e compenso per chiamata', 18)
+  title(ws3, 'Interventi approvati: straordinario CCNL per fascia (ore riconosciute) ed eventuale compenso per intervento', 18)
   header(ws3, ['Persona', 'Email', 'Team', 'Data turno', 'Turno', 'Inizio', 'Fine', 'Durata (min)', 'Ore riconosciute',
     ...RATE_KEYS.map((k) => `${rateLabel(k, params)} (+${Math.round(rateOf(k, params) * 1000) / 10}%) ore`),
-    'Straordinario lordo', 'Compenso chiamata', 'Totale', 'Nota'])
+    'Straordinario lordo', 'Eventuale compenso per intervento', 'Totale', 'Nota'])
   for (const o of x.overtime) {
     ws3.addRow([...who(o.person), dateCell(o.date), KIND_LABEL[SLOT_BY_ID[o.iv.slot].kind], stampCell(o.iv.start), stampCell(o.iv.end), o.minutes, o.hours,
       ...RATE_KEYS.map((k) => o.byRate[k] / 60), o.amount, o.callFee, o.total, [o.note, o.iv.note].filter(Boolean).join(' · ')])
@@ -199,7 +199,7 @@ export async function buildPayrollXlsx(x: PayrollExport, teams: TeamDir, params:
   // 4. Riepilogo paghe
   const ws4 = wb.addWorksheet('Riepilogo paghe')
   title(ws4, 'Riepilogo per le paghe: una riga per persona', 12)
-  header(ws4, ['Persona', 'Email', 'Team', 'Turni erogati', 'Indennità CCNL', 'Gettone integrativo', 'Ore straordinario', 'Straordinario', 'Chiamate', 'Compensi chiamata (esclusi dal TFR)', 'Totale lordo', 'Note'])
+  header(ws4, ['Persona', 'Email', 'Team', 'Turni erogati', 'Indennità CCNL', 'Gettone integrativo', 'Ore straordinario', 'Straordinario', 'Interventi', 'Eventuali compensi per intervento', 'Totale lordo', 'Note'])
   for (const s of x.summary) ws4.addRow([...who(s.person), s.shifts, s.iccnl, s.gettone, s.otHours, s.otAmount, s.calls, s.callFees, s.total, s.note])
   total(ws4, ['Totale', '', '', x.summary.reduce((t, s) => t + s.shifts, 0), r2(x.summary.reduce((t, s) => t + s.iccnl, 0)), r2(x.summary.reduce((t, s) => t + s.gettone, 0)),
     x.summary.reduce((t, s) => t + s.otHours, 0), sum(x.summary.map((s) => s.otAmount)), x.summary.reduce((t, s) => t + s.calls, 0), r2(x.summary.reduce((t, s) => t + s.callFees, 0)), sum(x.summary.map((s) => s.total)), ''])
@@ -207,7 +207,7 @@ export async function buildPayrollXlsx(x: PayrollExport, teams: TeamDir, params:
     { width: 14, style: { numFmt: EUR } }, { width: 9 }, { width: 18, style: { numFmt: EUR } }, { width: 14, style: { numFmt: EUR } }, { width: 44 }]
   const legend = [
     'Indennità CCNL e gettone: solo turni dei giorni erogati. Straordinario: solo interventi approvati, maggiorazioni CCNL per fascia sulla paga oraria stimata (RAL ÷ ' + params.hourlyDivisor + ').',
-    `Compenso di ${params.callFee.toLocaleString('it-IT', { minimumFractionDigits: 2 })} € per ogni chiamata seguita da intervento effettivo (art. 6 CCNL), escluso dalla base del TFR.`,
+    `Per ogni intervento approvato si aggiunge l'${callFeeText(params.callFee)}.`,
     'Persone con RAL Q/ o non inserita: solo ore, l\'importo dello straordinario richiede la RAL puntuale.',
   ]
   ws4.addRow([])

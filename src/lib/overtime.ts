@@ -1,4 +1,5 @@
 import { HOLIDAYS, SLOT_BY_ID, addDays, weekday } from './calendar'
+import { fmtEur } from './economics'
 import type { Params } from './types'
 
 /**
@@ -10,8 +11,12 @@ import type { Params } from './types'
  *   minuto lavorato; l'arrotondamento va nella fascia in cui l'intervento finisce;
  * - feriale diurno: le prime `otDayFirstHours` ore del giorno (sommando gli interventi del giorno in ordine
  *   di orario) a `otDayFirst`, le successive a `otDayNext`; sabato feriale, domeniche e festività festive;
- * - importo = ore × paga oraria (RAL ÷ divisore) × (1 + maggiorazione), più `callFee` per ogni chiamata.
+ * - importo = ore × paga oraria (RAL ÷ divisore) × (1 + maggiorazione), più `callFee` per ogni intervento
+ *   (eventuale compenso fisso, 0 di default finché HR non conferma che è dovuto).
  */
+/** Come si cita nei testi il compenso fisso per intervento: sempre "eventuale", con il valore impostato oggi. */
+export const callFeeText = (fee: number) => `eventuale compenso per intervento (ad oggi impostato in piattaforma a ${fmtEur(fee)})`
+
 export type Band = 'ferDay' | 'ferNight' | 'holDay' | 'holNight'
 export const BANDS: Band[] = ['ferDay', 'ferNight', 'holDay', 'holNight']
 export const BAND_LABEL: Record<Band, string> = { ferDay: 'Feriale diurno', ferNight: 'Notturno feriale', holDay: 'Festivo diurno', holNight: 'Festivo notturno' }
@@ -67,6 +72,8 @@ export interface InterventionCalc {
   pieces: Piece[]
   /** Minuti riconosciuti per fascia */
   byBand: Record<Band, number>
+  /** Minuti effettivi per fascia (prima di minimo e arrotondamento) */
+  effective: Record<Band, number>
 }
 
 export function splitIntervention(iv: Interval, p: Params): InterventionCalc {
@@ -83,6 +90,8 @@ export function splitIntervention(iv: Interval, p: Params): InterventionCalc {
     else acc.set(key, { date: stamp.slice(0, 10), band, minutes: 1 })
   }
   const pieces = [...acc.values()]
+  const effective = Object.fromEntries(BANDS.map((k) => [k, 0])) as Record<Band, number>
+  for (const x of pieces) effective[x.band] += x.minutes
   // Arrotondamento nella fascia in cui l'intervento finisce (se si arrotonda per difetto, si toglie da lì
   // e, se non basta, dalle fasce precedenti)
   let diff = Math.round(hours * 60) - minutes
@@ -97,13 +106,13 @@ export function splitIntervention(iv: Interval, p: Params): InterventionCalc {
   const kept = pieces.filter((x) => x.minutes > 0)
   const byBand = Object.fromEntries(BANDS.map((k) => [k, 0])) as Record<Band, number>
   for (const x of kept) byBand[x.band] += x.minutes
-  return { id: iv.id, minutes, hours, pieces: kept, byBand }
+  return { id: iv.id, minutes, hours, pieces: kept, byBand, effective }
 }
 
 export interface PaidIntervention extends InterventionCalc {
   /** Minuti per voce di paga (feriale diurno diviso tra prime ore del giorno e successive) */
   byRate: Record<RateKey, number>
-  /** Importo dello straordinario (senza compenso per chiamata); null se la paga oraria non è nota */
+  /** Importo dello straordinario (senza l'eventuale compenso per intervento); null se la paga oraria non è nota */
   amount: number | null
 }
 
@@ -113,7 +122,7 @@ export interface PersonOvertime {
   byRate: Record<RateKey, number>
   /** Ore riconosciute */
   hours: number
-  /** Chiamate seguite da intervento effettivo */
+  /** Interventi (ognuno dà diritto all'eventuale compenso per intervento) */
   calls: number
   amount: number | null
   callFees: number

@@ -4,7 +4,7 @@ import { romeNow } from '../lib/dayStatus'
 import type { Me } from '../lib/roles'
 import { fmtEur } from '../lib/economics'
 import { amountsVisible, bySlot, canDecide, payRal, shiftChip, type Intervention, type IvStatus } from '../lib/interventions'
-import { BANDS, BAND_LABEL, fmtMinutes, personOvertime, type PaidIntervention } from '../lib/overtime'
+import { BANDS, BAND_LABEL, callFeeText, fmtMinutes, personOvertime, type PaidIntervention } from '../lib/overtime'
 import { teamLabel, type TeamDir } from '../lib/teams'
 import type { Assignments, Params, Person } from '../lib/types'
 import { decideIntervention } from '../lib/useInterventions'
@@ -140,7 +140,7 @@ export function InterventionsReview({ ivs, noInt, people, assignments, params, m
                 <th className="py-2 pr-3 font-medium">Orario</th>
                 <th className="py-2 pr-3 font-medium">Durata → riconosciute</th>
                 <th className="py-2 pr-3 font-medium">Ore per fascia</th>
-                {anyAmounts && <th className="py-2 pr-3 text-right font-medium" title="Straordinario + compenso per chiamata (lordo)">Importo</th>}
+                {anyAmounts && <th className="py-2 pr-3 text-right font-medium" title="Straordinario + eventuale compenso per intervento (lordo)">Importo</th>}
                 <th className="py-2 pr-3 font-medium">Stato</th>
                 <th className="py-2"><span className="sr-only">Azioni</span></th>
               </tr>
@@ -190,7 +190,7 @@ export function InterventionsReview({ ivs, noInt, people, assignments, params, m
               {!list.length && <tr><td colSpan={anyAmounts ? 8 : 7} className="py-6 text-center text-slate-500">Nessun intervento.</td></tr>}
             </tbody>
           </table>
-          {anyAmounts && <p className="mt-2 text-xs text-slate-500">Importo = straordinario CCNL per fascia + {fmtEur(params.callFee)} per la chiamata. * stimato: entra nel consuntivo solo se approvato. Le prime {params.otDayFirstHours} ore feriali diurne si contano per giorno su tutti gli interventi della persona.</p>}
+          {anyAmounts && <p className="mt-2 text-xs text-slate-500">Importo = straordinario CCNL per fascia + {callFeeText(params.callFee)}. * stimato: entra nel consuntivo solo se approvato. Le prime {params.otDayFirstHours} ore feriali diurne si contano per giorno su tutti gli interventi della persona.</p>}
         </div>
       )}
     </div>

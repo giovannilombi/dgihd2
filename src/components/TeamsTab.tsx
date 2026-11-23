@@ -12,7 +12,7 @@ const inputCls = 'rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ri
  * Gestione dei team (solo space admin): il team indica solo l'appartenenza di risorse e account.
  * Ogni team ha un solo capo: il suo Director, oppure lo Space admin assegnato a quel team.
  */
-export function TeamsTab({ people, users, loading }: { people: Person[]; users: Profile[]; loading: boolean }) {
+export function TeamsTab({ full, people, users, loading }: { full: boolean; people: Person[]; users: Profile[]; loading: boolean }) {
   const teams = useTeams()
   const reloadTeams = useReloadTeams()
   const [busy, setBusy] = useState(false)
@@ -50,7 +50,7 @@ export function TeamsTab({ people, users, loading }: { people: Person[]; users: 
     <div className="space-y-4">
       <p className="text-sm text-slate-600">
         Il team indica a quale gruppo appartengono risorse e account. Cosa vede e può fare ogni account lo decide il suo <strong>profilo</strong> (scheda Account).
-        Ogni team ha <strong>un solo capo</strong>: il suo <strong>Director</strong> (vede RAL e importi delle sole risorse del team e ne approva gli interventi), oppure lo Space admin se è assegnato a quel team. Gli interventi di tutti i team li approvano anche i PM e lo Space admin.
+        Ogni team ha <strong>un solo capo</strong>: il suo <strong>Director</strong> ({full ? 'vede RAL e importi delle sole risorse del team e ne approva gli interventi' : 'ne approva gli interventi'}), oppure lo Space admin se è assegnato a quel team. Gli interventi di tutti i team li approvano anche i PM e lo Space admin.
       </p>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
@@ -104,7 +104,7 @@ export function TeamsTab({ people, users, loading }: { people: Person[]; users: 
           <input value={newLabel} maxLength={40} onChange={(e) => setNewLabel(e.target.value)} placeholder="Es. Data" className={`mt-1 block w-full ${inputCls}`} />
         </label>
         <Button type="submit" variant="primary" disabled={busy || !newLabel.trim()}>+ Crea team</Button>
-        <p className="w-full text-xs text-slate-500">Un team con risorse o account non si può eliminare: prima vanno spostati. Per nominare il capo, nella scheda Account assegna il profilo Director e il team: l'app chiede conferma mostrando quali RAL vedrà.</p>
+        <p className="w-full text-xs text-slate-500">Un team con risorse o account non si può eliminare: prima vanno spostati. Per nominare il capo, nella scheda Account assegna il profilo Director e il team{full ? ": l'app chiede conferma mostrando quali RAL vedrà" : ''}.</p>
       </form>
     </div>
   )

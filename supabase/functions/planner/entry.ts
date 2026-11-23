@@ -2,14 +2,15 @@
 // Gira con accesso completo ai dati (chiave di servizio) e restituisce solo esiti:
 // - persone di altri team: regole violate, mai RAL, livelli, ore o importi;
 // - persone Q/ del proprio team: importi e ore già calcolati, mai la RAL media di riferimento,
-//   che sta nella tabella server_params, leggibile solo dal server.
+//   che sta nella tabella server_params, leggibile solo dal server;
+// - senza vista completa: nessun importo, e l'auto-compilazione non usa RAL e livello.
 // Le regole sono le stesse dell'app (src/lib).
 // Il file distribuito (index.js) si genera con: npm run build:planner
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
 import { rowsToData, type AssignmentRow, type DetailsRow, type PersonRow, type PrivateRow } from '../../../src/lib/mapping'
 import { regenerate } from '../../../src/lib/rules'
 import { salaryRuleChecks } from '../../../src/lib/salaryChecks'
-import { canEdit as roleCanEdit, canReadFull, normalizeRole } from '../../../src/lib/roles'
+import { canEdit as roleCanEdit, canReadFull, fullViewOn, normalizeRole } from '../../../src/lib/roles'
 
 declare const Deno: { env: { get(k: string): string | undefined }; serve(h: (r: Request) => Response | Promise<Response>): void }
 
@@ -29,13 +30,16 @@ Deno.serve(async (req) => {
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
   const { data: who } = await db.auth.getUser(token)
   if (!who?.user) return fail('Sessione non valida: accedi di nuovo.', 401)
-  const { data: me } = await db.from('profiles').select('role, team, must_change_password').eq('id', who.user.id).maybeSingle()
+  const { data: me } = await db.from('profiles').select('role, team, must_change_password, full_view_allowed, full_view').eq('id', who.user.id).maybeSingle()
   if (!me || me.must_change_password) return fail('Accesso non abilitato.', 403)
   // profilo (accetta anche i livelli della versione precedente); sconosciuto = nessun accesso
   const role = normalizeRole(me.role, typeof me.team === 'string' ? me.team : null)
   const readFull = !!role && canReadFull(role)
   const canEdit = !!role && roleCanEdit(role)
   if (!readFull) return fail('Operazione non disponibile per il tuo livello.', 403)
+  // stessa regola della RLS (private.full_view): senza vista completa niente importi né costo
+  const full = fullViewOn({ role: role!, full_view_allowed: me.full_view_allowed === true, full_view: me.full_view === true })
+  const team = typeof me.team === 'string' ? me.team : null
 
   let body: { action?: string; from?: string; to?: string }
   try { body = await req.json() } catch { return fail('Richiesta non valida') }
@@ -44,12 +48,13 @@ Deno.serve(async (req) => {
   const [people, details, privates, assignments, excluded, settings, serverParams, erogati] = await Promise.all([
     db.from('people').select('id, name, color, active, sort, team'),
     db.from('people_details').select('person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order'),
-    db.from('people_private').select('person_id, level, ral, ral_nd'),
+    // livello e RAL solo con la vista completa: altrimenti il calcolo procede come se non ci fossero
+    full ? db.from('people_private').select('person_id, level, ral, ral_nd') : Promise.resolve({ data: [], error: null }),
     db.from('assignments').select('slot_id, person_id, pinned'),
     db.from('excluded_days').select('day'),
     db.from('settings').select('params').eq('id', 1).maybeSingle(),
     // RAL media di riferimento per le RAL Q/: tabella leggibile solo dal server
-    db.from('server_params').select('nd_ral').eq('id', 1).maybeSingle(),
+    full ? db.from('server_params').select('nd_ral').eq('id', 1).maybeSingle() : Promise.resolve({ data: null, error: null }),
     // giorni erogati: i loro turni sono definitivi e l'auto-compilazione non li tocca
     db.from('day_status').select('day'),
   ])
@@ -64,9 +69,8 @@ Deno.serve(async (req) => {
   else delete data.params.ndRal
 
   if (body.action === 'violations') {
-    // solo per le persone di cui l'utente NON vede RAL e livello (stessa regola della RLS)
-    // stessa regola della RLS: RAL e importi per profilo (Director: solo il proprio team)
-    return json(salaryRuleChecks(data, { role: role!, team: typeof me.team === 'string' ? me.team : null }))
+    // stessa regola della RLS: RAL e importi per profilo (Director: solo il proprio team), solo con vista completa
+    return json(salaryRuleChecks(data, { role: role!, team, full }))
   }
 
   if (body.action === 'autofill') {
@@ -75,7 +79,7 @@ Deno.serve(async (req) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) return fail('Periodo non valido.')
     const locked = new Set((erogati.data as { day: string }[]).map((x) => String(x.day).slice(0, 10)))
     const fixed = [...data.pinned, ...Object.keys(data.assignments).filter((sid) => locked.has(sid.slice(0, 10)))]
-    const res = regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, fixed)
+    const res = regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, fixed, full)
     return json({ assignments: res })
   }
 

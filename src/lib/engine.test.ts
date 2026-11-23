@@ -336,6 +336,13 @@ describe('riserve', () => {
     expect(autoFill([a, b], {}, P, '2026-11-24', '2026-11-24', [], () => 0.1)['2026-11-24|N']).toBe('a')
     expect(autoFill([a, b], {}, P, '2026-11-24', '2026-11-24', [], () => 0.9)['2026-11-24|N']).toBe('b')
   })
+  it('a parità di condizioni il costo minore, ma solo se RAL e livello possono essere usati', () => {
+    const hi = mk('hi', 60000), lo = mk('lo', 25000)
+    expect(autoFill([hi, lo], {}, P, '2026-11-24', '2026-11-24')['2026-11-24|N']).toBe('lo')
+    // senza vista completa l'auto-compilazione ignora il costo: resta l'ordine dell'anagrafica
+    expect(autoFill([hi, lo], {}, P, '2026-11-24', '2026-11-24', [], Math.random, false)['2026-11-24|N']).toBe('hi')
+    expect(regenerate([hi, lo], {}, P, '2026-11-24', '2026-11-24', [], [], false)['2026-11-24|N']).toBe('hi')
+  })
   it('numerazione delle riserve 1..n', () => {
     const ps = renumberReserves([{ ...mk('a', 1), reserve: true, reserveOrder: 5 }, mk('b', 1), { ...mk('c', 1), reserve: true }, { ...mk('d', 1), reserve: true, reserveOrder: 2 }])
     expect(ps.map((p) => [p.id, p.reserveOrder])).toEqual([['a', 2], ['b', undefined], ['c', 3], ['d', 1]])

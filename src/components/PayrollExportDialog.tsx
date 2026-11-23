@@ -6,8 +6,8 @@ import { Button } from './ui'
 const SHEETS = [
   ['Reperibilità CCNL', 'Indennità per ogni turno erogato, per persona.'],
   ['Gettoni integrativi', 'Gettone lordo per turno erogato, per persona.'],
-  ['Straordinario per interventi', 'Interventi approvati: orari, ore per fascia CCNL, importo e compenso per chiamata.'],
-  ['Riepilogo paghe', 'Una riga per persona con indennità, gettone, straordinario, chiamate e totale.'],
+  ['Straordinario per interventi', 'Interventi approvati: orari, ore per fascia CCNL, importo ed eventuale compenso per intervento.'],
+  ['Riepilogo paghe', 'Una riga per persona con indennità, gettone, straordinario, eventuali compensi per intervento e totale.'],
 ] as const
 
 /** Export per l'ufficio paghe: un mese o una settimana; solo turni erogati e interventi approvati. */

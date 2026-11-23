@@ -110,11 +110,11 @@ export function ParamsPanel({ params: p, onChange }: { params: Params; onChange:
               hint={`Con ${fmtNum(p.otToleranceMin)} min: 1h${String(p.otToleranceMin).padStart(2, '0')} → 1 ora, 1h${String(Math.min(59, p.otToleranceMin + 1)).padStart(2, '0')} → 2 ore`} />
           </fieldset>
           <fieldset className="space-y-3">
-            <legend className="mb-2 text-sm font-semibold text-slate-800">Paga oraria e chiamata</legend>
+            <legend className="mb-2 text-sm font-semibold text-slate-800">Paga oraria e compenso per intervento</legend>
             <NumberField label="Divisore della paga oraria (RAL ÷)" value={p.hourlyDivisor} onChange={(v) => set('hourlyDivisor', v)} step={1} min={1}
               hint="173 ore × 13 mensilità = 2.249. Il CCNL (art. 3) calcola la paga oraria dagli elementi fissi mensili ÷ 173: il valore esatto lo fornisce l'ufficio paghe." />
-            <NumberField label="Compenso per chiamata" value={p.callFee} onChange={(v) => set('callFee', v)} min={0} suffix="€"
-              hint="Art. 6: per ogni chiamata seguita da intervento effettivo, anche da remoto; escluso dalla base del TFR." />
+            <NumberField label="Eventuale compenso per intervento" value={p.callFee} onChange={(v) => set('callFee', v)} min={0} suffix="€"
+              hint="Importo fisso per ogni intervento approvato, anche da remoto, in aggiunta allo straordinario. Di default 0 €: da impostare solo se HR conferma che è dovuto." />
           </fieldset>
         </div>
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">

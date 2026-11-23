@@ -23,27 +23,34 @@ export async function persist(o: Ops) {
   if (o.params !== undefined) check(await supabase.from('settings').update({ params: o.params, updated_at: new Date().toISOString() }).eq('id', 1))
 }
 
-/** Legge tutto ciò che il livello (e il team) dell'utente consente di vedere. */
-/** `readFull`: anagrafica completa e RAL visibili; `readParams`: parametri (anche per il PM, che non vede le RAL). */
-export async function loadAll(readFull: boolean, readParams = readFull): Promise<AppData> {
+/**
+ * Legge tutto ciò che il livello (e il team) dell'utente consente di vedere.
+ * `readFull`: anagrafica completa; `readParams`: parametri (anche per il PM);
+ * `salaryOf`: solo con la vista completa, dice di quali team l'utente vede livello e RAL (stessa regola
+ * del database). Senza, livello e RAL non vengono nemmeno chiesti.
+ */
+export async function loadAll(readFull: boolean, readParams = readFull, salaryOf?: (team: string | null) => boolean): Promise<AppData> {
   const none = Promise.resolve({ data: null, error: null })
   const [people, details, privates, assignments, excluded, settings] = await Promise.all([
     supabase.from('people').select('id, name, color, active, sort, team'),
     readFull ? supabase.from('people_details').select('person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order, email') : none,
-    readFull ? supabase.from('people_private').select('person_id, level, ral, ral_nd') : none,
+    readFull && salaryOf ? supabase.from('people_private').select('person_id, level, ral, ral_nd') : none,
     supabase.from('assignments').select('slot_id, person_id, pinned'),
     supabase.from('excluded_days').select('day'),
     readParams ? supabase.from('settings').select('params').eq('id', 1).maybeSingle() : none,
   ])
   for (const r of [people, details, privates, assignments, excluded, settings]) if (r.error) throw new Error(r.error.message)
-  return withoutServerParams(rowsToData(
+  const data = rowsToData(
     (people.data ?? []) as PersonRow[],
     details.data as DetailsRow[] | null,
     (privates.data ?? []) as PrivateRow[],
     (assignments.data ?? []) as AssignmentRow[],
     ((excluded.data ?? []) as { day: string }[]).map((x) => x.day),
     (settings.data as { params?: unknown } | null)?.params,
-  ))
+  )
+  // persona visibile ma senza livello e RAL salvati (aggiunta senza vista completa): "RAL da inserire"
+  if (salaryOf) data.people = data.people.map((p) => (p.salaryHidden && salaryOf(p.team ?? null) ? { ...p, salaryHidden: false } : p))
+  return withoutServerParams(data)
 }
 
 /** La RAL media di riferimento per le RAL Q/ vive solo sul server: il browser non la conserva mai. */

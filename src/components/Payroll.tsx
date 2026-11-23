@@ -103,7 +103,7 @@ export function Payroll({ people, assignments, params, nd, days = {}, canCloseMo
                   <span className="font-semibold text-slate-900">{r.person.name}</span>
                   {r.person.ralNd ? <Badge tone="slate">RAL Q/: importi stimati</Badge> : !(r.person.ral > 0) && <Badge tone="amber">RAL da inserire: importi stimati</Badge>}
                   {otHours > 0 && (
-                    <span className="num text-sm text-slate-700" title="Interventi approvati, pagati come straordinario CCNL + compenso per chiamata">
+                    <span className="num text-sm text-slate-700" title="Interventi approvati, pagati come straordinario CCNL + eventuale compenso per intervento">
                       Straordinario <strong>{otHours} h</strong>{seeAmounts && <> · <strong>{otAmount === null ? (r.person.ralNd ? 'RAL Q/: inserire la RAL puntuale' : 'RAL da inserire') : fmtEur(otAmount)}</strong></>}
                     </span>
                   )}
@@ -127,7 +127,7 @@ export function Payroll({ people, assignments, params, nd, days = {}, canCloseMo
                         <th className="py-2 pr-3 text-right font-medium" title="Indennità CCNL + gettone">Totale lordo</th>
                         <th className="py-2 pr-4 text-right font-medium" title="Netto di riferimento del turno">Netto di rif.</th>
                         {hasIv && <th className="py-2 pr-3 font-medium" title="Interventi del turno: ore riconosciute degli approvati">Interventi</th>}
-                        {hasIv && <th className="py-2 pr-4 text-right font-medium" title="Straordinario degli interventi approvati + compenso per chiamata (lordo). Visibile a HR, Governance e director del team">Straordinario</th>}
+                        {hasIv && <th className="py-2 pr-4 text-right font-medium" title="Straordinario degli interventi approvati + eventuale compenso per intervento (lordo). Visibile a HR, Governance e director del team">Straordinario</th>}
                       </tr>
                     </thead>
                     <tbody>

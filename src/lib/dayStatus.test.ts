@@ -77,10 +77,11 @@ describe('permessi sui giorni (stesse regole del database)', () => {
 
 describe('parametri degli straordinari', () => {
   it('valori CCNL di default e valori salvati letti dal database', () => {
-    expect(DEFAULT_PARAMS).toMatchObject({ otDayFirst: 0.25, otDayFirstHours: 2, otDayNext: 0.3, otNight: 0.5, otHoliday: 0.55, otHolidayNight: 0.75, otNightStart: 22, otNightEnd: 6, otMinHours: 1, otToleranceMin: 10, callFee: 5, hourlyDivisor: 2249 })
+    expect(DEFAULT_PARAMS).toMatchObject({ otDayFirst: 0.25, otDayFirstHours: 2, otDayNext: 0.3, otNight: 0.5, otHoliday: 0.55, otHolidayNight: 0.75, otNightStart: 22, otNightEnd: 6, otMinHours: 1, otToleranceMin: 10, callFee: 0, hourlyDivisor: 2249 })
     const { data } = normalizeWithReport({ people: [], params: { otHoliday: 0.5, callFee: 'x', otNight: -1 } })
     expect(data.params.otHoliday).toBe(0.5)
-    expect(data.params.callFee).toBe(5)
+    expect(data.params.callFee).toBe(0)
+    expect(normalizeWithReport({ people: [], params: { callFee: 5 } }).data.params.callFee).toBe(5)
     expect(data.params.otNight).toBe(0.5)
   })
 })

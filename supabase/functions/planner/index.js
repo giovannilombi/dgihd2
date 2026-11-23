@@ -129,7 +129,7 @@ const DEFAULT_PARAMS = {
 	otNightEnd: 6,
 	otMinHours: 1,
 	otToleranceMin: 10,
-	callFee: 5,
+	callFee: 0,
 	hourlyDivisor: 2249
 };
 const LEVEL_GROUP = {
@@ -187,6 +187,13 @@ const nextColor = (people) => {
 	"Anna Bianchi;anna.bianchi@azienda.it;C2;28.500;2",
 	"Luca Verdi;luca.verdi@azienda.it;B2;35.000;",
 	"Sara Neri;sara.neri@azienda.it;C3;30.000;ko"
+].join("\r\n");
+"" + [
+	"Nome;Email;Disponibilità",
+	"Mario Rossi;mario.rossi@azienda.it;volontario",
+	"Anna Bianchi;anna.bianchi@azienda.it;2",
+	"Luca Verdi;luca.verdi@azienda.it;",
+	"Sara Neri;sara.neri@azienda.it;ko"
 ].join("\r\n");
 // src/lib/teams.ts
 function teamDir(list) {
@@ -609,7 +616,7 @@ function existingViolations(people, a, p) {
 /**
 * Bozza automatica: riempie solo gli slot vuoti nel range, rispettando tutti i vincoli.
 * Priorità ai weekend/festivi (fatturati a giornata intera), poi alle notti feriali.
-* Tra i candidati validi preferisce chi ha meno turni nel mese, poi in totale, poi il costo minore.
+* Tra i candidati validi preferisce chi ha meno turni nel mese, poi in totale, poi (se `useCost`) il costo minore.
 */
 /** Avviso (non bloccante) se l'assegnazione supera il tetto mensile preferito dalla persona. */
 function preferenceWarning(person, slotId, a) {
@@ -627,7 +634,7 @@ const TIER = {
 	limitato: 1,
 	nessuna: 2
 };
-function autoFill(people, a, p, from, to, excludedDays = [], random = Math.random) {
+function autoFill(people, a, p, from, to, excludedDays = [], random = Math.random, useCost = true) {
 	const result = { ...a };
 	const active = people.filter((x) => x.active);
 	const excluded = new Set(excludedDays);
@@ -654,7 +661,7 @@ function autoFill(people, a, p, from, to, excludedDays = [], random = Math.rando
 				tier: TIER[availabilityOf(x)],
 				inMonth: ss.filter((s) => monthKey(s.date) === month).length,
 				total: ss.length,
-				cost: slotEconomics(x, slot, p).cost
+				cost: useCost ? slotEconomics(x, slot, p).cost : 0
 			};
 		}).sort((m, n) => m.preferred - n.preferred || m.tier - n.tier || m.inMonth - n.inMonth || m.total - n.total || m.cost - n.cost);
 		if (ranked.length) result[slot.id] = ranked[0].x.id;
@@ -664,15 +671,15 @@ function autoFill(people, a, p, from, to, excludedDays = [], random = Math.rando
 /**
 * Rigenera il periodo [from, to]: mantiene i turni bloccati (e quelli fuori periodo),
 * scarta gli altri e riassegna tutto il resto rispettando vincoli e disponibilità.
+* Con `useCost` falso RAL e livello non entrano nella scelta.
 */
-function regenerate(people, a, p, from, to, excludedDays, pinned) {
+function regenerate(people, a, p, from, to, excludedDays, pinned, useCost = true) {
 	const keep = new Set(pinned);
 	return autoFill(people, Object.fromEntries(Object.entries(a).filter(([sid]) => {
 		const d = SLOT_BY_ID[sid]?.date;
 		return !d || d < from || d > to || keep.has(sid);
-	})), p, from, to, excludedDays);
+	})), p, from, to, excludedDays, Math.random, useCost);
 }
-// src/lib/roles.ts
 const ROLES = [
 	"super_admin",
 	"governance",
@@ -700,8 +707,21 @@ const canEdit = (r) => r === "super_admin" || r === "governance" || r === "direc
 const canReadFull = (r) => canEdit(r) || r === "hr";
 /** Vede RAL, livello e importi di tutti i team */
 const seesAllSalaries = (r) => r === "super_admin" || r === "governance" || r === "hr";
-/** Stessa regola del database: tutti per Space admin, Governance e HR; il Director solo il proprio team. */
-const canSeeSalaryOf = (me, personTeam) => seesAllSalaries(me.role) || me.role === "director" && !!me.team && me.team === personTeam;
+/**
+* Stessa regola del database: con la vista completa attiva, tutti per Space admin, Governance e HR;
+* il Director solo il proprio team. Senza vista completa, nessuno.
+*/
+const canSeeSalaryOf = (me, personTeam) => !!me.full && (seesAllSalaries(me.role) || me.role === "director" && !!me.team && me.team === personTeam);
+/** Profili che lo Space admin può abilitare alla vista completa. */
+const FULL_VIEW_ROLES = [
+	"governance",
+	"director",
+	"hr"
+];
+/** Può attivare la vista completa: lo Space admin sempre, gli altri profili se abilitati. Stessa regola del database. */
+const fullViewEligible = (p) => p.role === "super_admin" || FULL_VIEW_ROLES.includes(p.role) && !!p.full_view_allowed;
+/** Vista completa attiva: RAL, livelli, importi, consuntivo e conto economico. */
+const fullViewOn = (p) => fullViewEligible(p) && !!p.full_view;
 // src/lib/salaryChecks.ts
 /**
 * Regole che dipendono da RAL e livello, le uniche che il browser non può verificare da solo.
@@ -764,12 +784,18 @@ Deno.serve(async (req) => {
 	const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
 	const { data: who } = await db.auth.getUser(token);
 	if (!who?.user) return fail("Sessione non valida: accedi di nuovo.", 401);
-	const { data: me } = await db.from("profiles").select("role, team, must_change_password").eq("id", who.user.id).maybeSingle();
+	const { data: me } = await db.from("profiles").select("role, team, must_change_password, full_view_allowed, full_view").eq("id", who.user.id).maybeSingle();
 	if (!me || me.must_change_password) return fail("Accesso non abilitato.", 403);
 	const role = normalizeRole(me.role, typeof me.team === "string" ? me.team : null);
 	const readFull = !!role && canReadFull(role);
 	const canEdit$1 = !!role && canEdit(role);
 	if (!readFull) return fail("Operazione non disponibile per il tuo livello.", 403);
+	const full = fullViewOn({
+		role,
+		full_view_allowed: me.full_view_allowed === true,
+		full_view: me.full_view === true
+	});
+	const team = typeof me.team === "string" ? me.team : null;
 	let body;
 	try {
 		body = await req.json();
@@ -779,11 +805,17 @@ Deno.serve(async (req) => {
 	const [people, details, privates, assignments, excluded, settings, serverParams, erogati] = await Promise.all([
 		db.from("people").select("id, name, color, active, sort, team"),
 		db.from("people_details").select("person_id, availability, max_per_month, unavailable, preferred_days, reserve, reserve_order"),
-		db.from("people_private").select("person_id, level, ral, ral_nd"),
+		full ? db.from("people_private").select("person_id, level, ral, ral_nd") : Promise.resolve({
+			data: [],
+			error: null
+		}),
 		db.from("assignments").select("slot_id, person_id, pinned"),
 		db.from("excluded_days").select("day"),
 		db.from("settings").select("params").eq("id", 1).maybeSingle(),
-		db.from("server_params").select("nd_ral").eq("id", 1).maybeSingle(),
+		full ? db.from("server_params").select("nd_ral").eq("id", 1).maybeSingle() : Promise.resolve({
+			data: null,
+			error: null
+		}),
 		db.from("day_status").select("day")
 	]);
 	for (const r of [
@@ -802,7 +834,8 @@ Deno.serve(async (req) => {
 	else delete data.params.ndRal;
 	if (body.action === "violations") return json(salaryRuleChecks(data, {
 		role,
-		team: typeof me.team === "string" ? me.team : null
+		team,
+		full
 	}));
 	if (body.action === "autofill") {
 		if (!canEdit$1) return fail("Operazione riservata a chi può modificare.", 403);
@@ -810,7 +843,7 @@ Deno.serve(async (req) => {
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) return fail("Periodo non valido.");
 		const locked = new Set(erogati.data.map((x) => String(x.day).slice(0, 10)));
 		const fixed = [...data.pinned, ...Object.keys(data.assignments).filter((sid) => locked.has(sid.slice(0, 10)))];
-		const res = regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, fixed);
+		const res = regenerate(data.people, data.assignments, data.params, from, to, data.excludedDays, fixed, full);
 		return json({ assignments: res });
 	}
 	return fail("Azione sconosciuta.");

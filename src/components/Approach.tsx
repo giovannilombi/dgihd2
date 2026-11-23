@@ -4,7 +4,7 @@ import { HORIZON_LABEL } from '../lib/calendar'
 import { baseHourly, fmtEur, kNetto, fmtNum, fmtPct, slotEconomics } from '../lib/economics'
 import { GROUP_LABEL, LEVEL_GROUP, LEVEL_LABEL, LEVELS, type Level, type Params, type Person } from '../lib/types'
 import { Collapsible } from './ui'
-import { BAND_LABEL, BANDS, fmtMinutes, personOvertime, RATE_KEYS, rateLabel, rateOf, splitIntervention } from '../lib/overtime'
+import { BAND_LABEL, BANDS, callFeeText, fmtMinutes, personOvertime, RATE_KEYS, rateLabel, rateOf, splitIntervention } from '../lib/overtime'
 
 function Tex({ children, block }: { children: string; block?: boolean }) {
   const html = katex.renderToString(children, { displayMode: !!block, throwOnError: false })
@@ -22,14 +22,16 @@ const Pillar = ({ title, children }: { title: string; children: ReactNode }) => 
   </div>
 )
 
-export function Approach({ params: p, people }: { params: Params; people: Person[] }) {
+export function Approach({ params: p, people, full = false }: { params: Params; people: Person[]; full?: boolean }) {
   // Incidenza del costo sul ricavo calcolata sul team attivo (riferimento dinamico per la sintesi).
   // escluse le persone di altri team e quelle con RAL Q/ (la RAL media di riferimento resta sul server)
   const visible = people.filter((x) => !x.salaryHidden && !x.ralNd)
   const active = visible.filter((x) => x.active)
   const ref = active.length ? active : visible
-  const ferIncid = ref.map((x) => slotEconomics(x, { date: '2026-11-24', kind: 'FN' }, p).cost / p.revenueFeriale * 100)
-  const festIncid = ref.map((x) => (slotEconomics(x, { date: '2026-11-29', kind: 'WD' }, p).cost + slotEconomics(x, { date: '2026-11-29', kind: 'WN' }, p).cost) / p.revenueFestivo * 100)
+  // senza RAL visibili: intervallo sulle fasce di RAL del modello (coefficienti netto/lordo), nessun dato personale
+  const bands = (net: number, revenue: number) => [p.kNetLow, p.kNetMid, p.kNetHigh].map((k) => net / k * p.costMultiplier / revenue * 100)
+  const ferIncid = ref.length ? ref.map((x) => slotEconomics(x, { date: '2026-11-24', kind: 'FN' }, p).cost / p.revenueFeriale * 100) : bands(p.netFN, p.revenueFeriale)
+  const festIncid = ref.length ? ref.map((x) => (slotEconomics(x, { date: '2026-11-29', kind: 'WD' }, p).cost + slotEconomics(x, { date: '2026-11-29', kind: 'WN' }, p).cost) / p.revenueFestivo * 100) : bands(p.netWD + p.netWN, p.revenueFestivo)
   const range = (a: number[]) => a.length ? (Math.min(...a).toFixed(1) === Math.max(...a).toFixed(1) ? fmtPct(Math.min(...a)) : `${fmtPct(Math.min(...a))}–${fmtPct(Math.max(...a))}`) : '–'
 
 
@@ -62,7 +64,7 @@ export function Approach({ params: p, people }: { params: Params; people: Person
           </Pillar>
         </div>
         <p className="mt-4 text-sm leading-relaxed text-slate-700">
-          <strong className="text-slate-900">Sostenibilità.</strong> Con un ricavo di <strong>{fmtEur(p.revenueFeriale)}</strong> per notte feriale e <strong>{fmtEur(p.revenueFestivo)}</strong> per giornata di weekend/festivo, il costo pieno della reperibilità incide per il <strong>{range(ferIncid)}</strong> sulla notte feriale e per il <strong>{range(festIncid)}</strong> sulla giornata di weekend/festivo. Il margine del piano compilato è nella pagina Conto economico.
+          <strong className="text-slate-900">Sostenibilità.</strong> Con un ricavo di <strong>{fmtEur(p.revenueFeriale)}</strong> per notte feriale e <strong>{fmtEur(p.revenueFestivo)}</strong> per giornata di weekend/festivo, il costo pieno della reperibilità incide per il <strong>{range(ferIncid)}</strong> sulla notte feriale e per il <strong>{range(festIncid)}</strong> sulla giornata di weekend/festivo.{full && ' Il margine del piano compilato è nella pagina Conto economico.'}
         </p>
       </div>
 
@@ -119,7 +121,7 @@ export function Approach({ params: p, people }: { params: Params; people: Person
         <UL>
           <li><strong>Liquidazione a consuntivo.</strong> Gli importi vengono caricati solo a fine mese, dopo la verifica dell'effettivo svolgimento del turno e in assenza di eventi impeditivi o infortuni, eliminando il rischio di incongruenze assicurative INAIL ex-ante.</li>
           <li><strong>Gettone integrativo.</strong> Voce retributiva dedicata, pari all'integrazione lorda calcolata dal simulatore: remunera la sola disponibilità passiva, è tracciabile turno per turno e non richiede di registrare in presenze ore non effettivamente lavorate.</li>
-          <li><strong>Interventi effettivi.</strong> Le ore di intervento, anche da remoto, sono orario di lavoro e vengono retribuite come lavoro straordinario con le maggiorazioni del CCNL per fascia (straordinario diurno, notturno, festivo), oltre all'indennità di reperibilità e al gettone, più {eur(p.callFee)} per chiamata (dettaglio nella sezione 4).</li>
+          <li><strong>Interventi effettivi.</strong> Le ore di intervento, anche da remoto, sono orario di lavoro e vengono retribuite come lavoro straordinario con le maggiorazioni del CCNL per fascia (straordinario diurno, notturno, festivo), oltre all'indennità di reperibilità e al gettone, più l'{callFeeText(p.callFee)} (dettaglio nella sezione 4).</li>
         </UL>
         <H>3.3 Volontarietà ed equità della rotazione</H>
         <P>L'adesione è <strong>volontaria</strong> e regolata da una rotazione equa (max 2 turni/settimana non consecutivi, max 4 turni/mese). Ognuno può indicarsi come volontario, fissare un massimo di 1, 2 o 3 turni al mese oppure non esprimere preferenze: la pianificazione impiega prima i volontari e non supera mai i limiti indicati. Chi non aderisce esce dalla rotazione senza ripercussioni e la copertura viene ricalcolata sulle persone disponibili.</P>
@@ -172,15 +174,15 @@ function OvertimeSection({ p }: { p: Params }) {
       </div>
       <P>Festivo e notturno festivo si applicano <strong>dalla prima ora</strong> (straordinario festivo {pct(p.otHoliday)}, straordinario notturno festivo {pct(p.otHolidayNight)}): di domenica o in un festivo non lavorato le ore di intervento sono aggiuntive all'orario normale. Tutti i valori sono modificabili in Parametri → blocco B.</P>
       <H>4.3 Formula</H>
-      <Tex block>{String.raw`P_{base} = rac{	ext{RAL}}{${fmtNum(p.hourlyDivisor).replace('.', '{.}')}} \qquad S = \sum_{f} h_f 	imes P_{base} 	imes (1 + m_f) \;+\; n_{chiamate} 	imes ${fmtNum(p.callFee).replace(',', '{,}')}\,€`}</Tex>
+      <Tex block>{String.raw`P_{base} = \frac{\text{RAL}}{${fmtNum(p.hourlyDivisor, 0).replace('.', '{.}')}} \qquad S = \sum_{f} h_f \times P_{base} \times (1 + m_f) \;+\; n_{interventi} \times c`}</Tex>
       <P>
-        <Tex>{String.raw`h_f`}</Tex> = ore riconosciute nella fascia <Tex>f</Tex>, <Tex>{String.raw`m_f`}</Tex> = maggiorazione della fascia. Per ogni <strong>chiamata seguita da intervento effettivo</strong>, anche da remoto, si aggiungono {eur(p.callFee)} (art. 6, esclusi dalla base del TFR). Nessun tempo di viaggio (interventi da remoto).
+        <Tex>{String.raw`h_f`}</Tex> = ore riconosciute nella fascia <Tex>f</Tex>, <Tex>{String.raw`m_f`}</Tex> = maggiorazione della fascia, <Tex>c</Tex> = {callFeeText(p.callFee)}, per ogni intervento approvato, anche da remoto. Nessun tempo di viaggio (interventi da remoto).
         La paga oraria si stima dalla RAL (173 ore × 13 mensilità); il valore esatto (art. 3: elementi fissi mensili ÷ 173) lo applica l'ufficio paghe. Per le persone con RAL non comunicata (Q/) si indicano solo le ore, finché non viene inserita la RAL puntuale.
       </P>
       <H>4.4 Esempi con una RAL di {fmtEur(EXAMPLE_RAL)} (paga oraria {fmtEur(hourly)})</H>
       <div className="overflow-x-auto">
         <table className="num w-full min-w-[640px] text-sm">
-          <thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="py-2 pr-3">Interventi</th><th className="py-2 pr-3">Durata → riconosciute</th><th className="py-2 pr-3">Ore per fascia</th><th className="py-2 text-right">Straordinario + chiamate</th></tr></thead>
+          <thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="py-2 pr-3">Interventi</th><th className="py-2 pr-3">Durata → riconosciute</th><th className="py-2 pr-3">Ore per fascia</th><th className="py-2 text-right">Straordinario + eventuale compenso</th></tr></thead>
           <tbody>
             {examples.map((ex) => {
               const list = [{ id: ex.id, start: ex.start, end: ex.end }, ...(ex.extra ? [ex.extra] : [])]
@@ -194,7 +196,7 @@ function OvertimeSection({ p }: { p: Params }) {
                   <td className="py-2 pr-3 text-xs text-slate-600">
                     {RATE_KEYS.filter((k) => ot.byRate[k] > 0).map((k) => <div key={k}>{rateLabel(k, p)} ({pct(rateOf(k, p))}): {fmtMinutes(ot.byRate[k])}</div>)}
                   </td>
-                  <td className="py-2 text-right whitespace-nowrap"><strong>{fmtEur(ot.total ?? 0)}</strong><div className="text-xs text-slate-500">{fmtEur(ot.amount ?? 0)} + {ot.calls} × {fmtEur(p.callFee)}</div></td>
+                  <td className="py-2 text-right whitespace-nowrap"><strong>{fmtEur(ot.total ?? 0)}</strong>{p.callFee > 0 && <div className="text-xs text-slate-500">{fmtEur(ot.amount ?? 0)} + {ot.calls} × {fmtEur(p.callFee)}</div>}</td>
                 </tr>
               )
             })}

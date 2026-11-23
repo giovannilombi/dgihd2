@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { roleAccess, ROLE_HELP, ROLE_LABEL, type Profile } from '../lib/roles'
+import { roleAccess, roleHelp, ROLE_LABEL, type Profile } from '../lib/roles'
 import { teamLabel } from '../lib/teams'
 import { useTeams } from '../lib/useTeams'
 import { ChangePasswordForm } from './ChangePassword'
@@ -13,8 +13,11 @@ export function MenuItem({ onClick, danger, children }: { onClick: () => void; d
   )
 }
 
-/** Menu dell'utente nell'intestazione: livello, team, guida del profilo, cambio password, uscita. */
-export function UserMenu({ profile, onLogout, onChangePassword, onOpenGuide }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void>; onOpenGuide?: () => void }) {
+/**
+ * Menu dell'utente nell'intestazione: livello, team, guida del profilo, impostazioni (solo per chi ne ha),
+ * cambio password, uscita. Le frasi sulle RAL compaiono solo con la vista completa (`full`).
+ */
+export function UserMenu({ profile, full = false, onLogout, onChangePassword, onOpenGuide, onOpenSettings }: { profile: Profile; full?: boolean; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void>; onOpenGuide?: () => void; onOpenSettings?: () => void }) {
   const [open, setOpen] = useState(false)
   const [pwdOpen, setPwdOpen] = useState(false)
   const role = profile.role
@@ -42,11 +45,12 @@ export function UserMenu({ profile, onLogout, onChangePassword, onOpenGuide }: {
                   <span className="inline-flex rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Profilo: {ROLE_LABEL[role]}</span>
                   <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">Team: {profile.team ? teamLabel(teams, profile.team) : 'non assegnato'}</span>
                 </div>
-                <div className="mt-1 text-xs text-slate-500">{ROLE_HELP[role]}</div>
-                <div className="mt-0.5 text-xs text-slate-500">{roleAccess(role, profile.team, teams).ralText}</div>
+                <div className="mt-1 text-xs text-slate-500">{roleHelp(role, full)}</div>
+                {full && <div className="mt-0.5 text-xs text-slate-500">{roleAccess(role, profile.team, teams).ralText}</div>}
               </div>
               <div className="my-1 border-t border-slate-100" />
               {onOpenGuide && <MenuItem onClick={() => { setOpen(false); onOpenGuide() }}>Guida del tuo profilo</MenuItem>}
+              {onOpenSettings && <MenuItem onClick={() => { setOpen(false); onOpenSettings() }}>Impostazioni</MenuItem>}
               <MenuItem onClick={() => { setOpen(false); setPwdOpen(true) }}>Cambia password</MenuItem>
               <MenuItem danger onClick={() => { setOpen(false); onLogout() }}>Esci</MenuItem>
             </div>

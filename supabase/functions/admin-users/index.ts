@@ -1,6 +1,6 @@
 // Gestione account del Piano reperibilità ARM.
 // - change_password: qualsiasi utente autenticato cambia la propria password (obbligatorio al primo accesso)
-// - list / create / reset / set_role / set_team / set_person / set_view / delete: solo Space admin
+// - list / create / reset / set_role / set_team / set_person / set_view / set_full_view_allowed / delete: solo Space admin
 //   (lo Space admin è uno solo: non si assegna, non si cambia e non si elimina dall'app)
 // - process_requests: elabora la coda public.admin_requests (chiamata firmata dal database con il token del Vault)
 // La chiave di servizio resta lato server: non è mai inviata al browser.
@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
   try { body = await req.json() } catch { return fail('Richiesta non valida') }
   const action = String(body.action ?? '')
 
-  const { data: me } = await admin.from('profiles').select('role, must_change_password').eq('id', caller.id).maybeSingle()
+  const { data: me } = await admin.from('profiles').select('role, must_change_password, full_view').eq('id', caller.id).maybeSingle()
   if (!me) return fail('Account senza profilo: contatta lo Space admin.', 403)
 
   // --- Cambio password personale (anche con password temporanea) ---
@@ -149,14 +149,16 @@ Deno.serve(async (req) => {
   const validRole = (r: unknown): r is Role => ASSIGNABLE.includes(r as Role)
 
   if (action === 'list') {
-    const { data: profiles, error } = await admin.from('profiles').select('id, email, display_name, role, team, person_id, turnista_view, must_change_password, created_at').order('created_at')
+    const { data: rows, error } = await admin.from('profiles').select('id, email, display_name, role, team, person_id, turnista_view, full_view_allowed, must_change_password, created_at').order('created_at')
+    // l'abilitazione alla vista completa si legge solo con la propria vista completa attiva
+    const profiles = (rows ?? []).map(({ full_view_allowed, ...p }) => (me.full_view ? { ...p, full_view_allowed } : p))
     if (error) return fail(error.message, 500)
     const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 })
     const lastSeen = new Map((users?.users ?? []).map((u) => [u.id, u.last_sign_in_at]))
     const { data: temps } = await admin.from('temp_credentials').select('user_id, password')
     const temp = new Map((temps ?? []).map((t) => [t.user_id, t.password]))
     // la password temporanea si vede solo finché è ancora da cambiare
-    return json({ users: (profiles ?? []).map((p) => ({ ...p, last_sign_in_at: lastSeen.get(p.id) ?? null, temp_password: p.must_change_password ? temp.get(p.id) ?? null : null })) })
+    return json({ users: profiles.map((p) => ({ ...p, last_sign_in_at: lastSeen.get(p.id) ?? null, temp_password: p.must_change_password ? temp.get(p.id) ?? null : null })) })
   }
 
   if (action === 'create') {
@@ -226,6 +228,15 @@ Deno.serve(async (req) => {
     const view = parseView(body.turnista_view)
     if (view === undefined || body.turnista_view === undefined) return fail('Visibilità non valida.')
     const { error } = await admin.from('profiles').update({ turnista_view: view }).eq('id', userId)
+    if (error) return fail(error.message, 500)
+    return json({ ok: true })
+  }
+
+  if (action === 'set_full_view_allowed') {
+    if (!me.full_view) return fail('Operazione non consentita.', 403)
+    if (!['governance', 'director', 'hr'].includes(target.role)) return fail('Abilitazione possibile solo per Governance, Director e HR.')
+    if (typeof body.allowed !== 'boolean') return fail('Valore non valido.')
+    const { error } = await admin.from('profiles').update({ full_view_allowed: body.allowed }).eq('id', userId)
     if (error) return fail(error.message, 500)
     return json({ ok: true })
   }

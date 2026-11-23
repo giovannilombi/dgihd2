@@ -20,7 +20,7 @@ import { Button, Section } from './components/ui'
 import { useAuth, verifyOwnPassword } from './lib/useAuth'
 import { useRemoteData, type SyncStatus } from './lib/useRemoteData'
 import { useHeightVar } from './lib/useStickyBar'
-import { canEdit, canManageUsers, canReadFull, canReadPlan, seesAllSalaries, type Profile, type Role } from './lib/roles'
+import { canEdit, canManageUsers, canReadFull, canReadPlan, fullViewEligible, fullViewOn, seesAllSalaries, type Profile, type Role } from './lib/roles'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import type { ExportRange } from './lib/exportRange'
@@ -40,6 +40,8 @@ import { useInterventions, useMyShifts } from './lib/useInterventions'
 import { InterventionsReview } from './components/InterventionsReview'
 import { MyInterventions } from './components/MyInterventions'
 import { PayrollExportDialog } from './components/PayrollExportDialog'
+import { HoursSummary } from './components/HoursSummary'
+import { SettingsDialog } from './components/SettingsDialog'
 import { GuideButton, GuideDrawer } from './components/guide/GuideDrawer'
 import { isGuideHash } from './lib/guides'
 import { useGuide } from './lib/useGuide'
@@ -54,6 +56,7 @@ const NAV = [
   ['team', 'Team'],
   ['planner', 'Calendario'],
   ['interventi', 'Interventi'],
+  ['riepilogo', 'Riepilogo'],
   ['payroll', 'Consuntivo'],
   ['pnl', 'Conto economico'],
   ['miei', 'I miei interventi'],
@@ -64,13 +67,14 @@ type PageId = (typeof NAV)[number][0]
 /**
  * Pagine visibili per livello: il viewer vede solo il calendario, la gestione utenti è dello space admin.
  * "I miei interventi" compare a chi è collegato a una scheda del piano (anche se è di turno).
+ * Consuntivo e Conto economico (importi) solo con la vista completa (`full`).
  */
-const pagesFor = (role: Role, linked: boolean): PageId[] => {
+const pagesFor = (role: Role, linked: boolean, full: boolean): PageId[] => {
   const mine: PageId[] = linked ? ['miei'] : []
   if (role === 'viewer') return ['planner', ...mine]
   // PM: approccio, calendario e interventi (solo ore), senza parametri, anagrafica e importi
   if (role === 'pm') return ['doc', 'planner', 'interventi', ...mine]
-  return NAV.map(([id]) => id).filter((id) => (id !== 'users' || canManageUsers(role)) && (id !== 'miei' || linked))
+  return NAV.map(([id]) => id).filter((id) => (id !== 'users' || canManageUsers(role)) && (id !== 'miei' || linked) && ((id !== 'payroll' && id !== 'pnl') || full))
 }
 
 const readPage = (allowed: PageId[]): PageId => {
@@ -118,15 +122,18 @@ export default function App() {
 function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLogout: () => void; onChangePassword: (pwd: string) => Promise<void> }) {
   const role = profile.role
   const editable = canEdit(role)
+  // Vista completa: RAL, livelli e importi (il database li consegna solo con questa attiva)
+  const full = fullViewOn(profile)
+  const me = { id: profile.id, role, team: profile.team, full }
   const headerRef = useHeightVar('--app-header-h')
-  const { data, setData, replace, status, error: syncError, flush } = useRemoteData(canReadFull(role), editable, canReadPlan(role))
+  const { data, setData, replace, status, error: syncError, flush } = useRemoteData(canReadFull(role), editable, canReadPlan(role), me)
   const teams = useTeams()
   // Import/export della configurazione completa: solo chi vede RAL e livello di tutti i team
-  const fullConfig = seesAllSalaries(role)
-  const { checks: serverChecks, state: serverChecksState } = useServerChecks(data, status, canReadFull(role))
+  const fullConfig = full && seesAllSalaries(role)
+  const { checks: serverChecks, state: serverChecksState } = useServerChecks(data, status, canReadFull(role) && full)
   // Giorni erogati (turni definitivi) e consuntivati; le azioni passano dalle funzioni del database
   const { days, reload: reloadDays } = useDayStatus(true)
-  const me = { id: profile.id, role, team: profile.team }
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const dayAction = (fn: (day: string) => Promise<unknown>) => async (day: string) => { await flush(); await fn(day); await reloadDays() }
   const dayActions: DayActions = {
     perms: (day) => dayPerms(day, me, data.people, data.assignments),
@@ -161,7 +168,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     return out
   }
   const fileRef = useRef<HTMLInputElement>(null)
-  const allowed = pagesFor(role, !!myPersonId)
+  const allowed = pagesFor(role, !!myPersonId, full)
   const page = usePage(allowed)
   const [menuOpen, setMenuOpen] = useState(false)
   const guide = useGuide(role)
@@ -268,16 +275,16 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   const sections: Record<PageId, React.ReactNode> = {
     doc: (
       <Section id="doc" title="L'approccio" subtitle="Principi, funzionamento e sostenibilità del modello proposto.">
-        <Approach params={data.params} people={data.people} />
+        <Approach params={data.params} people={data.people} full={full} />
       </Section>
     ),
     params: (
-      <Section id="params" title="Parametri economici & ricavi" subtitle="Ogni modifica ricalcola istantaneamente vincoli, consuntivo e marginalità.">
+      <Section id="params" title="Parametri economici & ricavi" subtitle={full ? 'Ogni modifica ricalcola istantaneamente vincoli, consuntivo e marginalità.' : 'Valori del modello: netto di riferimento, indennità CCNL e regole degli interventi.'}>
         <fieldset disabled={!editable} className="min-w-0"><ParamsPanel params={data.params} onChange={(params) => setData((d) => ({ ...d, params }))} /></fieldset>
       </Section>
     ),
     team: (
-      <TeamPage verify={verify} editable={editable} role={role} myTeam={profile.team} people={data.people} assignments={data.assignments}
+      <TeamPage verify={verify} editable={editable} role={role} full={full} myTeam={profile.team} people={data.people} assignments={data.assignments}
         superAdmin={canManageUsers(role)} flush={flush}
         onChange={(people, assignments) => setData((d) => ({ ...d, people, assignments: assignments ?? d.assignments }))} />
     ),
@@ -294,6 +301,12 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
           onTogglePin={(sid) => setData((d) => ({ ...d, pinned: d.pinned.includes(sid) ? d.pinned.filter((x) => x !== sid) : [...d.pinned, sid] }))} />
       </Section>
     ),
+    riepilogo: canReadFull(role) ? (
+      <Section id="riepilogo" title="Riepilogo turni e interventi" subtitle="Per persona: turni per categoria e ore di intervento per fascia. Da qui si consuntiva il mese e si esporta per l'ufficio paghe.">
+        <HoursSummary people={data.people} assignments={data.assignments} params={data.params} days={days} interventions={ivs} noInt={noInt}
+          defaultTeam={role === 'director' ? profile.team : null} canCloseMonth={editable || role === 'hr'} onCloseMonth={closeMonth} />
+      </Section>
+    ) : null,
     payroll: (
       <Section id="payroll" title="Consuntivo mensile cedolino" subtitle="Per persona e settimana: indennità CCNL, gettone integrativo e totale lordo."
         actions={<>
@@ -322,7 +335,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     ) : null,
     users: canManageUsers(role) ? (
       <Section id="users" title="Utenti e livelli di accesso" subtitle="Solo lo space admin vede questa pagina.">
-        <UsersPage me={profile} people={data.people} flush={flush} />
+        <UsersPage me={profile} full={full} people={data.people} flush={flush} />
       </Section>
     ) : null,
   }
@@ -338,7 +351,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
             <div className="ml-auto flex items-center gap-3">
               <SyncBadge status={status} />
               <GuideButton id={role} onOpen={openGuide} />
-              <UserMenu profile={profile} onLogout={onLogout} onChangePassword={onChangePassword} onOpenGuide={openGuide} />
+              <UserMenu profile={profile} full={full} onLogout={onLogout} onChangePassword={onChangePassword} onOpenGuide={openGuide}
+                onOpenSettings={fullViewEligible(profile) ? () => setSettingsOpen(true) : undefined} />
             </div>
           </div>
         </div>
@@ -394,7 +408,8 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         {syncError && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{syncError}</div>}
         {status === 'loading' ? <p className="py-10 text-center text-sm text-slate-500">Caricamento dei dati condivisi…</p> : sections[page]}
       </main>
-      {guide.open && <GuideDrawer id={role} ctx={{ p: data.params, exact: canReadPlan(role) }} onClose={() => guide.close(`#/${page}`)} />}
+      {guide.open && <GuideDrawer id={role} ctx={{ p: data.params, exact: canReadPlan(role), full }} onClose={() => guide.close(`#/${page}`)} />}
+      {settingsOpen && <SettingsDialog on={full} verify={verify} onClose={() => setSettingsOpen(false)} />}
       {exportFormat && (
         <ExportDialog format={exportFormat} busy={exporting} onClose={() => setExportFormat(null)}
           onExport={(range, fileName) => runExport(exportFormat, range, fileName)} />
@@ -416,8 +431,11 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   )
 }
 
-/** Pagina anagrafica: RAL e livello oscurati finché non si reinserisce la password (lo stato si azzera cambiando pagina). */
-function TeamPage({ verify, editable, role, myTeam, people, assignments, superAdmin, flush, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; role: Role; myTeam: TeamId | null; people: Person[]; assignments: Assignments; superAdmin: boolean; flush: () => Promise<void>; onChange: (people: Person[], assignments?: Assignments) => void }) {
+/**
+ * Pagina anagrafica: RAL e livello oscurati finché non si reinserisce la password (lo stato si azzera cambiando
+ * pagina). Senza vista completa (`full`) le colonne di RAL e livello non ci sono.
+ */
+function TeamPage({ verify, editable, role, full, myTeam, people, assignments, superAdmin, flush, onChange }: { verify: (pwd: string) => Promise<boolean>; editable: boolean; role: Role; full: boolean; myTeam: TeamId | null; people: Person[]; assignments: Assignments; superAdmin: boolean; flush: () => Promise<void>; onChange: (people: Person[], assignments?: Assignments) => void }) {
   const { revealed, toggle, dialog } = useRevealSensitive(verify)
   const teams = useTeams()
   // Solo lo space admin vede il tipo di account di ogni risorsa e può creare quello da Turnista
@@ -432,13 +450,13 @@ function TeamPage({ verify, editable, role, myTeam, people, assignments, superAd
   return (
     <>
       <Section id="team" title="Anagrafica team" subtitle="Chi ha dato KO resta in anagrafica ma non compare nel calendario. La disponibilità guida l'auto-compilazione."
-        actions={<>
+        actions={full ? <>
           <Button onClick={toggle} aria-pressed={revealed} className={revealed ? 'ring-blue-300 bg-blue-50 text-blue-800' : ''}>
             <EyeIcon off={revealed} /> {revealed ? 'Oscura RAL e livello' : 'Mostra RAL e livello'}
           </Button>
-        </>}>
+        </> : undefined}>
         <fieldset disabled={!editable} className="min-w-0">
-          <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed}
+          <TeamPanel people={people} assignments={assignments} onChange={onChange} revealed={revealed} salary={full}
             myTeam={myTeam} role={role} canSetTeam={editable && seesAllSalaries(role)} newTeam={defaultResourceTeam(teams, myTeam)}
             accounts={superAdmin && loaded ? accounts : undefined} onCreateAccount={superAdmin ? createAccount : undefined} />
         </fieldset>

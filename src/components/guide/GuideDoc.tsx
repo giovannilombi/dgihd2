@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode, type RefObject } from 'react'
 import { fmtEur } from '../../lib/economics'
 import { GUIDE_HASH, GUIDE_TONE, type GuideCtx, type GuideId } from '../../lib/guides'
-import { fmtMinutes, recognizedHours } from '../../lib/overtime'
+import { callFeeText, fmtMinutes, recognizedHours } from '../../lib/overtime'
+import { SHIFT_CAT_HOURS, SHIFT_CAT_LABEL, SHIFT_CATS } from '../../lib/hoursReport'
 import { DEFAULT_PARAMS } from '../../lib/types'
 import { InterventionChip } from '../InterventionChip'
 import { Cards, DayChip, Faq, Field, Flow, List, LockGlyph, Mock, Note, P, PinGlyph, Steps, Table, Ui, UiBtn } from './kit'
@@ -77,9 +78,9 @@ function build(id: GuideId, c: GuideCtx): Sec[] {
     case 'director': return planner(c, false)
     case 'governance': return planner(c, true)
     case 'hr': return hr(c)
-    case 'pm': return pm()
-    case 'viewer': return viewer()
-    case 'super_admin': return spaceAdmin()
+    case 'pm': return pm(c)
+    case 'viewer': return viewer(c)
+    case 'super_admin': return spaceAdmin(c)
   }
 }
 
@@ -138,6 +139,9 @@ function legend(withInterventions = true) {
   ]
   return <Table head={['Nel calendario', 'Significa']} rows={rows} />
 }
+
+/** Con la vista completa attiva: dove spegnerla (prima di condividere lo schermo). */
+const fullNote = (c: GuideCtx) => c.full && <Note>Calcoli e importi sono attivi: li spegni da <Ui>Impostazioni</Ui> nel menu in alto a destra, prima di condividere lo schermo.</Note>
 
 function mineSection(): Sec {
   return {
@@ -231,7 +235,7 @@ function turnista(c: GuideCtx): Sec[] {
       body: <>
         <Cards items={[
           ['Per ogni turno', 'Indennità di reperibilità del CCNL più un gettone integrativo, anche se non ti chiamano.'],
-          ['Per ogni intervento approvato', `Le ore riconosciute pagate come straordinario, con le maggiorazioni per fascia, più ${c.exact ? fmtEur(c.p.callFee) : 'un compenso fisso'} per chiamata.`],
+          ['Per ogni intervento approvato', 'Le ore riconosciute pagate come straordinario, con le maggiorazioni per fascia.'],
         ]} />
         <P>Tutto arriva in busta paga con il cedolino del mese.</P>
       </>,
@@ -256,17 +260,25 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
       key: 'ruolo', title: 'Il tuo ruolo',
       body: gov ? <>
         <P>Governi il piano di <strong>tutti i team</strong>: calendario, anagrafica e parametri.</P>
-        <Cards items={[
-          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi, Consuntivo e Conto economico.'],
+        <Cards items={c.full ? [
+          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi, Riepilogo, Consuntivo e Conto economico.'],
           ['RAL e importi', 'Di tutte le persone di tutti i team.'],
+        ] : [
+          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi e Riepilogo.'],
+          ['Cosa fai', 'Modifichi calendario, anagrafica (team delle persone compreso) e parametri; segni gli erogati.'],
         ]} />
+        {fullNote(c)}
         <Note>Approvare gli interventi e sbloccare i giorni spetta al capo di ciascun team (e ai PM per gli interventi). Tu controlli che nessuno resti indietro.</Note>
       </> : <>
         <P>Sei il <strong>capo del tuo team</strong> (uno solo per team): costruisci il calendario, confermi i turni svolti e approvi gli interventi delle tue persone.</P>
-        <Cards items={[
-          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi, Consuntivo e Conto economico.'],
+        <Cards items={c.full ? [
+          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi, Riepilogo, Consuntivo e Conto economico.'],
           ['RAL e importi', 'Solo delle persone del tuo team. Degli altri team vedi turni e ore, non le cifre.'],
+        ] : [
+          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi e Riepilogo.'],
+          ['Cosa fai', 'Calendario e anagrafica; segni gli erogati, approvi gli interventi e sblocchi i giorni del tuo team.'],
         ]} />
+        {fullNote(c)}
       </>,
     },
     {
@@ -278,7 +290,7 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
           ['Disponibilità', 'Volontario · Max 1, 2 o 3 turni/mese · Nessuna preferenza', 'L\'auto-compilazione assegna prima ai volontari, poi a chi ha un limite (mai superato), infine agli altri.'],
           ['Calendario personale', 'Non disponibile (ferie, assenze) · Disponibile', 'I giorni non disponibili non vengono mai assegnati; quelli disponibili hanno la precedenza.'],
         ]} />
-        <P>{gov ? 'Solo tu e lo Space admin potete spostare una persona in un altro team: cambia chi ne vede la RAL.' : 'Per spostare una persona in un altro team serve Governance o lo Space admin.'}</P>
+        <P>{gov ? `Solo tu e lo Space admin potete spostare una persona in un altro team: cambia chi ne ${c.full ? 'vede la RAL e ne approva gli interventi' : 'approva gli interventi'}.` : 'Per spostare una persona in un altro team serve Governance o lo Space admin.'}</P>
       </>,
     },
     {
@@ -322,7 +334,7 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
         <Flow steps={[
           { label: 'Aperto', sub: 'turni modificabili' },
           { top: <DayChip state="erogato" />, label: '✓ Segna erogato', sub: 'dalla fine del turno: 18:00 il diurno, 09:00 del giorno dopo la notte' },
-          { top: <DayChip state="consuntivato" />, label: 'Consuntiva', sub: 'anche tutto il mese, dalla pagina Consuntivo' },
+          { top: <DayChip state="consuntivato" />, label: 'Consuntiva', sub: c.full ? 'anche tutto il mese, dalle pagine Riepilogo e Consuntivo' : 'anche tutto il mese, dalla pagina Riepilogo' },
         ]} />
         <List items={[
           <><strong>Erogato</strong>: il turno è stato coperto davvero. Da quel momento turni e persone del giorno non si cambiano più ed entrano nel consuntivo.</>,
@@ -337,9 +349,9 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
       key: 'interventi', title: gov ? 'Controllare gli interventi' : 'Approvare gli interventi',
       body: <>
         <P>Nella pagina <Ui>Interventi</Ui>: il numero giallo sulla scheda dice quanti aspettano. Filtri: In approvazione, Approvati, Rifiutati, Da compilare, Tutti.</P>
-        <ReviewMock amounts />
+        <ReviewMock amounts={c.full} />
         <List items={gov ? [
-          'Vedi gli interventi di tutti i team, con ore e importi.',
+          c.full ? 'Vedi gli interventi di tutti i team, con ore e importi.' : 'Vedi gli interventi di tutti i team, con le ore per fascia.',
           'Approvano il capo del team della persona, i PM e lo Space admin: tu controlli che nessun intervento resti in attesa.',
           <><Ui>Da compilare</Ui>: turni finiti senza risposta del turnista. Sollecitalo prima che il giorno venga consuntivato.</>,
         ] : [
@@ -365,7 +377,7 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
         ]} />
         <P>Per leggere i chip del calendario:</P>
         {legend()}
-        {c.exact && <P>Ore riconosciute: minimo {ore(c.p.otMinHours)} per intervento, oltre l'ora contano i minuti sopra i {c.p.otToleranceMin}′; più {fmtEur(c.p.callFee)} per chiamata.</P>}
+        {c.exact && <P>Ore riconosciute: minimo {ore(c.p.otMinHours)} per intervento, oltre l'ora contano i minuti sopra i {c.p.otToleranceMin}′; più l'{callFeeText(c.p.callFee)}.</P>}
       </>,
     },
     mineSection(),
@@ -380,26 +392,33 @@ function hr(c: GuideCtx): Sec[] {
   return [
     {
       key: 'ruolo', title: 'Cosa vedi e cosa fai',
-      body: <Cards cols={3} items={[
-        ['Vedi', 'Tutte le pagine, con RAL e importi di tutti i team.'],
-        ['Fai', 'Consuntivi i giorni e i mesi; esporti per le paghe e per i report.'],
-        ['Non fai', 'Non modifichi il calendario e non approvi gli interventi.'],
-      ]} />,
+      body: <>
+        <Cards cols={3} items={[
+          c.full ? ['Vedi', 'Tutte le pagine, con RAL e importi di tutti i team.'] : ['Vedi', 'Tutte le pagine del piano: turni, interventi e il riepilogo per le paghe.'],
+          c.full ? ['Fai', 'Consuntivi i giorni e i mesi; esporti per le paghe e per i report.'] : ['Fai', 'Consuntivi i giorni e i mesi; esporti il riepilogo per le paghe.'],
+          ['Non fai', 'Non modifichi il calendario e non approvi gli interventi.'],
+        ]} />
+        {fullNote(c)}
+      </>,
     },
     {
       key: 'monitorare', title: 'Monitorare: dove guardare',
       body: <>
         <Table head={['Pagina', 'Cosa controlli']} rows={[
           [<Ui key="c">Calendario</Ui>, 'Lo stato di ogni giorno (erogato, consuntivato) e, sotto ogni turno, lo stato dei suoi interventi.'],
-          [<Ui key="i">Interventi</Ui>, 'Il numero giallo sulla scheda: interventi da approvare. Il filtro Da compilare: chi non ha ancora risposto. Per ogni intervento: ore per fascia e importo.'],
-          [<Ui key="k">Consuntivo</Ui>, 'Per persona e mese: lordo erogato (turni erogati sul totale), previsto, netto di riferimento, costo aziendale e straordinario.'],
-          [<Ui key="e">Conto economico</Ui>, 'Ricavo stimato, ricavo con copertura dei turni, costo aziendale e margine, per mese o settimana.'],
+          [<Ui key="i">Interventi</Ui>, `Il numero giallo sulla scheda: interventi da approvare. Il filtro Da compilare: chi non ha ancora risposto. Per ogni intervento: ore per fascia${c.full ? ' e importo' : ''}.`],
+          [<Ui key="r">Riepilogo</Ui>, 'Per persona, nel mese o nella settimana: turni per categoria e ore di intervento per fascia. Gli avvisi in alto dicono cosa manca per chiudere il periodo.'],
+          ...(c.full ? [
+            [<Ui key="k">Consuntivo</Ui>, 'Per persona e mese: lordo erogato (turni erogati sul totale), previsto, netto di riferimento, costo aziendale e straordinario.'],
+            [<Ui key="e">Conto economico</Ui>, 'Ricavo stimato, ricavo con copertura dei turni, costo aziendale e margine, per mese o settimana.'],
+          ] : []),
         ]} />
         <P>Cosa significano i chip del calendario:</P>
         {legend()}
       </>,
     },
-    {
+    riepilogoSection(c),
+    ...(!c.full ? [] : [{
       key: 'consuntivo', title: 'Leggere il consuntivo',
       body: <>
         <Mock caption="Una scheda per persona. Si liquida solo ciò che è erogato; il resto è in grigio con l'importo previsto.">
@@ -421,20 +440,20 @@ function hr(c: GuideCtx): Sec[] {
           ['Indennità CCNL', 'Dovuta per contratto per ogni turno.'],
           ['Gettone integrativo', 'Voce dedicata in busta. Indennità + gettone = totale lordo, pari al netto di riferimento.'],
           ['Straordinario', 'Interventi approvati, in ore riconosciute per fascia con le maggiorazioni CCNL.'],
-          ['Chiamate', `${c.exact ? fmtEur(c.p.callFee) : 'Compenso fisso'} per ogni intervento approvato, escluso dalla base del TFR.`],
+          ['Eventuale compenso per intervento', `Per ogni intervento approvato; ad oggi impostato in piattaforma a ${fmtEur(c.p.callFee)}.`],
           ['Costo aziendale', 'Lordo più contributi INPS, quota TFR e INAIL. Serve al conto economico, non alla busta.'],
           ['Settimane a cavallo', 'Ogni settimana va nel consuntivo del mese in cui cade il suo ultimo turno.'],
         ]} />
         <Note><strong>RAL Q/: importi stimati</strong> e <strong>RAL da inserire</strong>: indennità e gettone sono stimati e lo straordinario mostra solo le ore. Per l'importo esatto serve la RAL puntuale, che inserisce chi gestisce il Team.</Note>
       </>,
-    },
+    }]),
     {
       key: 'mese', title: 'Chiudere il mese',
       body: <>
         <Steps items={[
-          ['Tutti i giorni con turni sono erogati', 'Nel Consuntivo i turni non ancora erogati restano in grigio: se ne manca qualcuno avvisa il capo del team.'],
+          ['Tutti i giorni con turni sono erogati', 'Nel Riepilogo un avviso conta i turni in giorni non ancora erogati: se ne manca qualcuno avvisa il capo del team.'],
           ['In Interventi non resta nulla in sospeso', 'In approvazione e Da compilare a zero: sollecita chi approva e i turnisti.'],
-          [<>Nel Consuntivo premi <UiBtn key="m" small>Consuntiva il mese (18 giorni erogati)</UiBtn></>, 'Gli interventi del mese si chiudono: nessuno può più aggiungerli o cambiarli.'],
+          [<>Nel Riepilogo{c.full ? ' (o nel Consuntivo)' : ''}, con il mese scelto, premi <UiBtn key="m" small>Consuntiva il mese (18 giorni erogati)</UiBtn></>, 'Gli interventi del mese si chiudono: nessuno può più aggiungerli o cambiarli.'],
           ['Esporta per le paghe', 'Vedi la sezione successiva.'],
         ]} />
         <Note>Per riaprire un giorno serve il capo del team o lo Space admin.</Note>
@@ -444,25 +463,60 @@ function hr(c: GuideCtx): Sec[] {
       key: 'esportare', title: 'Esportare',
       body: <>
         <Table head={['File', 'Dove', 'Cosa contiene']} rows={[
-          [<UiBtn key="p" variant="primary" small>Esporta per paghe (Excel)</UiBtn>, 'Consuntivo', 'Per l\'ufficio paghe, per mese o settimana. Quattro fogli: Reperibilità CCNL, Gettoni integrativi, Straordinario per interventi, Riepilogo paghe (una riga per persona). Solo turni erogati e interventi approvati.'],
-          [<UiBtn key="c" small>Esporta report (CSV)</UiBtn>, 'Consuntivo, Conto economico', 'Per analisi e report: consuntivo cedolino per persona e conto economico del periodo scelto.'],
+          [<UiBtn key="h" variant="primary" small>Esporta per paghe (Excel)</UiBtn>, 'Riepilogo', 'Per l\'ufficio paghe, per mese o settimana, senza importi. Tre fogli: Riepilogo per persona, Turni (con categoria e orari), Interventi (minuti per fascia e ore riconosciute). Solo turni erogati e interventi approvati.'],
+          ...(c.full ? [
+            [<UiBtn key="p" variant="primary" small>Esporta per paghe (Excel)</UiBtn>, 'Consuntivo', 'Con gli importi, per mese o settimana. Quattro fogli: Reperibilità CCNL, Gettoni integrativi, Straordinario per interventi, Riepilogo paghe (una riga per persona). Solo turni erogati e interventi approvati.'],
+            [<UiBtn key="c" small>Esporta report (CSV)</UiBtn>, 'Consuntivo, Conto economico', 'Per analisi e report: consuntivo cedolino per persona e conto economico del periodo scelto.'],
+          ] : []),
           [<UiBtn key="t" small>Esporta turni (Excel / PDF)</UiBtn>, 'Calendario', 'Chi è di turno e quando, per il periodo scelto.'],
         ]} />
-        <Note warn>I file con gli importi sono calcolati sulle RAL: salvali solo nelle cartelle HR e non inoltrarli.</Note>
+        <Note warn>{c.full ? 'I file contengono dati personali e quelli con gli importi sono calcolati sulle RAL: salvali solo nelle cartelle HR e non inoltrarli.' : 'I file contengono nomi ed email: salvali solo nelle cartelle HR e non inoltrarli.'}</Note>
       </>,
     },
   ]
 }
 
+/** Pagina Riepilogo: turni per categoria e ore di intervento per fascia, senza importi. */
+function riepilogoSection(c: GuideCtx): Sec {
+  const cell = 'px-2 py-1.5 text-right'
+  return {
+    key: 'riepilogo', title: 'Leggere il riepilogo',
+    body: <>
+      <P>Nella pagina <Ui>Riepilogo</Ui> scegli mese o settimana e, se serve, il team. Una riga per persona:</P>
+      <Mock caption="Solo turni dei giorni erogati e interventi approvati. Sotto la tabella, il dettaglio di ogni intervento.">
+        <div className="overflow-x-auto rounded-lg bg-white ring-1 ring-inset ring-slate-200">
+          <table className="w-full min-w-[520px] text-xs">
+            <thead><tr className="bg-slate-50 text-[11px] text-slate-500"><th className="px-2 py-1.5 text-left font-medium">Persona</th><th className={`${cell} font-medium`}>Fer. notte</th><th className={`${cell} font-medium`}>Sab. diurno</th><th className={`${cell} font-medium`}>Dom./fest. notte</th><th className={`${cell} font-medium`}>Turni</th><th className={`${cell} font-medium`}>Interventi</th><th className={`${cell} font-medium`}>Ore riconosciute</th></tr></thead>
+            <tbody className="text-slate-700">
+              <tr className="border-t border-slate-100"><td className="px-2 py-1.5 font-medium text-slate-900">Mario Rossi</td><td className={cell}>2</td><td className={cell}>1</td><td className={cell}>1</td><td className={`${cell} font-semibold text-slate-900`}>4</td><td className={cell}>1</td><td className={`${cell} font-semibold text-slate-900`}>2 h</td></tr>
+              <tr className="border-t border-slate-100"><td className="px-2 py-1.5 font-medium text-slate-900">Sara Neri</td><td className={cell}>3</td><td className={cell}>–</td><td className={cell}>–</td><td className={`${cell} font-semibold text-slate-900`}>3</td><td className={cell}>–</td><td className={cell}>–</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </Mock>
+      <Table head={['Categoria del turno', 'Quando']} rows={SHIFT_CATS.map((k) => [SHIFT_CAT_LABEL[k], SHIFT_CAT_HOURS[k]])} />
+      <Note>Il turno conta nel giorno in cui <strong>inizia</strong>: la notte di domenica, dalle 18:00 alle 09:00 di lunedì, è "domenica/festivo notturno". Un sabato festivo conta come festivo.</Note>
+      <List items={[
+        c.exact
+          ? `Le ore di intervento si dividono per fascia secondo il giorno e l'ora di ogni minuto: notte dalle ${c.p.otNightStart} alle ${c.p.otNightEnd}, festivo la domenica e nei festivi. Dopo la mezzanotte di domenica è lunedì: notturno feriale.`
+          : 'Le ore di intervento si dividono per fascia secondo il giorno e l\'ora di ogni minuto: dopo la mezzanotte di domenica è lunedì, notturno feriale.',
+        'Per ogni intervento contano le ore riconosciute, con minimo e tolleranza:',
+      ]} />
+      {hoursTable(c)}
+      <Note>Il riepilogo e il suo file non contengono importi: l'ufficio paghe li calcola con livello e RAL che già conosce. Le regole di calcolo sono nella pagina <Ui>Approccio</Ui>.</Note>
+    </>,
+  }
+}
+
 /* ---------- PM ---------- */
 
-function pm(): Sec[] {
+function pm(c: GuideCtx): Sec[] {
   return [
     {
       key: 'ruolo', title: 'Cosa vedi e cosa fai',
       body: <Cards items={[
         ['Vedi', 'Approccio (con i parametri applicati), Calendario e Interventi con le ore.'],
-        ['Non vedi', 'RAL, livelli e importi; le pagine Parametri, Team, Consuntivo e Conto economico.'],
+        ['Non vedi', c.full ? 'RAL, livelli e importi; le pagine Parametri, Team, Consuntivo e Conto economico.' : 'Le pagine Parametri, Team e Riepilogo.'],
         ['Fai', 'Approvi e rifiuti gli interventi di tutti i team.'],
         ['Non fai', 'Non modifichi il calendario né il piano.'],
       ]} />,
@@ -501,11 +555,11 @@ function pm(): Sec[] {
 
 /* ---------- Viewer ---------- */
 
-function viewer(): Sec[] {
+function viewer(c: GuideCtx): Sec[] {
   return [
     {
       key: 'vedi', title: 'Cosa vedi',
-      body: <P>Il calendario dei turni, con i nomi di chi copre ogni turno. Non vedi RAL, importi, anagrafica né interventi, e non modifichi nulla.</P>,
+      body: <P>Il calendario dei turni, con i nomi di chi copre ogni turno. Non vedi {c.full ? 'RAL, importi, ' : ''}anagrafica né interventi, e non modifichi nulla.</P>,
     },
     {
       key: 'leggere', title: 'Leggere il calendario',
@@ -528,7 +582,7 @@ function viewer(): Sec[] {
 
 /* ---------- Space admin ---------- */
 
-function spaceAdmin(): Sec[] {
+function spaceAdmin(c: GuideCtx): Sec[] {
   const base = `${location.origin}${location.pathname}`
   return [
     {
@@ -540,6 +594,7 @@ function spaceAdmin(): Sec[] {
           'Sblocchi qualsiasi giorno erogato o consuntivato.',
           'Il profilo Space admin non si assegna ad altri e non si può cambiare.',
         ]} />
+        {fullNote(c)}
       </>,
     },
     {
@@ -553,7 +608,7 @@ function spaceAdmin(): Sec[] {
         <Note>L'account si collega alla scheda del piano tramite l'email: deve essere identica a quella nella pagina Team, altrimenti la persona non vede i suoi turni.</Note>
       </>,
     },
-    {
+    c.full ? {
       key: 'profili', title: 'Profili e RAL',
       body: <>
         <Table head={['Profilo', 'Pagine', 'RAL e importi', 'Può fare']} rows={[
@@ -565,7 +620,22 @@ function spaceAdmin(): Sec[] {
           ['Viewer', 'Calendario', 'Nessuno', 'Solo lettura'],
           ['Turnista', 'Calendario turni, I miei interventi', 'Nessuno', 'Segnala i propri interventi'],
         ]} />
+        <P>Governance, Director e HR vedono RAL e importi solo se li abiliti nella colonna <Ui>Calcoli e importi</Ui> della pagina Utenti e se li attivano nelle loro Impostazioni.</P>
         <Note warn>Prima di ogni modifica che dà accesso alle RAL l'app mostra un avviso rosso con quello che la persona vedrà: leggilo prima di confermare. Ogni team ha un solo Director.</Note>
+      </>,
+    } : {
+      key: 'profili', title: 'Profili',
+      body: <>
+        <Table head={['Profilo', 'Pagine', 'Può fare']} rows={[
+          ['Space admin', 'Tutte, più Utenti', 'Tutto: account, profili e team'],
+          ['Governance', 'Approccio, Parametri, Team, Calendario, Interventi, Riepilogo', 'Modifica piano, anagrafica (anche il team delle persone) e parametri; segna erogato'],
+          ['Director', 'Le stesse di Governance', 'Modifica il piano; segna erogato; approva gli interventi e sblocca i giorni del suo team'],
+          ['HR', 'Le stesse, in lettura', 'Consuntiva; esporta il riepilogo per le paghe'],
+          ['PM', 'Approccio, Calendario, Interventi', 'Approva gli interventi di tutti i team'],
+          ['Viewer', 'Calendario', 'Solo lettura'],
+          ['Turnista', 'Calendario turni, I miei interventi', 'Segnala i propri interventi'],
+        ]} />
+        <Note>Ogni team ha un solo Director.</Note>
       </>,
     },
     {
@@ -573,7 +643,7 @@ function spaceAdmin(): Sec[] {
       body: <List items={[
         <>Pagina <Ui>Utenti</Ui>, scheda <Ui>Team</Ui>: <Ui>Nuovo team</Ui>, <Ui>Rinomina</Ui>, <Ui>Elimina</Ui>. Per ogni team vedi il capo, le risorse e gli account.</>,
         'Il capo di un team è l\'account con profilo Director e quel team (o tu, se sei assegnato a quel team).',
-        'Spostare una persona in un altro team cambia chi ne vede la RAL: lo possono fare solo lo Space admin e Governance.',
+        `Spostare una persona in un altro team cambia chi ne ${c.full ? 'vede la RAL e ne approva gli interventi' : 'approva gli interventi'}: lo possono fare solo lo Space admin e Governance.`,
       ]} />,
     },
     {
@@ -582,7 +652,7 @@ function spaceAdmin(): Sec[] {
         ['Reimposta password', 'Nuova password provvisoria, da cambiare al primo accesso.'],
         ['Elimina', 'L\'account non può più accedere; la scheda nel piano resta.'],
         ['Visibilità dei Turnisti', 'Propri turni: degli altri vedono solo "Turno coperto". Tutti i turni: vedono anche i nomi.'],
-        ['Dati ▾', 'Esporta o importa la configurazione JSON. L\'import sostituisce i dati per tutti; il file contiene anagrafica e RAL: non condividerlo.'],
+        ...(c.full ? [['Dati ▾', 'Esporta o importa la configurazione JSON. L\'import sostituisce i dati per tutti; il file contiene anagrafica e RAL: non condividerlo.'] as [string, string]] : []),
       ]} />,
     },
     {

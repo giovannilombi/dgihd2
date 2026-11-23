@@ -42,7 +42,7 @@ export const SALARY_RULES: ReadonlySet<RuleId> = new Set<RuleId>()
 export const needsServerChecks = (p: Pick<Person, 'salaryHidden' | 'ralNd'>) => !!p.salaryHidden || !!p.ralNd
 
 /** Calcolo lato server (dati completi, RAL media inclusa) per le persone che il browser non può calcolare. */
-export function salaryRuleChecks(data: AppData, me: Pick<Me, 'role' | 'team'>): ServerChecks {
+export function salaryRuleChecks(data: AppData, me: Pick<Me, 'role' | 'team' | 'full'>): ServerChecks {
   const hidden = data.people.filter((p) => !canSeeSalaryOf(me, p.team) || p.ralNd)
   const onlySalary = (rules: RuleId[]) => rules.filter((r) => SALARY_RULES.has(r))
   const blocked: ServerChecks['blocked'] = {}

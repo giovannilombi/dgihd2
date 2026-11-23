@@ -5,7 +5,9 @@ import { personOvertime } from './overtime'
 import { buildPayroll, buildPayrollXlsx, payPeriods, payrollFileName } from './payrollExport'
 import { slotEconomics } from './economics'
 import { DEFAULT_TEAMS } from './teams'
-import { DEFAULT_PARAMS as P, type Person } from './types'
+import { DEFAULT_PARAMS, type Person } from './types'
+
+const P = { ...DEFAULT_PARAMS, callFee: 5 } // compenso per intervento di prova (di default è 0)
 
 const person = (id: string, extra: Partial<Person> = {}): Person =>
   ({ id, name: id, email: `${id}@example.com`, level: 'B1', ral: 30000, active: true, color: '#000', team: 'tech', ...extra })

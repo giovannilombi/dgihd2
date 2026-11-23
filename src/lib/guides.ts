@@ -6,10 +6,10 @@ export type GuideId = Role
 
 /** Titolo e sottotitolo nell'intestazione della guida. */
 export const GUIDE_TITLE: Record<GuideId, [string, string]> = {
-  super_admin: ['Amministrare lo spazio', 'Account, profili, accesso alle RAL e team.'],
+  super_admin: ['Amministrare lo spazio', 'Account, profili e team.'],
   governance: ['Governare il piano di tutti i team', 'Calendario, anagrafica e parametri di tutti i team, conferma dei turni e controllo degli interventi.'],
   director: ['Gestire i turni del tuo team', 'Preparare il team, costruire il calendario, confermare i turni svolti e approvare gli interventi.'],
-  hr: ['Monitorare ed esportare per le paghe', "Dove controllare l'andamento, come leggere il consuntivo, chiudere il mese ed esportare i file."],
+  hr: ['Monitorare ed esportare per le paghe', "Dove controllare l'andamento, come leggere il riepilogo, chiudere il mese ed esportare i file."],
   pm: ['Approvare gli interventi', 'Cosa vedi, come approvare o rifiutare gli interventi di tutti i team e come leggere il calendario.'],
   viewer: ['Consultare il calendario', 'Cosa vedi e come leggere ed esportare il calendario dei turni.'],
   turnista: ['Come funziona la reperibilità', 'Cosa fare a fine turno, come vengono approvati gli interventi e come vieni pagato.'],
@@ -22,6 +22,8 @@ export const GUIDE_TITLE: Record<GuideId, [string, string]> = {
 export interface GuideCtx {
   p: Pick<Params, 'otMinHours' | 'otToleranceMin' | 'otNightStart' | 'otNightEnd' | 'callFee'>
   exact: boolean
+  /** Vista completa attiva: la guida parla anche di RAL, importi, Consuntivo e Conto economico. */
+  full?: boolean
 }
 
 /** Link diretto alla guida: apre sempre quella del profilo di chi lo apre. */

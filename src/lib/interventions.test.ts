@@ -33,7 +33,7 @@ describe('orari del modulo', () => {
 
 describe('chi decide e chi vede gli importi', () => {
   const person = (id: string, team: string, extra: Partial<Person> = {}): Person => ({ id, name: id, level: 'B1', ral: 30000, active: true, color: '#000', team, ...extra })
-  const director = { id: 'dir', role: 'director' as const, team: 'tech' }
+  const director = { id: 'dir', role: 'director' as const, team: 'tech', full: true }
   it('Director del team, PM (tutti i team) o space admin; mai sui propri interventi (salvo space admin)', () => {
     expect(canDecide(person('t1', 'tech'), director, 'own')).toBe(true)
     expect(canDecide(person('p1', 'pm'), director, 'own')).toBe(false)
@@ -47,9 +47,11 @@ describe('chi decide e chi vede gli importi', () => {
   it('importi a chi vede la RAL della persona; RAL Q/ o da inserire = solo ore', () => {
     expect(amountsVisible(person('t1', 'tech'), director)).toBe(true)
     expect(amountsVisible(person('p1', 'pm'), director)).toBe(false)
-    expect(amountsVisible(person('p1', 'pm'), { id: 'h', role: 'hr', team: 'hr' })).toBe(true)
+    expect(amountsVisible(person('p1', 'pm'), { id: 'h', role: 'hr', team: 'hr', full: true })).toBe(true)
+    expect(amountsVisible(person('p1', 'pm'), { id: 'h', role: 'hr', team: 'hr' })).toBe(false)
+    expect(amountsVisible(person('t1', 'tech'), { ...director, full: false })).toBe(false)
     expect(amountsVisible(person('t1', 'tech'), { id: 'p', role: 'pm', team: 'pm' })).toBe(false)
-    expect(amountsVisible(person('t1', 'tech', { salaryHidden: true }), { id: 'g', role: 'governance', team: 'governance' })).toBe(false)
+    expect(amountsVisible(person('t1', 'tech', { salaryHidden: true }), { id: 'g', role: 'governance', team: 'governance', full: true })).toBe(false)
     expect(payRal(person('a', 'tech'))).toBe(30000)
     expect(payRal(person('a', 'tech', { ralNd: true }))).toBeNull()
     expect(payRal(person('a', 'tech', { ral: 0 }))).toBeNull()

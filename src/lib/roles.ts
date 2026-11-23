@@ -24,13 +24,23 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_HELP: Record<Role, string> = {
   super_admin: 'Unico: legge e modifica tutto, gestisce utenti e team; può essere a capo di un team',
-  governance: 'Modifica tutto il piano; vede RAL e importi di tutti i team',
-  director: 'Capo del proprio team (uno per team): modifica il piano; RAL e importi solo del team; approva gli interventi del team',
-  hr: 'Sola lettura; vede RAL e importi di tutti; consuntiva ed esporta le paghe',
+  governance: 'Modifica tutto il piano; se abilitato, vede RAL e importi di tutti i team',
+  director: 'Capo del proprio team (uno per team): modifica il piano; se abilitato, RAL e importi solo del team; approva gli interventi del team',
+  hr: 'Sola lettura; se abilitato, vede RAL e importi di tutti; consuntiva ed esporta le paghe',
   pm: 'Approccio, calendario e interventi (solo ore, nessuna RAL); approva gli interventi di tutti i team',
   viewer: 'Vede solo il calendario dei turni',
   turnista: 'Vede il calendario e dichiara i propri interventi',
 }
+/** Descrizioni senza RAL e importi: per chi non ha la vista completa. */
+const ROLE_HELP_BASE: Record<Role, string> = {
+  ...ROLE_HELP,
+  governance: 'Modifica tutto il piano, team delle risorse compreso',
+  director: 'Capo del proprio team (uno per team): modifica il piano e approva gli interventi del team',
+  hr: 'Sola lettura; consuntiva i mesi ed esporta il riepilogo per le paghe',
+  pm: 'Approccio, calendario e interventi (solo ore); approva gli interventi di tutti i team',
+}
+/** Descrizione breve del profilo; con `full` falso non parla di RAL e importi. */
+export const roleHelp = (r: Role, full: boolean) => (full ? ROLE_HELP : ROLE_HELP_BASE)[r]
 
 export const ROLES: Role[] = ['super_admin', 'governance', 'director', 'hr', 'pm', 'viewer', 'turnista']
 /** Profili assegnabili dalla pagina Utenti: lo Space admin è uno solo e non si assegna. */
@@ -58,10 +68,19 @@ export const canManageUsers = (r: Role) => r === 'super_admin'
 /** Vede RAL, livello e importi di tutti i team */
 export const seesAllSalaries = (r: Role) => r === 'super_admin' || r === 'governance' || r === 'hr'
 
-export interface Me { id: string; role: Role; team: TeamId | null }
-/** Stessa regola del database: tutti per Space admin, Governance e HR; il Director solo il proprio team. */
-export const canSeeSalaryOf = (me: Pick<Me, 'role' | 'team'>, personTeam: TeamId | null | undefined) =>
-  seesAllSalaries(me.role) || (me.role === 'director' && !!me.team && me.team === personTeam)
+export interface Me {
+  id: string
+  role: Role
+  team: TeamId | null
+  /** Vista completa attiva (vedi `fullViewOn`): senza, nessuna RAL, livello o importo. */
+  full?: boolean
+}
+/**
+ * Stessa regola del database: con la vista completa attiva, tutti per Space admin, Governance e HR;
+ * il Director solo il proprio team. Senza vista completa, nessuno.
+ */
+export const canSeeSalaryOf = (me: Pick<Me, 'role' | 'team' | 'full'>, personTeam: TeamId | null | undefined) =>
+  !!me.full && (seesAllSalaries(me.role) || (me.role === 'director' && !!me.team && me.team === personTeam))
 /** Capo del team: il suo Director (uno solo per team) o lo Space admin assegnato a quel team. Stessa regola del database. */
 export const isDirectorOf = (team: TeamId | null | undefined, me: Pick<Me, 'role' | 'team'>) =>
   !!team && (me.role === 'director' || me.role === 'super_admin') && me.team === team
@@ -77,7 +96,19 @@ export interface Profile {
   person_id?: string | null
   /** Visibilità del Turnista quando l'impostazione generale è "per persona". */
   turnista_view?: 'own' | 'all'
+  /** Abilitato dallo Space admin alla vista completa (Governance, Director, HR). */
+  full_view_allowed?: boolean
+  /** Vista completa attivata dall'account stesso. */
+  full_view?: boolean
 }
+
+/** Profili che lo Space admin può abilitare alla vista completa. */
+export const FULL_VIEW_ROLES: readonly Role[] = ['governance', 'director', 'hr']
+/** Può attivare la vista completa: lo Space admin sempre, gli altri profili se abilitati. Stessa regola del database. */
+export const fullViewEligible = (p: Pick<Profile, 'role' | 'full_view_allowed'>) =>
+  p.role === 'super_admin' || (FULL_VIEW_ROLES.includes(p.role) && !!p.full_view_allowed)
+/** Vista completa attiva: RAL, livelli, importi, consuntivo e conto economico. */
+export const fullViewOn = (p: Pick<Profile, 'role' | 'full_view_allowed' | 'full_view'>) => fullViewEligible(p) && !!p.full_view
 
 /** Ordine dei profili dal più ampio al più ristretto (per ordinare l'elenco utenti). */
 export const roleRank = (r: Role) => { const i = ROLES.indexOf(r); return i < 0 ? ROLES.length : i }
@@ -95,16 +126,21 @@ export interface RoleAccess {
   managesUsers: boolean
 }
 
-/** Cosa vede un account con questo profilo e questo team: le stesse regole del database. */
-export function roleAccess(role: Role, team: TeamId | null, teams: TeamDir, turnistaNames: 'all' | 'own' = 'all'): RoleAccess {
-  const ral: RoleAccess['ral'] = seesAllSalaries(role) ? 'all' : role === 'director' && team ? 'team' : 'none'
+/**
+ * Cosa vede un account con questo profilo e questo team: le stesse regole del database.
+ * `full`: l'account può avere la vista completa (Space admin, o abilitato); senza, nessuna RAL e niente
+ * consuntivo e conto economico.
+ */
+export function roleAccess(role: Role, team: TeamId | null, teams: TeamDir, turnistaNames: 'all' | 'own' = 'all', full = true): RoleAccess {
+  const ral: RoleAccess['ral'] = !full ? 'none' : seesAllSalaries(role) ? 'all' : role === 'director' && team ? 'team' : 'none'
   const teamName = teamLabel(teams, team)
   const ralText = ral === 'all' ? 'RAL, livelli e importi di TUTTE le risorse di tutti i team.'
     : ral === 'team' ? `RAL, livelli e importi delle sole risorse del team ${teamName}.`
     : role === 'director' ? 'Nessuna RAL: senza team il Director non ne vede nessuna.'
     : 'Nessuna RAL, livello o importo.'
   const fullRead = [
-    'Tutte le pagine del piano: approccio, parametri, anagrafica, calendario, interventi, consuntivo e conto economico.',
+    full ? 'Tutte le pagine del piano: approccio, parametri, anagrafica, calendario, interventi, riepilogo, consuntivo e conto economico.'
+      : 'Tutte le pagine del piano: approccio, parametri, anagrafica, calendario, interventi e riepilogo.',
     'Anagrafica di tutte le persone: nomi, email, ferie, disponibilità e turni assegnati.',
   ]
   switch (role) {
@@ -115,20 +151,20 @@ export function roleAccess(role: Role, team: TeamId | null, teams: TeamDir, turn
     case 'director':
       return {
         sees: [...fullRead, 'Modifica anagrafica, parametri e calendario; segna gli erogati.', `Approva e rifiuta gli interventi${team ? ` del team ${teamName}` : ' del proprio team'}; sblocca i giorni dei turni del team.`],
-        excluded: ['RAL e importi degli altri team.', 'Gestione utenti.'], ral, ralText, managesUsers: false,
+        excluded: [...(full ? ['RAL e importi degli altri team.'] : []), 'Gestione utenti.'], ral, ralText, managesUsers: false,
       }
     case 'hr':
       return { sees: [...fullRead, 'Consuntiva i giorni e i mesi; esporta per le paghe.'], excluded: ['Non modifica il piano.', 'Gestione utenti.'], ral, ralText, managesUsers: false }
     case 'pm':
       return {
         sees: ['Approccio (con i valori dei parametri applicati), calendario e interventi con le ore.', 'Approva e rifiuta gli interventi di tutti i team.'],
-        excluded: ['RAL, livelli e importi.', 'Pagina Parametri, anagrafica, consuntivo e conto economico.', 'Non modifica il piano.'],
+        excluded: [...(full ? ['RAL, livelli e importi.'] : []), `Pagina Parametri, anagrafica, riepilogo${full ? ', consuntivo e conto economico' : ''}.`, 'Non modifica il piano.'],
         ral, ralText, managesUsers: false,
       }
     case 'viewer':
       return {
         sees: ['Solo il calendario dei turni, con i nomi di chi copre ogni turno.'],
-        excluded: ['RAL, livelli, email, ferie e disponibilità.', 'Parametri, interventi, consuntivo e conto economico.', 'Non modifica nulla.'],
+        excluded: [full ? 'RAL, livelli, email, ferie e disponibilità.' : 'Email, ferie e disponibilità.', `Parametri, interventi, riepilogo${full ? ', consuntivo e conto economico' : ''}.`, 'Non modifica nulla.'],
         ral, ralText, managesUsers: false,
       }
     case 'turnista':
@@ -137,7 +173,7 @@ export function roleAccess(role: Role, team: TeamId | null, teams: TeamDir, turn
           'Solo il calendario dei turni, con i propri turni evidenziati, e la pagina "I miei interventi".',
           turnistaNames === 'own' ? 'Dei turni degli altri vede solo "Turno coperto", senza nomi.' : 'Vede anche i nomi di chi copre gli altri turni (impostazione attuale per tutti i Turnisti).',
         ],
-        excluded: ['RAL, livelli, email, ferie e disponibilità.', 'Anagrafica, parametri, consuntivo e conto economico.', 'Non modifica il piano.'],
+        excluded: [full ? 'RAL, livelli, email, ferie e disponibilità.' : 'Email, ferie e disponibilità.', `Anagrafica, parametri, riepilogo${full ? ', consuntivo e conto economico' : ''}.`, 'Non modifica il piano.'],
         ral, ralText, managesUsers: false,
       }
   }

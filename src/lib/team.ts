@@ -49,6 +49,15 @@ export const TEMPLATE_CSV = '﻿' + [
   'Sara Neri;sara.neri@azienda.it;C3;30.000;ko',
 ].join('\r\n') + '\r\n'
 
+/** Template senza livello e RAL (anagrafica senza dati retributivi). */
+export const TEMPLATE_CSV_BASE = '\ufeff' + [
+  'Nome;Email;Disponibilità',
+  'Mario Rossi;mario.rossi@azienda.it;volontario',
+  'Anna Bianchi;anna.bianchi@azienda.it;2',
+  'Luca Verdi;luca.verdi@azienda.it;',
+  'Sara Neri;sara.neri@azienda.it;ko',
+].join('\r\n') + '\r\n'
+
 /** Valori ammessi nella colonna Disponibilità (facoltativa). */
 export const AVAILABILITY_HELP = 'volontario · 1, 2 o 3 (max turni/mese) · vuoto = nessuna preferenza · ko = non in rotazione'
 
@@ -103,8 +112,10 @@ function parseLevel(raw: string): Level | null {
  * Accetta testo incollato da Excel (tab) o CSV (; o ,). Se c'è un'intestazione le colonne
  * vengono riconosciute per nome in qualunque ordine; altrimenti l'ordine atteso è
  * Nome, Livello, RAL, Disponibilità, Email. L'email è obbligatoria e non può ripetersi.
+ * Con `salary` falso livello e RAL non si leggono (colonne facoltative e ignorate; senza
+ * intestazione l'ordine è Nome, Email, Disponibilità).
  */
-export function parseTeamText(text: string): ParseResult {
+export function parseTeamText(text: string, { salary = true }: { salary?: boolean } = {}): ParseResult {
   const out: ParseResult = { people: [], errors: [], warnings: [] }
   if (text.includes('\u0000') || text.startsWith('PK\u0003\u0004')) {
     out.fatal = 'Il file non è un CSV di testo (sembra un file Excel o binario). Salvalo come "CSV UTF-8" oppure copia le celle da Excel e incollale qui.'
@@ -119,24 +130,25 @@ export function parseTeamText(text: string): ParseResult {
   const sep = detectSeparator(lines[0].l)
   const first = splitCsvLine(lines[0].l, sep).map(norm)
   const find = (aliases: readonly string[]) => first.findIndex((c) => aliases.includes(c))
-  let cols = { name: 0, level: 1, ral: 2, availability: 3, email: 4 }
+  let cols = salary ? { name: 0, level: 1, ral: 2, availability: 3, email: 4 } : { name: 0, level: -1, ral: -1, availability: 2, email: 1 }
   let body = lines
   const looksLikeHeader = first.some((c) => Object.values(HEADER_ALIASES).some((a) => (a as readonly string[]).includes(c)))
   if (looksLikeHeader) {
     const idx = { name: find(HEADER_ALIASES.name), level: find(HEADER_ALIASES.level), ral: find(HEADER_ALIASES.ral), availability: find(HEADER_ALIASES.availability), email: find(HEADER_ALIASES.email) }
-    const missing = [idx.name < 0 && 'Nome', idx.email < 0 && 'Email', idx.level < 0 && 'Livello', idx.ral < 0 && 'RAL'].filter(Boolean)
+    const missing = [idx.name < 0 && 'Nome', idx.email < 0 && 'Email', salary && idx.level < 0 && 'Livello', salary && idx.ral < 0 && 'RAL'].filter(Boolean)
     if (missing.length) {
-      out.fatal = `Intestazione riconosciuta ma mancano le colonne: ${missing.join(', ')}. Usa il template (colonne Nome, Email, Livello, RAL).`
+      out.fatal = `Intestazione riconosciuta ma mancano le colonne: ${missing.join(', ')}. Usa il template (colonne ${salary ? 'Nome, Email, Livello, RAL' : 'Nome, Email'}).`
       return out
     }
-    cols = idx
+    if (!salary && (idx.level >= 0 || idx.ral >= 0)) out.warnings.push('Le colonne Livello e RAL non vengono importate')
+    cols = salary ? idx : { ...idx, level: -1, ral: -1 }
     body = lines.slice(1)
   }
   const seen = new Map<string, number>()
   const seenEmail = new Map<string, number>()
   for (const { l, n } of body) {
     let cells = splitCsvLine(l, sep)
-    if (!looksLikeHeader && sep === ',' && cells.length > 3 && /^\d{3}$/.test(cells[3] ?? '')) {
+    if (salary && !looksLikeHeader && sep === ',' && cells.length > 3 && /^\d{3}$/.test(cells[3] ?? '')) {
       // CSV con virgola e RAL non tra virgolette ("26,000"): ricompatta la RAL
       cells = [cells[0], cells[1], cells[2] + cells[3], ...cells.slice(4)]
     }
@@ -145,11 +157,11 @@ export function parseTeamText(text: string): ParseResult {
     const ralRaw = cells[cols.ral] ?? ''
     if (!name) { out.errors.push(`Riga ${n}: nome mancante`); continue }
     if (name.length > 80) { out.errors.push(`Riga ${n}: nome troppo lungo (max 80 caratteri)`); continue }
-    const level = parseLevel(lvlRaw)
+    const level = salary ? parseLevel(lvlRaw) : 'B1'
     if (!level) { out.errors.push(`Riga ${n} (${name}): livello "${lvlRaw}" non valido – ammessi ${LEVELS.join(', ')}`); continue }
-    const ral = parseAmount(ralRaw)
-    if (!Number.isFinite(ral) || ral <= 0) { out.errors.push(`Riga ${n} (${name}): RAL "${ralRaw}" non è un numero`); continue }
-    if (ral < RAL_MIN || ral > RAL_MAX) { out.errors.push(`Riga ${n} (${name}): RAL ${ralRaw} fuori dall'intervallo plausibile (${RAL_MIN.toLocaleString('it-IT')}–${RAL_MAX.toLocaleString('it-IT')} €)`); continue }
+    const ral = salary ? parseAmount(ralRaw) : 0
+    if (salary && (!Number.isFinite(ral) || ral <= 0)) { out.errors.push(`Riga ${n} (${name}): RAL "${ralRaw}" non è un numero`); continue }
+    if (salary && (ral < RAL_MIN || ral > RAL_MAX)) { out.errors.push(`Riga ${n} (${name}): RAL ${ralRaw} fuori dall'intervallo plausibile (${RAL_MIN.toLocaleString('it-IT')}–${RAL_MAX.toLocaleString('it-IT')} €)`); continue }
     const emailRaw = cells[cols.email] ?? ''
     if (!isEmail(emailRaw)) { out.errors.push(`Riga ${n} (${name}): email ${emailRaw ? `"${emailRaw}" non valida` : 'mancante'} – è obbligatoria`); continue }
     const email = normalizeEmail(emailRaw)
@@ -167,7 +179,7 @@ export function parseTeamText(text: string): ParseResult {
     out.people.push({ name, email, level, ral, ...avail })
   }
   if (!out.people.length && out.errors.length && !looksLikeHeader) {
-    out.fatal = 'Nessuna riga riconosciuta. Il file deve avere le colonne Nome, Email, Livello, RAL: scarica il template e compilalo.'
+    out.fatal = `Nessuna riga riconosciuta. Il file deve avere le colonne ${salary ? 'Nome, Email, Livello, RAL' : 'Nome, Email'}: scarica il template e compilalo.`
   }
   return out
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ASSIGNABLE_ROLES, normalizeRole, ROLE_HELP, ROLE_LABEL, roleAccess, roleRank, ROLES, seesAllSalaries, type Profile, type Role } from '../lib/roles'
+import { ASSIGNABLE_ROLES, FULL_VIEW_ROLES, normalizeRole, roleHelp, ROLE_LABEL, roleAccess, roleRank, ROLES, seesAllSalaries, type Profile, type Role } from '../lib/roles'
 import type { Person } from '../lib/types'
 import { teamLabel, type TeamDir, type TeamId } from '../lib/teams'
 import { useTeams } from '../lib/useTeams'
@@ -14,8 +14,11 @@ interface UserRow extends Profile { created_at: string; last_sign_in_at: string 
 
 const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
 
-/** Gestione accessi (solo space admin): creazione, livello, reset password, eliminazione. */
-export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]; flush: () => Promise<void> }) {
+/**
+ * Gestione accessi (solo space admin): creazione, livello, reset password, eliminazione.
+ * Con la vista completa (`full`) anche RAL visibili e abilitazione a "Calcoli e importi".
+ */
+export function UsersPage({ me, full, people, flush }: { me: Profile; full: boolean; people: Person[]; flush: () => Promise<void> }) {
   const teams = useTeams()
   const [tab, setTab] = useState<'account' | 'turnisti' | 'team'>('account')
   const [roleFilter, setRoleFilter] = useState<Set<Role>>(new Set())
@@ -110,6 +113,14 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
   const personByEmail = (email: string) => people.find((p) => p.email && p.email === email.trim().toLowerCase())
   const personOf = (u: UserRow) => people.find((p) => p.id === u.person_id) ?? personByEmail(u.email)
   const setView = (u: UserRow, view: NamesMode) => { if (view !== (u.turnista_view ?? 'own')) void run(async () => { await adminCall({ action: 'set_view', user_id: u.id, turnista_view: view }) }) }
+  /** Abilitazione a "Calcoli e importi" (Governance, Director, HR): vale quando la persona la attiva nelle sue Impostazioni. */
+  const setFullAllowed = (u: UserRow, allowed: boolean) => {
+    const who = u.display_name || u.email
+    const scope = roleAccess(u.role, u.team, teams).ralText
+    if (allowed && !confirm(`Abilitare ${who} a Calcoli e importi?\n\nQuando attiva l'opzione nelle sue Impostazioni vedrà: ${scope}`)) return
+    if (!allowed && !confirm(`Togliere a ${who} l'abilitazione a Calcoli e importi? Non vedrà più RAL, livelli e importi.`)) return
+    void run(async () => { await adminCall({ action: 'set_full_view_allowed', user_id: u.id, allowed }) })
+  }
   const remove = (u: UserRow) => {
     if (!confirm(`Eliminare definitivamente l'account ${u.email}? Non potrà più accedere.`)) return
     void run(async () => { await adminCall({ action: 'delete', user_id: u.id }) })
@@ -117,7 +128,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
 
   return (
     <div className="space-y-6">
-      <AccessGuide />
+      <AccessGuide full={full} />
       <div role="tablist" aria-label="Viste" className="-mt-1 flex gap-6 border-b border-slate-200 text-sm font-medium">
         <TabButton active={tab === 'account'} onClick={() => setTab('account')}>Account ({users.length})</TabButton>
         <TabButton active={tab === 'turnisti'} onClick={() => setTab('turnisti')}>Turnisti ({people.length})</TabButton>
@@ -125,7 +136,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
       </div>
       {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
-      {tab === 'team' ? <TeamsTab people={people} users={users} loading={loading} /> : tab === 'turnisti' ? <TurnistiTab people={people} users={users} loading={loading} flush={flush} reload={load} /> : <>
+      {tab === 'team' ? <TeamsTab full={full} people={people} users={users} loading={loading} /> : tab === 'turnisti' ? <TurnistiTab people={people} users={users} loading={loading} flush={flush} reload={load} /> : <>
 
       <form onSubmit={create} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
         <label className="block min-w-64 flex-1">
@@ -162,9 +173,9 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
         {form.role === 'turnista' && form.email.includes('@') && !personByEmail(form.email) && (
           <p className="w-full text-xs text-amber-800">Nessuna persona dell'anagrafica ha questa email: il Turnista non vedrà evidenziati i propri turni finché l'email non coincide con quella della sua scheda nella pagina Team.</p>
         )}
-        {form.role === 'director' && !form.team && <p className="w-full text-xs text-amber-800">Il Director vede le RAL e approva gli interventi del proprio team: scegli il team.</p>}
+        {form.role === 'director' && !form.team && <p className="w-full text-xs text-amber-800">{full ? 'Il Director vede le RAL e approva gli interventi del proprio team: scegli il team.' : 'Il Director approva gli interventi del proprio team: scegli il team.'}</p>}
         <Button type="submit" variant="primary" disabled={busy || !form.email || (form.role === 'director' && !form.team)}>+ Crea utente</Button>
-        <p className="w-full text-xs text-slate-500">{ROLE_HELP[form.role]}. Viene generata una password provvisoria (es. giraffa-camaleonte-12), copiabile dalla lista finché la persona non la cambia al primo accesso.</p>
+        <p className="w-full text-xs text-slate-500">{roleHelp(form.role, full)}. Viene generata una password provvisoria (es. giraffa-camaleonte-12), copiabile dalla lista finché la persona non la cambia al primo accesso.</p>
       </form>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -202,7 +213,8 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-2 pr-3 font-medium">Utente</th>
               <th className="py-2 pr-3 font-medium">Profilo</th>
-              <th className="py-2 pr-3 font-medium" title="Appartenenza; per il Director decide RAL visibili e interventi da approvare">Team</th>
+              <th className="py-2 pr-3 font-medium" title={full ? 'Appartenenza; per il Director decide RAL visibili e interventi da approvare' : 'Appartenenza; per il Director decide gli interventi da approvare'}>Team</th>
+              {full && <th className="py-2 pr-3 font-medium" title="Abilitazione a RAL, livelli e importi: vale quando la persona attiva l'opzione nelle sue Impostazioni">Calcoli e importi</th>}
               <th className="py-2 pr-3 font-medium" title="Per i Turnisti: propri turni o tutti i turni (vale quando l'impostazione generale è Per persona)">Visibilità</th>
               <th className="py-2 pr-3 font-medium">Stato</th>
               <th className="py-2 pr-3 font-medium">Ultimo accesso</th>
@@ -226,7 +238,7 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                       {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
                     </select>
                   )}
-                  <div className="mt-0.5 max-w-64 text-[11px] text-slate-400">{ROLE_HELP[u.role]}</div>
+                  <div className="mt-0.5 max-w-64 text-[11px] text-slate-400">{roleHelp(u.role, full)}</div>
                 </td>
                 <td className="py-2 pr-3">
                   <select value={u.team ?? ''} disabled={busy} onChange={(e) => void setTeam(u, e.target.value)} aria-label={`Team di ${u.email}`}
@@ -235,8 +247,24 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                     {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                     {u.team && !teams.byId[u.team] && <option value={u.team}>{u.team}</option>}
                   </select>
-                  <div className={`mt-0.5 text-[11px] ${roleAccess(u.role, u.team, teams).ral === 'all' ? 'font-medium text-red-700' : 'text-slate-400'}`}>{ralHint(u, teams)}</div>
+                  {full && (u.role === 'super_admin' || u.full_view_allowed)
+                    ? <div className={`mt-0.5 text-[11px] ${roleAccess(u.role, u.team, teams).ral === 'all' ? 'font-medium text-red-700' : 'text-slate-400'}`}>{ralHint(u, teams)}</div>
+                    : u.role === 'director' && !u.team && <div className="mt-0.5 text-[11px] text-slate-400">Director senza team: nessuna approvazione</div>}
                 </td>
+                {full && (
+                  <td className="py-2 pr-3">
+                    {u.role === 'super_admin' ? <span className="text-xs text-slate-500">Sempre</span>
+                      : FULL_VIEW_ROLES.includes(u.role) ? (
+                        <button type="button" role="switch" aria-checked={!!u.full_view_allowed} disabled={busy} onClick={() => setFullAllowed(u, !u.full_view_allowed)}
+                          aria-label={`Calcoli e importi per ${u.display_name || u.email}`} className="flex items-center gap-2 text-xs font-medium text-slate-700 disabled:opacity-50">
+                          <span className={`relative h-5 w-9 rounded-full transition-colors ${u.full_view_allowed ? 'bg-red-600' : 'bg-slate-300'}`}>
+                            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${u.full_view_allowed ? 'left-[18px]' : 'left-0.5'}`} />
+                          </span>
+                          {u.full_view_allowed ? 'Abilitato' : 'No'}
+                        </button>
+                      ) : <span className="text-slate-400">—</span>}
+                  </td>
+                )}
                 <td className="py-2 pr-3">
                   {u.role === 'turnista' ? (
                     <>
@@ -265,13 +293,13 @@ export function UsersPage({ me, people, flush }: { me: Profile; people: Person[]
                 </td>
               </tr>
             ))}
-            {!shownUsers.length && <tr><td colSpan={7} className="py-6 text-center text-slate-500">{loading ? 'Caricamento…' : users.length ? 'Nessun utente con questi filtri.' : 'Nessun utente.'}</td></tr>}
+            {!shownUsers.length && <tr><td colSpan={full ? 8 : 7} className="py-6 text-center text-slate-500">{loading ? 'Caricamento…' : users.length ? 'Nessun utente con questi filtri.' : 'Nessun utente.'}</td></tr>}
           </tbody>
         </table>
       </div>
       </>}
 
-      {pending && <AccessChangeDialog change={pending} teams={teams} people={people} conflict={isHead(pending.role) ? headOf(pending.team, pending.user?.id) : undefined}
+      {pending && <AccessChangeDialog full={full} change={pending} teams={teams} people={people} conflict={isHead(pending.role) ? headOf(pending.team, pending.user?.id) : undefined}
         namesMode={effectiveNames(namesMode, pending.user?.turnista_view)} onCancel={() => setPending(null)} onConfirm={() => applyPending(pending)} />}
       {secret && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="sec-title">
@@ -300,22 +328,22 @@ const GUIDE: [Role, string, string, string][] = [
   ['turnista', 'Calendario e I miei interventi', 'Nessuno', 'Dichiara i propri interventi'],
 ]
 
-/** Guida a scomparsa: profili, cosa vede ciascuno, come si protegge l'accesso alle RAL. */
-function AccessGuide() {
+/** Guida a scomparsa: profili, cosa vede ciascuno e, con la vista completa, come si protegge l'accesso alle RAL. */
+function AccessGuide({ full }: { full: boolean }) {
   return (
     <details className="group rounded-xl border border-slate-200 bg-slate-50">
       <AccordionSummary compact>Come funzionano profili e accessi</AccordionSummary>
       <div className="space-y-3 border-t border-slate-200 p-4 text-sm text-slate-700">
-        <p>Ogni account ha <strong>un profilo</strong>, che decide cosa vede e cosa può fare. Il <strong>team</strong> indica solo a quale gruppo appartiene: conta per il Director (vede le RAL e approva gli interventi delle sole persone del suo team) e per lo Space admin a capo di un team.</p>
+        <p>Ogni account ha <strong>un profilo</strong>, che decide cosa vede e cosa può fare. Il <strong>team</strong> indica solo a quale gruppo appartiene: conta per il Director ({full ? 'vede le RAL e approva' : 'approva'} gli interventi delle sole persone del suo team) e per lo Space admin a capo di un team.</p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
-            <thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="py-2 pr-3 font-medium">Profilo</th><th className="py-2 pr-3 font-medium">Pagine</th><th className="py-2 pr-3 font-medium">RAL, livelli e importi</th><th className="py-2 font-medium">Può fare</th></tr></thead>
+            <thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="py-2 pr-3 font-medium">Profilo</th><th className="py-2 pr-3 font-medium">Pagine</th>{full && <th className="py-2 pr-3 font-medium">RAL, livelli e importi (se abilitati)</th>}<th className="py-2 font-medium">Può fare</th></tr></thead>
             <tbody>
               {GUIDE.map(([r, pages, ral, can]) => (
                 <tr key={r} className="border-b border-slate-100 align-top">
                   <td className="py-1.5 pr-3 font-semibold text-slate-900">{ROLE_LABEL[r]}</td>
-                  <td className="py-1.5 pr-3">{pages}</td>
-                  <td className={`py-1.5 pr-3 ${ral === 'Tutti' ? 'font-medium text-red-800' : ral.startsWith('Solo') ? 'text-amber-800' : 'text-slate-600'}`}>{ral}</td>
+                  <td className="py-1.5 pr-3">{full ? pages : pages.replace('Tutte le pagine tranne Utenti', 'Tutte le pagine tranne Utenti, Consuntivo e Conto economico')}</td>
+                  {full && <td className={`py-1.5 pr-3 ${ral === 'Tutti' ? 'font-medium text-red-800' : ral.startsWith('Solo') ? 'text-amber-800' : 'text-slate-600'}`}>{ral}</td>}
                   <td className="py-1.5">{can}</td>
                 </tr>
               ))}
@@ -324,8 +352,11 @@ function AccessGuide() {
         </div>
         <ul className="ml-5 list-disc space-y-1">
           <li>Ogni team ha <strong>un solo capo</strong>: il suo Director, oppure lo Space admin se assegnato a quel team.</li>
-          <li>Prima di ogni modifica che dà accesso alle RAL (nuovo account Governance, HR o Director, cambio di profilo, cambio di team di un Director, spostamento di una risorsa in un altro team) l'app dice <strong>quante e quali RAL</strong> la persona vedrà e chiede conferma.</li>
-          <li>Gli importi (gettone, straordinario) li vede solo chi vede la RAL della persona. In anagrafica le RAL restano oscurate finché non si reinserisce la propria password.</li>
+          {full && <>
+            <li>RAL, livelli e importi li vedono solo lo Space admin e gli account Governance, Director e HR <strong>abilitati</strong> (colonna Calcoli e importi), quando attivano l'opzione nelle loro Impostazioni. Senza, il database non li consegna.</li>
+            <li>Prima di ogni modifica che dà accesso alle RAL (abilitazione, cambio di profilo o di team di un account abilitato, spostamento di una risorsa in un altro team) l'app dice <strong>quante e quali RAL</strong> la persona vedrà e chiede conferma.</li>
+            <li>Gli importi (gettone, straordinario) li vede solo chi vede la RAL della persona. In anagrafica le RAL restano oscurate finché non si reinserisce la propria password.</li>
+          </>}
           <li>Le regole sono applicate anche nel database: un errore nell'interfaccia non può mostrare dati a chi non è autorizzato.</li>
         </ul>
       </div>
@@ -537,12 +568,14 @@ const ralPeople = (role: Role, team: TeamId | null, people: Person[]) =>
  * Conferma di un nuovo account, di un cambio di profilo o di team: dice a cosa accederà la persona, con le RAL
  * in evidenza (quante e di chi), e blocca un secondo capo nello stesso team.
  */
-function AccessChangeDialog({ change, teams, people, conflict, namesMode, onCancel, onConfirm }: { change: PendingChange; teams: TeamDir; people: Person[]; conflict?: UserRow; namesMode: NamesMode; onCancel: () => void; onConfirm: () => void }) {
+function AccessChangeDialog({ full, change, teams, people, conflict, namesMode, onCancel, onConfirm }: { full: boolean; change: PendingChange; teams: TeamDir; people: Person[]; conflict?: UserRow; namesMode: NamesMode; onCancel: () => void; onConfirm: () => void }) {
   const { user, who, role, team } = change
-  const before = user ? roleAccess(user.role, user.team, teams, namesMode) : null
-  const after = roleAccess(role, team, teams, namesMode)
-  const beforeIds = new Set(user ? ralPeople(user.role, user.team, people).map((p) => p.id) : [])
-  const afterPeople = ralPeople(role, team, people)
+  // RAL solo per un account abilitato (resta abilitato solo con un profilo Governance, Director o HR)
+  const enabled = full && !!user?.full_view_allowed
+  const before = user ? roleAccess(user.role, user.team, teams, namesMode, enabled) : null
+  const after = roleAccess(role, team, teams, namesMode, enabled && FULL_VIEW_ROLES.includes(role))
+  const beforeIds = new Set(user && before?.ral !== 'none' ? ralPeople(user.role, user.team, people).map((p) => p.id) : [])
+  const afterPeople = after.ral !== 'none' ? ralPeople(role, team, people) : []
   const gained = afterPeople.filter((p) => !beforeIds.has(p.id))
   const lostHead = user && isHead(user.role) && user.team && (role !== user.role || team !== user.team) ? teamLabel(teams, user.team) : ''
   const label = (r: Role, t: TeamId | null) => `${ROLE_LABEL[r]} · ${t ? teamLabel(teams, t) : 'nessun team'}`
@@ -566,14 +599,14 @@ function AccessChangeDialog({ change, teams, people, conflict, namesMode, onCanc
           </div>
         )}
 
-        <div className={`mt-4 rounded-lg px-3 py-2.5 text-sm ring-1 ring-inset ${ralTone}`}>
+        {(after.ral !== 'none' || (before && before.ral !== 'none')) && <div className={`mt-4 rounded-lg px-3 py-2.5 text-sm ring-1 ring-inset ${ralTone}`}>
           <div className="font-semibold">RAL, livelli e importi: {after.ralText}</div>
           {before && before.ralText !== after.ralText && <div className="mt-0.5 text-xs opacity-90">Prima: {before.ralText}</div>}
           {afterPeople.length > 0 && after.ral === 'team' && (
             <div className="mt-1.5 text-xs">Persone del team ({afterPeople.length}): {afterPeople.map((p) => p.name).sort((a, b) => a.localeCompare(b, 'it')).join(', ')}</div>
           )}
           {afterPeople.length > 0 && after.ral === 'all' && <div className="mt-1.5 text-xs">Tutte le {afterPeople.length} persone dell'anagrafica, di tutti i team.</div>}
-        </div>
+        </div>}
         {becomesHead && !conflict && (
           <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900 ring-1 ring-inset ring-blue-200">
             Sarà <strong>il capo del team {teamLabel(teams, team)}</strong>: approva o rifiuta gli interventi delle persone del team e sblocca i giorni dei loro turni.

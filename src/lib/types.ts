@@ -106,7 +106,7 @@ export interface Params {
   otNightEnd: number // fine fascia notturna (ora): 6
   otMinHours: number // ore minime riconosciute per intervento: 1
   otToleranceMin: number // minuti oltre l'ora non conteggiati: 10 (1h10 → 1h, 1h11 → 2h)
-  callFee: number // € per chiamata seguita da intervento effettivo: 5
+  callFee: number // eventuale compenso fisso per intervento approvato (€); 0 finché HR non conferma che è dovuto
   hourlyDivisor: number // paga oraria = RAL ÷ divisore: 2249 (173 ore × 13 mensilità)
   /** RAL media usata nei calcoli per le persone con RAL "Q/". Salvata solo nel database, mai mostrata. */
   ndRal?: number
@@ -142,7 +142,7 @@ export const DEFAULT_PARAMS: Params = {
   otNightEnd: 6,
   otMinHours: 1,
   otToleranceMin: 10,
-  callFee: 5,
+  callFee: 0,
   hourlyDivisor: 2249,
 }
 

@@ -7,10 +7,11 @@ Contratto di riferimento: **CCNL Metalmeccanici Industria, codice CNEL C011** (i
 Web app single-page (React + TypeScript + Tailwind) per il piano di reperibilità:
 
 - **Approccio**: presentazione del modello (sintesi sempre visibile; calcolo del gettone integrativo, tutele e riferimenti normativi, valori per RAL in sezioni espandibili), con valori ricalcolati sui parametri correnti.
-- **Parametri**: blocco A (ricavi, netto di riferimento per turno, moltiplicatore costo aziendale, coefficienti netto/lordo, indennità CCNL) e blocco B "Straordinari per interventi" (maggiorazioni CCNL per fascia, fascia notturna, minimo e tolleranza, divisore della paga oraria, compenso per chiamata).
+- **Parametri**: blocco A (ricavi, netto di riferimento per turno, moltiplicatore costo aziendale, coefficienti netto/lordo, indennità CCNL) e blocco B "Straordinari per interventi" (maggiorazioni CCNL per fascia, fascia notturna, minimo e tolleranza, divisore della paga oraria, eventuale compenso per intervento, di default 0 €).
 - **Team**: anagrafica (aggiungi, modifica, elimina), team della risorsa, ruolo (primario, riserva ordinata, KO), disponibilità dichiarata (volontario, max 1–3 turni/mese, nessuna preferenza) usata dall'auto-compilazione, import da CSV o da Excel incollato con template scaricabile, anteprima e segnalazione degli errori riga per riga.
 - **Calendario**: slot feriali e festivi (festività di Milano incluse), motore vincoli in tempo reale con il motivo di ogni blocco, auto-compilazione, blocco dei giorni non richiesti dal cliente (lucchetto). Dalla fine del turno: **Segna erogato** (giorno definitivo), **Consuntiva** (chiude gli interventi) e **Sblocca** (solo Director del team o space admin, con traccia).
-- **Interventi** e **I miei interventi**: il turnista dichiara per ogni turno "Nessun intervento" o gli interventi (inizio, fine, nota), da telefono o desktop; i Director del team, i PM o lo space admin approvano, rifiutano con motivo o riportano in approvazione. Ore per fascia e straordinario CCNL (minimo 1 ora, tolleranza 10', prime 2 ore feriali diurne al 25%, poi 30%, notturno 50%, festivo 55%, notturno festivo 75%, 5 € a chiamata); importi visibili a chi vede la RAL della persona.
+- **Interventi** e **I miei interventi**: il turnista dichiara per ogni turno "Nessun intervento" o gli interventi (inizio, fine, nota), da telefono o desktop; i Director del team, i PM o lo space admin approvano, rifiutano con motivo o riportano in approvazione. Ore per fascia e straordinario CCNL (minimo 1 ora, tolleranza 10', prime 2 ore feriali diurne al 25%, poi 30%, notturno 50%, festivo 55%, notturno festivo 75%, più l'eventuale compenso per intervento, di default 0 €); importi visibili a chi vede la RAL della persona.
+- **Riepilogo**: per mese o settimana, e per team, una riga per persona con i turni per categoria (feriale notturno, sabato diurno e notturno, domenica/festivo diurno e notturno; il turno conta nel giorno in cui inizia) e gli interventi approvati con minuti effettivi per fascia e ore riconosciute; "Consuntiva il mese" e **Esporta per paghe (Excel)** senza importi, con 3 fogli (Riepilogo per persona, Turni, Interventi), per l'ufficio paghe che calcola gli importi con livello e RAL seguendo le regole della pagina Approccio.
 - **Consuntivo / Conto economico**: per turno indennità CCNL + gettone integrativo = lordo, netto di riferimento, costo aziendale; stato del giorno (da erogare, erogato, consuntivato), lordo erogato e previsto, "Consuntiva il mese", colonne Interventi e Straordinario; **Esporta per paghe (Excel)** per mese o settimana con 4 fogli (Reperibilità CCNL, Gettoni integrativi, Straordinario per interventi, Riepilogo paghe), solo turni erogati e interventi approvati; KPI e grafico di marginalità.
 - **Guide**: accanto al nome c'è il pulsante **Guida**, con il colore del profilo e un puntino che pulsa finché non viene aperta; ognuno vede solo la guida del proprio profilo (Space admin, Governance, Director, HR, PM, Viewer, Turnista), indicato chiaramente in alto. Si apre in un pannello a destra (a tutto schermo su telefono), anche dal menu utente o con il link diretto `#/guida`. Il Turnista ha in più, in cima al calendario, l'avviso dei turni da compilare e il riquadro "Come funziona, in 3 passi". Gli esempi usano i valori dei parametri in vigore.
 
@@ -24,17 +25,17 @@ I dati (anagrafica, ferie, turni, parametri) stanno in un database **Supabase** 
 
 Ogni account ha un **profilo**; il team indica solo l'appartenenza.
 
-| Profilo | Vede | RAL e importi | Modifica / approva |
-|---|---|---|---|
-| Space admin (uno solo) | tutto | tutti | tutto, utenti e team; può essere a capo di un team |
-| Governance | tutto | tutti | tutto il piano, team delle risorse |
-| Director (uno per team) | tutto | solo il proprio team | il piano; approva gli interventi del proprio team, sblocca i giorni del team |
-| HR (anche più di uno) | tutto | tutti | nulla; consuntiva ed esporta per le paghe |
-| PM | Approccio, calendario, interventi (ore) | nessuno | approva gli interventi di tutti i team |
-| Viewer | solo calendario turni | nessuno | nulla |
-| Turnista | calendario e "I miei interventi" | nessuno | i propri interventi |
+| Profilo | Vede | Modifica / approva |
+|---|---|---|
+| Space admin (uno solo) | tutto | tutto, utenti e team; può essere a capo di un team |
+| Governance | il piano di tutti i team | tutto il piano, team delle risorse |
+| Director (uno per team) | il piano di tutti i team | il piano; approva gli interventi del proprio team, sblocca i giorni del team |
+| HR (anche più di uno) | il piano di tutti i team, in lettura | nulla; consuntiva ed esporta il riepilogo per le paghe |
+| PM | Approccio, calendario, interventi (ore) | approva gli interventi di tutti i team |
+| Viewer | solo calendario turni | nulla |
+| Turnista | calendario e "I miei interventi" | i propri interventi |
 
-RAL e livello in anagrafica restano oscurati finché non si reinserisce la propria password.
+RAL e livelli stanno in una tabella separata dall'anagrafica e il database li consegna solo dove le regole di accesso lo consentono; dove compaiono, restano oscurati finché non si reinserisce la propria password.
 
 ### Turnista
 
@@ -46,9 +47,9 @@ Ogni risorsa ha un'**email aziendale obbligatoria** (sotto il nome nella pagina 
 
 ### Team e visibilità di RAL e livello
 
-Ogni risorsa e ogni utente appartengono a un team (Utenti → Team: crea, rinomina, elimina se non usati). Ogni team ha **un solo capo**: il suo **Director** (vede RAL e importi delle sole risorse del team e ne approva gli interventi), oppure lo Space admin se assegnato a quel team (vincolo nel database). Prima di ogni modifica che dà accesso alle RAL (nuovo account o cambio di profilo Governance, HR, Director; cambio di team di un capo; spostamento di una risorsa in un altro team) l'app mostra quante e quali RAL la persona vedrà e chiede conferma; la pagina Utenti ha in alto la guida "Come funzionano profili e accessi". Per le risorse di cui non si vede la RAL l'app mostra "Riservata" e non calcola costi né ore.
+Ogni risorsa e ogni utente appartengono a un team (Utenti → Team: crea, rinomina, elimina se non usati). Ogni team ha **un solo capo**: il suo **Director** (ne approva gli interventi), oppure lo Space admin se assegnato a quel team (vincolo nel database). Prima di ogni modifica che può dare accesso alle RAL l'app mostra quante e quali RAL la persona vedrà e chiede conferma; la pagina Utenti ha in alto la guida "Come funzionano profili e accessi". Senza RAL l'app non calcola importi: turni e ore restano nel Riepilogo.
 
-Nessun vincolo di rotazione dipende dalla RAL. L'auto-compilazione, che a parità di condizioni preferisce il costo minore, gira sulla funzione server `supabase/functions/planner` quando ci sono persone di cui il browser non conosce la RAL; restituisce solo le assegnazioni, mai importi o RAL. Il team di una risorsa può essere cambiato solo da Governance e Space admin (controllo nel database).
+Nessun vincolo di rotazione dipende dalla RAL. L'auto-compilazione gira sulla funzione server `supabase/functions/planner` quando ci sono persone di cui il browser non conosce la RAL; restituisce solo le assegnazioni, mai importi o RAL, e usa il costo solo dove le regole di accesso consentono di usare la RAL. Il team di una risorsa può essere cambiato solo da Governance e Space admin (controllo nel database).
 
 Per le risorse con RAL **Q/** i calcoli usano una RAL media di riferimento che sta solo sul server (tabella `server_params`, non leggibile dagli utenti): gli importi di queste persone li calcola la funzione `planner` e il browser riceve solo i risultati.
 
