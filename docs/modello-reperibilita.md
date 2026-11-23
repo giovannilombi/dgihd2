@@ -294,7 +294,10 @@ esporta il file per l'ufficio paghe, che calcola gli importi con livello e RAL c
   feriale; poi ore riconosciute per voce con le regole del § 7 (minimo, tolleranza, arrotondamento nella
   fascia in cui l'intervento finisce, prime 2 ore feriali diurne del giorno).
 - Solo turni dei giorni erogati e interventi approvati; un turno appartiene al periodo del suo giorno di
-  riferimento e gli interventi seguono il turno. Avvisi per turni non ancora erogati, turni finiti senza
+  riferimento e gli interventi seguono il turno. Con **Anche programmati** (previsionale) si aggiungono i
+  turni del calendario non ancora erogati, segnati come programmati; gli interventi restano solo quelli
+  effettuati e approvati. L'export segue la scelta (file `…-previsionale-<mese>.xlsx`, con colonne
+  effettuati/programmati per categoria e lo stato di ogni turno). Avvisi per turni non ancora erogati, turni finiti senza
   risposta, interventi in approvazione o rifiutati.
 - File `AAAAMMGG-ARM-HD2-paghe-ore-<mese>.xlsx` (o `…-settimana-<lunedì>.xlsx`), 3 fogli:
   1. Riepilogo per persona – turni per categoria, interventi, ore effettive per fascia, ore riconosciute

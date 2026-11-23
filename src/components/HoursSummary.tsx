@@ -28,6 +28,17 @@ interface Props {
 const dur = (m: number) => (m > 0 ? fmtMinutes(m) : '–')
 const th = 'py-2 pr-3 font-medium'
 
+/** Turni di una cella: effettuati e, nel previsionale, "+N" programmati. */
+function Shifts({ done, planned, forecast, strong = false }: { done: number; planned: number; forecast: boolean; strong?: boolean }) {
+  if (!done && !planned) return <span className="text-slate-300">–</span>
+  return (
+    <span className="inline-flex items-center justify-end gap-1.5">
+      <span className={done ? (strong ? 'font-semibold text-slate-900' : 'text-slate-900') : 'text-slate-400'}>{done}</span>
+      {forecast && planned > 0 && <span className="rounded bg-sky-50 px-1 text-xs font-medium text-sky-800 ring-1 ring-inset ring-sky-200" title={`${planned} ${planned === 1 ? 'programmato' : 'programmati'}, non ancora ${planned === 1 ? 'erogato' : 'erogati'}`}>+{planned}</span>}
+    </span>
+  )
+}
+
 /**
  * Riepilogo per le paghe, senza importi: per persona i turni per categoria (giorno di riferimento =
  * giorno di inizio) e gli interventi approvati in ore, per fascia. Da qui si consuntiva il mese e si
@@ -41,12 +52,14 @@ export function HoursSummary({ people, assignments, params, days, interventions,
   const [monthSel, setMonthSel] = useState(() => (months.find((m) => m.from <= today && today <= m.to) ?? months[0]).key)
   const [weekSel, setWeekSel] = useState(() => (weeks.find((w) => w.from <= today && today <= w.to) ?? weeks[0]).key)
   const [team, setTeam] = useState<TeamId | null>(defaultTeam)
+  /** Previsionale: anche i turni programmati nel calendario e non ancora erogati */
+  const [forecast, setForecast] = useState(false)
   const [busy, setBusy] = useState<'export' | 'close' | null>(null)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
   const period: PayPeriod = kind === 'month' ? months.find((m) => m.key === monthSel)! : weeks.find((w) => w.key === weekSel)!
   const report = useMemo(
-    () => buildHoursReport({ people, assignments, params, days, interventions, noInt, now: romeNow() }, period, team),
-    [people, assignments, params, days, interventions, noInt, period, team],
+    () => buildHoursReport({ people, assignments, params, days, interventions, noInt, now: romeNow() }, period, team, { forecast }),
+    [people, assignments, params, days, interventions, noInt, period, team, forecast],
   )
   const rows = report.people
   const empty = !report.shifts.length && !report.interventions.length
@@ -71,7 +84,7 @@ export function HoursSummary({ people, assignments, params, days, interventions,
     setBusy('export')
     setNotice(null)
     try {
-      download(hoursFileName(period), await buildHoursXlsx(report, teams, params), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      download(hoursFileName(period, new Date(), forecast), await buildHoursXlsx(report, teams, params), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     } catch (e) {
       setNotice({ tone: 'error', text: `Export non riuscito: ${(e as Error).message}` })
     } finally {
@@ -102,6 +115,13 @@ export function HoursSummary({ people, assignments, params, days, interventions,
             </select>
           )}
         </label>
+        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-sm" role="radiogroup" aria-label="Turni da mostrare">
+          {([[false, 'Solo effettuati'], [true, 'Anche programmati']] as const).map(([k, l]) => (
+            <button key={l} type="button" role="radio" aria-checked={forecast === k} onClick={() => setForecast(k)}
+              title={k ? 'Previsionale: anche i turni del calendario non ancora erogati; gli interventi restano solo quelli effettuati' : 'Solo i turni dei giorni erogati'}
+              className={`rounded-md px-3 py-1.5 font-medium ${forecast === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
+          ))}
+        </div>
         <label className="text-xs font-medium text-slate-600">
           <span className="sr-only">Team</span>
           <select value={team ?? ''} onChange={(e) => setTeam(e.target.value || null)} className={select}>
@@ -115,26 +135,28 @@ export function HoursSummary({ people, assignments, params, days, interventions,
               {busy === 'close' ? 'Consuntivazione…' : `Consuntiva il mese (${toClose} ${toClose === 1 ? 'giorno erogato' : 'giorni erogati'})`}
             </Button>
           )}
-          <Button variant="primary" disabled={busy !== null || empty} onClick={() => void exportXlsx()}>{busy === 'export' ? 'Preparazione…' : 'Esporta per paghe (Excel)'}</Button>
+          <Button variant="primary" disabled={busy !== null || empty} onClick={() => void exportXlsx()}>{busy === 'export' ? 'Preparazione…' : forecast ? 'Esporta previsionale (Excel)' : 'Esporta per paghe (Excel)'}</Button>
         </div>
       </div>
 
       {notice && <p role={notice.tone === 'error' ? 'alert' : 'status'} className={`rounded-lg px-3 py-2 text-sm ${notice.tone === 'error' ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-900'}`}>{notice.text}</p>}
       {report.notes.map((n) => <p key={n} className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{n}</p>)}
       <p className="text-sm text-slate-600">
-        Solo turni dei giorni <strong>erogati</strong> e interventi <strong>approvati</strong>. Il turno conta nel giorno in cui <strong>inizia</strong>: la notte di domenica, dalle 18:00 alle 09:00 di lunedì, è "domenica/festivo notturno".
+        {forecast
+          ? <>Previsionale: turni <strong>effettuati</strong> (giorni erogati) e, con <span className="rounded bg-sky-50 px-1 text-xs font-medium text-sky-800 ring-1 ring-inset ring-sky-200">+N</span>, quelli <strong>programmati</strong> nel calendario e non ancora erogati. Gli interventi sono solo quelli effettuati e approvati.</>
+          : <>Solo turni dei giorni <strong>erogati</strong> e interventi <strong>approvati</strong>.</>} Il turno conta nel giorno in cui <strong>inizia</strong>: la notte di domenica, dalle 18:00 alle 09:00 di lunedì, è "domenica/festivo notturno".
         Le ore di intervento sono divise per fascia secondo il giorno e l'ora di ogni minuto. Il file Excel ha anche il dettaglio di turni e interventi.
       </p>
 
       {empty ? (
-        <p className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">Nel periodo non ci sono ancora turni erogati né interventi approvati{team ? ` per il team ${teamLabel(teams, team)}` : ''}.</p>
+        <p className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">Nel periodo non ci sono ancora turni {forecast ? 'nel calendario' : 'erogati né interventi approvati'}{team ? ` per il team ${teamLabel(teams, team)}` : ''}.</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="num w-full min-w-[1100px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
                 <th className={`${th} pl-4`} rowSpan={2}>Persona</th>
-                <th className="pt-2 pr-3 text-center font-semibold text-slate-700" colSpan={SHIFT_CATS.length + 1}>Turni</th>
+                <th className="pt-2 pr-3 text-center font-semibold text-slate-700" colSpan={SHIFT_CATS.length + 1}>{forecast ? 'Turni effettuati + programmati' : 'Turni'}</th>
                 <th className="pt-2 pr-3 text-center font-semibold text-slate-700" colSpan={BANDS.length + 2}>Interventi approvati</th>
               </tr>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
@@ -149,8 +171,8 @@ export function HoursSummary({ people, assignments, params, days, interventions,
               {rows.map((r) => (
                 <tr key={r.person.id} className="border-b border-slate-100">
                   <td className="py-2 pl-4 pr-3"><div className="font-medium text-slate-900">{r.person.name}</div><div className="text-xs text-slate-500">{teamLabel(teams, r.person.team)}</div></td>
-                  {SHIFT_CATS.map((c) => <td key={c} className={`py-2 pr-3 text-right ${r.shifts[c] ? 'text-slate-900' : 'text-slate-300'}`}>{r.shifts[c] || '–'}</td>)}
-                  <td className="py-2 pr-3 text-right font-semibold text-slate-900">{r.totalShifts}</td>
+                  {SHIFT_CATS.map((c) => <td key={c} className="py-2 pr-3 text-right"><Shifts done={r.shifts[c]} planned={r.planned[c]} forecast={forecast} /></td>)}
+                  <td className="py-2 pr-3 text-right"><Shifts done={r.totalShifts} planned={r.totalPlanned} forecast={forecast} strong /></td>
                   <td className={`py-2 pr-3 text-right ${r.interventions ? 'text-slate-900' : 'text-slate-300'}`}>{r.interventions || '–'}</td>
                   {BANDS.map((b) => <td key={b} className={`py-2 pr-3 text-right ${r.effective[b] ? 'text-slate-700' : 'text-slate-300'}`}>{dur(r.effective[b])}</td>)}
                   <td className={`py-2 pr-3 text-right ${r.hours ? 'font-semibold text-slate-900' : 'text-slate-300'}`}>{r.hours ? `${r.hours} h` : '–'}</td>
@@ -160,8 +182,8 @@ export function HoursSummary({ people, assignments, params, days, interventions,
             <tfoot>
               <tr className="bg-slate-50 font-semibold text-slate-900">
                 <td className="py-2 pl-4 pr-3">Totale</td>
-                {SHIFT_CATS.map((c) => <td key={c} className="py-2 pr-3 text-right">{sum((r) => r.shifts[c])}</td>)}
-                <td className="py-2 pr-3 text-right">{report.shifts.length}</td>
+                {SHIFT_CATS.map((c) => <td key={c} className="py-2 pr-3 text-right"><Shifts done={sum((r) => r.shifts[c])} planned={sum((r) => r.planned[c])} forecast={forecast} strong /></td>)}
+                <td className="py-2 pr-3 text-right"><Shifts done={sum((r) => r.totalShifts)} planned={sum((r) => r.totalPlanned)} forecast={forecast} strong /></td>
                 <td className="py-2 pr-3 text-right">{report.interventions.length}</td>
                 {BANDS.map((b) => <td key={b} className="py-2 pr-3 text-right">{dur(sum((r) => r.effective[b]))}</td>)}
                 <td className="py-2 pr-3 text-right">{sum((r) => r.hours)} h</td>

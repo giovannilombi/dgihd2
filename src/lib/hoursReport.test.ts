@@ -105,4 +105,25 @@ describe('riepilogo per le paghe senza importi', () => {
     }
     expect(hoursFileName(nov, new Date(2026, 11, 3))).toBe('20261203-ARM-HD2-paghe-ore-novembre-2026.xlsx')
   })
+
+  it('previsionale: anche i turni programmati non ancora erogati; gli interventi restano solo gli effettuati', async () => {
+    const f = buildHoursReport(input, nov, null, { forecast: true })
+    expect(f.forecast).toBe(true)
+    expect(f.shifts.find((s) => s.slot === '2026-11-30|N')).toMatchObject({ state: 'programmato', cat: 'FN' })
+    const ra = f.people.find((r) => r.person.id === 'a')!
+    expect(ra.shifts).toEqual({ FN: 1, SAT_D: 1, SAT_N: 0, HOL_D: 0, HOL_N: 1 })
+    expect(ra.planned).toEqual({ FN: 1, SAT_D: 0, SAT_N: 0, HOL_D: 0, HOL_N: 0 })
+    expect([ra.totalShifts, ra.totalPlanned]).toEqual([3, 1])
+    expect(f.interventions.map((o) => o.iv.id)).toEqual(x.interventions.map((o) => o.iv.id))
+    expect(f.notes.some((n) => /non ancora erogati/.test(n))).toBe(false)
+    expect(x.people.find((r) => r.person.id === 'a')!.totalPlanned).toBe(0)
+
+    const { default: ExcelJS } = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await buildHoursXlsx(f, DEFAULT_TEAMS, P))
+    const cells = (name: string) => { const v: string[] = []; wb.getWorksheet(name)!.eachRow((r) => r.eachCell((c) => v.push(String(c.value)))); return v }
+    expect(cells('Riepilogo per persona')).toEqual(expect.arrayContaining(['Effettuati feriale notturno', 'Programmati feriale notturno', 'Programmati totali']))
+    expect(cells('Turni').filter((v) => v === 'Programmato')).toHaveLength(1)
+    expect(hoursFileName(nov, new Date(2026, 11, 3), true)).toBe('20261203-ARM-HD2-previsionale-novembre-2026.xlsx')
+  })
 })

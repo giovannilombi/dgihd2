@@ -37,7 +37,9 @@ export function shiftCategory(slot: Pick<Slot, 'date' | 'kind'>): ShiftCat {
   return slot.kind === 'WD' ? (saturday ? 'SAT_D' : 'HOL_D') : saturday ? 'SAT_N' : 'HOL_N'
 }
 
-export interface HoursShift { person: Person; slot: string; date: string; cat: ShiftCat; start: string; end: string; state: Exclude<DayState, 'aperto'> }
+/** Stato del turno: effettuato (giorno erogato o consuntivato) oppure programmato nel calendario e non ancora erogato. */
+export type HoursShiftState = Exclude<DayState, 'aperto'> | 'programmato'
+export interface HoursShift { person: Person; slot: string; date: string; cat: ShiftCat; start: string; end: string; state: HoursShiftState }
 export interface HoursIntervention {
   person: Person; iv: Intervention; date: string; cat: ShiftCat
   /** Minuti effettivi, in totale e per fascia */
@@ -47,13 +49,18 @@ export interface HoursIntervention {
 }
 export interface HoursPerson {
   person: Person
+  /** Turni effettuati (giorni erogati) */
   shifts: Record<ShiftCat, number>; totalShifts: number
+  /** Turni programmati e non ancora erogati (solo nel previsionale) */
+  planned: Record<ShiftCat, number>; totalPlanned: number
   interventions: number; minutes: number; effective: Record<Band, number>
   hours: number; byRate: Record<RateKey, number>
 }
 export interface HoursReport {
   period: PayPeriod
   team: TeamId | null
+  /** Previsionale: anche i turni programmati non ancora erogati (gli interventi restano solo gli effettuati) */
+  forecast: boolean
   shifts: HoursShift[]
   interventions: HoursIntervention[]
   people: HoursPerson[]
@@ -79,8 +86,10 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 /**
  * Turni dei soli giorni erogati e interventi approvati del periodo; un turno appartiene al periodo del
  * suo giorno di riferimento e gli interventi seguono il turno. Tutte le persone, senza dati retributivi.
+ * Con `forecast` anche i turni programmati nel calendario e non ancora erogati; gli interventi restano
+ * solo quelli effettuati e approvati.
  */
-export function buildHoursReport(input: HoursInput, period: PayPeriod, team: TeamId | null = null): HoursReport {
+export function buildHoursReport(input: HoursInput, period: PayPeriod, team: TeamId | null = null, { forecast = false }: { forecast?: boolean } = {}): HoursReport {
   const { people, assignments, params, days, interventions, noInt, now } = input
   const inTeam = (p: Person | undefined): p is Person => !!p && (!team || p.team === team)
   const byId = new Map(people.map((p) => [p.id, p]))
@@ -95,9 +104,9 @@ export function buildHoursReport(input: HoursInput, period: PayPeriod, team: Tea
     if (!s || !inTeam(person) || !inPeriod(s.date)) continue
     if (shiftChip(slot, (ivBySlot[slot] ?? []).filter((x) => x.personId === pid), noInt.has(slot), now).chip === 'todo') todo++
     const state = dayState(days, s.date)
-    if (state === 'aperto') { notErogati++; continue }
+    if (state === 'aperto' && !forecast) { notErogati++; continue }
     const w = shiftWindow(slot)
-    shifts.push({ person, slot, date: s.date, cat: shiftCategory(s), start: w.start, end: w.end, state })
+    shifts.push({ person, slot, date: s.date, cat: shiftCategory(s), start: w.start, end: w.end, state: state === 'aperto' ? 'programmato' : state })
   }
 
   const ivs: HoursIntervention[] = []
@@ -117,17 +126,19 @@ export function buildHoursReport(input: HoursInput, period: PayPeriod, team: Tea
 
   const ids = [...new Set([...shifts.map((x) => x.person.id), ...ivs.map((x) => x.person.id)])]
   const rows: HoursPerson[] = ids.map((id) => {
-    const sh = shifts.filter((x) => x.person.id === id)
+    const sh = shifts.filter((x) => x.person.id === id && x.state !== 'programmato')
+    const pl = shifts.filter((x) => x.person.id === id && x.state === 'programmato')
     const ov = ivs.filter((x) => x.person.id === id)
-    const byCat = zero(SHIFT_CATS)
+    const byCat = zero(SHIFT_CATS), planned = zero(SHIFT_CATS)
     for (const x of sh) byCat[x.cat]++
+    for (const x of pl) planned[x.cat]++
     const effective = zero(BANDS), byRate = zero(RATE_KEYS)
     for (const x of ov) {
       for (const k of BANDS) effective[k] += x.effective[k]
       for (const k of RATE_KEYS) byRate[k] += x.byRate[k]
     }
     return {
-      person: byId.get(id)!, shifts: byCat, totalShifts: sh.length,
+      person: byId.get(id)!, shifts: byCat, totalShifts: sh.length, planned, totalPlanned: pl.length,
       interventions: ov.length, minutes: ov.reduce((t, x) => t + x.minutes, 0), effective,
       hours: ov.reduce((t, x) => t + x.hours, 0), byRate,
     }
@@ -141,13 +152,13 @@ export function buildHoursReport(input: HoursInput, period: PayPeriod, team: Tea
   if (todo) notes.push(`${plural(todo, 'turno finito', 'turni finiti')} senza interventi dichiarati né "Nessun intervento".`)
   if (pending) notes.push(`${plural(pending, 'intervento', 'interventi')} in approvazione: non ${pending === 1 ? 'incluso' : 'inclusi'}.`)
   if (rejected) notes.push(`${plural(rejected, 'intervento rifiutato', 'interventi rifiutati')} da correggere: non ${rejected === 1 ? 'incluso' : 'inclusi'}.`)
-  return { period, team, shifts, interventions: ivs, people: rows, notes }
+  return { period, team, forecast, shifts, interventions: ivs, people: rows, notes }
 }
 
-/** Nome file: AAAAMMGG-ARM-HD2-paghe-ore-<mese o settimana>.xlsx */
-export function hoursFileName(period: PayPeriod, now = new Date()) {
+/** Nome file: AAAAMMGG-ARM-HD2-paghe-ore-<mese o settimana>.xlsx (previsionale: …-previsionale-…). */
+export function hoursFileName(period: PayPeriod, now = new Date(), forecast = false) {
   const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-  return `${today}-ARM-HD2-paghe-ore-${period.kind === 'month' ? period.label.toLowerCase().replace(/\s+/g, '-') : `settimana-${period.from.replaceAll('-', '')}`}.xlsx`
+  return `${today}-ARM-HD2-${forecast ? 'previsionale' : 'paghe-ore'}-${period.kind === 'month' ? period.label.toLowerCase().replace(/\s+/g, '-') : `settimana-${period.from.replaceAll('-', '')}`}.xlsx`
 }
 
 const WEEKDAY = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato']
@@ -163,7 +174,8 @@ export async function buildHoursXlsx(x: HoursReport, teams: TeamDir, params: Par
   type Ws = import('exceljs').Worksheet
   const title = (ws: Ws, text: string) => {
     ws.addRow([text]).font = { bold: true, size: 13 }
-    ws.addRow([`${x.period.label}${x.team ? ` · team ${teamLabel(teams, x.team)}` : ''} · solo turni erogati e interventi approvati · nessun importo · generato il ${new Date().toLocaleString('it-IT')}`]).font = { size: 9, color: { argb: 'FF64748B' } }
+    const scope = x.forecast ? 'previsionale: turni effettuati e programmati, interventi solo approvati' : 'solo turni erogati e interventi approvati'
+    ws.addRow([`${x.period.label}${x.team ? ` · team ${teamLabel(teams, x.team)}` : ''} · ${scope} · nessun importo · generato il ${new Date().toLocaleString('it-IT')}`]).font = { size: 9, color: { argb: 'FF64748B' } }
     for (const n of x.notes) ws.addRow([n]).font = { size: 9, color: { argb: 'FFB45309' } }
     ws.addRow([])
   }
@@ -181,29 +193,37 @@ export async function buildHoursXlsx(x: HoursReport, teams: TeamDir, params: Par
   const who = (p: Person) => [p.name, p.email ?? '', teamLabel(teams, p.team)]
   const sumBy = <T,>(list: T[], f: (t: T) => number) => list.reduce((t, v) => t + f(v), 0)
   const people = x.people, shifts = x.shifts, ivs = x.interventions
+  const fc = x.forecast
+  const done = shifts.filter((s) => s.state !== 'programmato').length
+  const STATE_LABEL = { erogato: 'Erogato', consuntivato: 'Consuntivato', programmato: 'Programmato' } as const
 
   // 1. Riepilogo per persona
   const ws1 = wb.addWorksheet('Riepilogo per persona')
   title(ws1, 'Turni di reperibilità e ore di intervento per persona')
-  header(ws1, ['Persona', 'Email', 'Team', ...SHIFT_CATS.map((c) => `Turni ${SHIFT_CAT_LABEL[c].toLowerCase()}`), 'Turni totali', 'Interventi',
+  const doneLabel = fc ? 'Effettuati' : 'Turni'
+  header(ws1, ['Persona', 'Email', 'Team', ...SHIFT_CATS.map((c) => `${doneLabel} ${SHIFT_CAT_LABEL[c].toLowerCase()}`), `${doneLabel} totali`,
+    ...(fc ? [...SHIFT_CATS.map((c) => `Programmati ${SHIFT_CAT_LABEL[c].toLowerCase()}`), 'Programmati totali'] : []), 'Interventi',
     ...BANDS.map((b) => `Ore effettive ${BAND_LABEL[b].toLowerCase()}`), ...RATE_KEYS.map((k) => `Ore riconosciute ${rateLabel(k, params).toLowerCase()}`), 'Ore riconosciute totali'])
   for (const r of people) {
-    ws1.addRow([...who(r.person), ...SHIFT_CATS.map((c) => r.shifts[c]), r.totalShifts, r.interventions,
+    ws1.addRow([...who(r.person), ...SHIFT_CATS.map((c) => r.shifts[c]), r.totalShifts,
+      ...(fc ? [...SHIFT_CATS.map((c) => r.planned[c]), r.totalPlanned] : []), r.interventions,
       ...BANDS.map((b) => r.effective[b] / 60), ...RATE_KEYS.map((k) => r.byRate[k] / 60), r.hours])
   }
-  total(ws1, ['Totale', '', '', ...SHIFT_CATS.map((c) => sumBy(people, (r) => r.shifts[c])), shifts.length, ivs.length,
+  total(ws1, ['Totale', '', '', ...SHIFT_CATS.map((c) => sumBy(people, (r) => r.shifts[c])), done,
+    ...(fc ? [...SHIFT_CATS.map((c) => sumBy(people, (r) => r.planned[c])), shifts.length - done] : []), ivs.length,
     ...BANDS.map((b) => sumBy(people, (r) => r.effective[b]) / 60), ...RATE_KEYS.map((k) => sumBy(people, (r) => r.byRate[k]) / 60), sumBy(people, (r) => r.hours)])
-  ws1.columns = [{ width: 26 }, { width: 32 }, { width: 12 }, ...SHIFT_CATS.map(() => ({ width: 13 })), { width: 10 }, { width: 11 },
+  const catCols = () => [...SHIFT_CATS.map(() => ({ width: 13 })), { width: 11 }]
+  ws1.columns = [{ width: 26 }, { width: 32 }, { width: 12 }, ...catCols(), ...(fc ? catCols() : []), { width: 11 },
     ...BANDS.map(() => ({ width: 13, style: { numFmt: HRS } })), ...RATE_KEYS.map(() => ({ width: 15, style: { numFmt: HRS } })), { width: 13, style: { numFmt: HRS } }]
 
   // 2. Turni
   const ws2 = wb.addWorksheet('Turni')
-  title(ws2, 'Turni di reperibilità erogati (giorno di riferimento = giorno di inizio)')
-  header(ws2, ['Persona', 'Email', 'Team', 'Giorno di riferimento', 'Giorno', 'Categoria', 'Inizio', 'Fine', 'Stato del giorno'])
+  title(ws2, `Turni di reperibilità ${fc ? 'effettuati e programmati' : 'erogati'} (giorno di riferimento = giorno di inizio)`)
+  header(ws2, ['Persona', 'Email', 'Team', 'Giorno di riferimento', 'Giorno', 'Categoria', 'Inizio', 'Fine', 'Stato'])
   for (const s of shifts) {
-    ws2.addRow([...who(s.person), dateCell(s.date), WEEKDAY[weekday(s.date)], SHIFT_CAT_LABEL[s.cat], stampCell(s.start), stampCell(s.end), s.state === 'consuntivato' ? 'Consuntivato' : 'Erogato'])
+    ws2.addRow([...who(s.person), dateCell(s.date), WEEKDAY[weekday(s.date)], SHIFT_CAT_LABEL[s.cat], stampCell(s.start), stampCell(s.end), STATE_LABEL[s.state]])
   }
-  total(ws2, ['Totale', '', '', '', '', plural(shifts.length, 'turno', 'turni'), '', '', ''])
+  total(ws2, ['Totale', '', '', '', '', fc ? `${plural(done, 'effettuato', 'effettuati')}, ${plural(shifts.length - done, 'programmato', 'programmati')}` : plural(shifts.length, 'turno', 'turni'), '', '', ''])
   ws2.columns = [{ width: 26 }, { width: 32 }, { width: 12 }, { width: 14, style: { numFmt: 'dd/mm/yyyy' } }, { width: 11 }, { width: 26 },
     { width: 16, style: { numFmt: 'dd/mm/yyyy hh:mm' } }, { width: 16, style: { numFmt: 'dd/mm/yyyy hh:mm' } }, { width: 14 }]
 

@@ -483,6 +483,10 @@ function riepilogoSection(c: GuideCtx): Sec {
     key: 'riepilogo', title: 'Leggere il riepilogo',
     body: <>
       <P>Nella pagina <Ui>Riepilogo</Ui> scegli mese o settimana e, se serve, il team. Una riga per persona:</P>
+      <List items={[
+        <><Ui>Solo effettuati</Ui>: i turni dei giorni erogati, quelli da pagare.</>,
+        <><Ui>Anche programmati</Ui>: il previsionale. Accanto agli effettuati compaiono i turni del calendario non ancora erogati (+N); gli interventi restano solo quelli effettuati e approvati. Anche l'export segue la scelta.</>,
+      ]} />
       <Mock caption="Solo turni dei giorni erogati e interventi approvati. Sotto la tabella, il dettaglio di ogni intervento.">
         <div className="overflow-x-auto rounded-lg bg-white ring-1 ring-inset ring-slate-200">
           <table className="w-full min-w-[520px] text-xs">
