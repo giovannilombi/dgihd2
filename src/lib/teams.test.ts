@@ -7,7 +7,7 @@ import { SALARY_RULES, salaryRuleChecks } from './salaryChecks'
 import { mergeConflicts, mergeViolations } from './serverChecks'
 import { normalizeWithReport, type AppData } from './store'
 import { DEFAULT_TEAMS as T, defaultResourceTeam, isTeamId, rowToTeam, teamDir, teamLabel, teamLabelError, teamSlug, type TeamId } from './teams'
-import { canSeeSalaryOf, normalizeRole, seesAllSalaries, type Role } from './roles'
+import { canSeeSalaryOf, normalizeRole, seesAllSalaries, summaryTeamLock, type Role } from './roles'
 import { DEFAULT_PARAMS as P, type Person } from './types'
 
 const person = (id: string, team: TeamId | null, ral: number, extra: Partial<Person> = {}): Person =>
@@ -37,6 +37,12 @@ describe('visibilità RAL per profilo (stessa regola della RLS)', () => {
       expect(canSeeSalaryOf(me(r, 'tech', false), 'tech')).toBe(false)
       expect(canSeeSalaryOf({ role: r, team: 'tech' }, 'tech')).toBe(false)
     }
+  })
+  it('Riepilogo: il Director vede solo il proprio team, salvo abilitazione a tutti i team', () => {
+    expect(summaryTeamLock({ role: 'director', team: 'tech' })).toBe('tech')
+    expect(summaryTeamLock({ role: 'director', team: null })).toBeNull()
+    expect(summaryTeamLock({ role: 'director', team: 'tech', summary_all: true })).toBeUndefined()
+    for (const r of ['super_admin', 'governance', 'hr'] as const) expect(summaryTeamLock({ role: r, team: 'tech' })).toBeUndefined()
   })
   it('PM, Viewer e Turnista non vedono nessuna RAL, qualunque sia il team', () => {
     for (const r of ['pm', 'viewer', 'turnista'] as const) {

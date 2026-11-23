@@ -278,6 +278,7 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
           ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi e Riepilogo.'],
           ['Cosa fai', 'Calendario e anagrafica; segni gli erogati, approvi gli interventi e sblocchi i giorni del tuo team.'],
         ]} />
+        <Note>Nel <Ui>Riepilogo</Ui> vedi ed esporti le persone del tuo team; lo Space admin può consentirti anche gli altri team.</Note>
         {fullNote(c)}
       </>,
     },
@@ -656,6 +657,7 @@ function spaceAdmin(c: GuideCtx): Sec[] {
         ['Reimposta password', 'Nuova password provvisoria, da cambiare al primo accesso.'],
         ['Elimina', 'L\'account non può più accedere; la scheda nel piano resta.'],
         ['Visibilità dei Turnisti', 'Propri turni: degli altri vedono solo "Turno coperto". Tutti i turni: vedono anche i nomi.'],
+        ['Riepilogo dei Director', `Colonna Visibilità: di norma un Director vede nel Riepilogo solo il suo team; puoi consentirgli tutti i team (per esempio per esportare le schede di tutti quando non ci sei).${c.full ? ' RAL e importi restano comunque del solo suo team.' : ''}`],
         ...(c.full ? [['Dati ▾', 'Esporta o importa la configurazione JSON. L\'import sostituisce i dati per tutti; il file contiene anagrafica e RAL: non condividerlo.'] as [string, string]] : []),
       ]} />,
     },

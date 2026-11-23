@@ -1,6 +1,6 @@
 // Gestione account del Piano reperibilità ARM.
 // - change_password: qualsiasi utente autenticato cambia la propria password (obbligatorio al primo accesso)
-// - list / create / reset / set_role / set_team / set_person / set_view / set_full_view_allowed / delete: solo Space admin
+// - list / create / reset / set_role / set_team / set_person / set_view / set_summary_all / set_full_view_allowed / delete: solo Space admin
 //   (lo Space admin è uno solo: non si assegna, non si cambia e non si elimina dall'app)
 // - process_requests: elabora la coda public.admin_requests (chiamata firmata dal database con il token del Vault)
 // La chiave di servizio resta lato server: non è mai inviata al browser.
@@ -149,7 +149,7 @@ Deno.serve(async (req) => {
   const validRole = (r: unknown): r is Role => ASSIGNABLE.includes(r as Role)
 
   if (action === 'list') {
-    const { data: rows, error } = await admin.from('profiles').select('id, email, display_name, role, team, person_id, turnista_view, full_view_allowed, must_change_password, created_at').order('created_at')
+    const { data: rows, error } = await admin.from('profiles').select('id, email, display_name, role, team, person_id, turnista_view, summary_all, full_view_allowed, must_change_password, created_at').order('created_at')
     // l'abilitazione alla vista completa si legge solo con la propria vista completa attiva
     const profiles = (rows ?? []).map(({ full_view_allowed, ...p }) => (me.full_view ? { ...p, full_view_allowed } : p))
     if (error) return fail(error.message, 500)
@@ -228,6 +228,14 @@ Deno.serve(async (req) => {
     const view = parseView(body.turnista_view)
     if (view === undefined || body.turnista_view === undefined) return fail('Visibilità non valida.')
     const { error } = await admin.from('profiles').update({ turnista_view: view }).eq('id', userId)
+    if (error) return fail(error.message, 500)
+    return json({ ok: true })
+  }
+
+  if (action === 'set_summary_all') {
+    if (target.role !== 'director') return fail('Vale solo per i Director.')
+    if (typeof body.allowed !== 'boolean') return fail('Valore non valido.')
+    const { error } = await admin.from('profiles').update({ summary_all: body.allowed }).eq('id', userId)
     if (error) return fail(error.message, 500)
     return json({ ok: true })
   }

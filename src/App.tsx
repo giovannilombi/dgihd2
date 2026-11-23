@@ -20,7 +20,7 @@ import { Button, Section } from './components/ui'
 import { useAuth, verifyOwnPassword } from './lib/useAuth'
 import { useRemoteData, type SyncStatus } from './lib/useRemoteData'
 import { useHeightVar } from './lib/useStickyBar'
-import { canEdit, canManageUsers, canReadFull, canReadPlan, fullViewEligible, fullViewOn, seesAllSalaries, type Profile, type Role } from './lib/roles'
+import { canEdit, canManageUsers, canReadFull, canReadPlan, fullViewEligible, fullViewOn, seesAllSalaries, summaryTeamLock, type Profile, type Role } from './lib/roles'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import type { ExportRange } from './lib/exportRange'
@@ -304,7 +304,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
     riepilogo: canReadFull(role) ? (
       <Section id="riepilogo" title="Riepilogo turni e interventi" subtitle="Per persona: turni per categoria e ore di intervento per fascia. Da qui si consuntiva il mese e si esporta per l'ufficio paghe.">
         <HoursSummary people={data.people} assignments={data.assignments} params={data.params} days={days} interventions={ivs} noInt={noInt}
-          defaultTeam={role === 'director' ? profile.team : null} canCloseMonth={editable || role === 'hr'} onCloseMonth={closeMonth} />
+          defaultTeam={role === 'director' ? profile.team : null} lockedTeam={summaryTeamLock(profile)} canCloseMonth={editable || role === 'hr'} onCloseMonth={closeMonth} />
       </Section>
     ) : null,
     payroll: (

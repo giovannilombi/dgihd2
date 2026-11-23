@@ -112,6 +112,11 @@ export function UsersPage({ me, full, people, flush }: { me: Profile; full: bool
   /** Persona dell'anagrafica con la stessa email dell'account: è così che il Turnista riconosce i propri turni. */
   const personByEmail = (email: string) => people.find((p) => p.email && p.email === email.trim().toLowerCase())
   const personOf = (u: UserRow) => people.find((p) => p.id === u.person_id) ?? personByEmail(u.email)
+  /** Director: Riepilogo (turni e ore, senza importi) del solo proprio team oppure di tutti i team. */
+  const setSummaryAll = (u: UserRow, all: boolean) => {
+    if (all === !!u.summary_all) return
+    void run(async () => { await adminCall({ action: 'set_summary_all', user_id: u.id, allowed: all }) })
+  }
   const setView = (u: UserRow, view: NamesMode) => { if (view !== (u.turnista_view ?? 'own')) void run(async () => { await adminCall({ action: 'set_view', user_id: u.id, turnista_view: view }) }) }
   /** Abilitazione a "Calcoli e importi" (Governance, Director, HR): vale quando la persona la attiva nelle sue Impostazioni. */
   const setFullAllowed = (u: UserRow, allowed: boolean) => {
@@ -215,7 +220,7 @@ export function UsersPage({ me, full, people, flush }: { me: Profile; full: bool
               <th className="py-2 pr-3 font-medium">Profilo</th>
               <th className="py-2 pr-3 font-medium" title={full ? 'Appartenenza; per il Director decide RAL visibili e interventi da approvare' : 'Appartenenza; per il Director decide gli interventi da approvare'}>Team</th>
               {full && <th className="py-2 pr-3 font-medium" title="Abilitazione a RAL, livelli e importi: vale quando la persona attiva l'opzione nelle sue Impostazioni">Calcoli e importi</th>}
-              <th className="py-2 pr-3 font-medium" title="Per i Turnisti: propri turni o tutti i turni (vale quando l'impostazione generale è Per persona)">Visibilità</th>
+              <th className="py-2 pr-3 font-medium" title="Turnisti: propri turni o tutti i turni (vale quando l'impostazione generale è Per persona). Director: Riepilogo del proprio team o di tutti i team">Visibilità</th>
               <th className="py-2 pr-3 font-medium">Stato</th>
               <th className="py-2 pr-3 font-medium">Ultimo accesso</th>
               <th className="py-2" />
@@ -277,6 +282,15 @@ export function UsersPage({ me, full, people, flush }: { me: Profile; full: bool
                       {!personOf(u) && (
                         <div className="mt-1 max-w-52 text-[11px] font-medium text-amber-800" title="L'email dell'account deve coincidere con quella della sua scheda nella pagina Team">La sua email non corrisponde a nessuna scheda dell'anagrafica: non vede evidenziati i propri turni</div>
                       )}
+                    </>
+                  ) : u.role === 'director' ? (
+                    <>
+                      <select value={u.summary_all ? 'all' : 'team'} disabled={busy} onChange={(e) => setSummaryAll(u, e.target.value === 'all')} aria-label={`Riepilogo di ${u.email}`}
+                        className="rounded-md bg-white px-2 py-1 ring-1 ring-inset ring-slate-200">
+                        <option value="team">Riepilogo: solo il suo team</option>
+                        <option value="all">Riepilogo: tutti i team</option>
+                      </select>
+                      <div className="mt-0.5 max-w-52 text-[11px] text-slate-400">Turni e ore, senza importi.{full ? ' RAL e importi restano del solo suo team.' : ''}</div>
                     </>
                   ) : <span className="text-slate-400">—</span>}
                 </td>

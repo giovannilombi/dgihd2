@@ -279,7 +279,8 @@ Altre regole dell'art. 7 rilevanti:
 
 ### 10.1 Riepilogo turni e interventi (senza importi)
 
-Pagina **Riepilogo** (Space admin, Governance, Director, HR): per mese o settimana, e per team, una riga per
+Pagina **Riepilogo** (Space admin, Governance, Director, HR; il Director vede solo il proprio team, salvo
+abilitazione dello Space admin a tutti i team dalla pagina Utenti): per mese o settimana, e per team, una riga per
 persona con i turni per categoria e gli interventi approvati in ore. Da qui si consuntiva il mese e si
 esporta il file per l'ufficio paghe, che calcola gli importi con livello e RAL che già conosce.
 

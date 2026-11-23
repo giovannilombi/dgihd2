@@ -21,6 +21,8 @@ interface Props {
   noInt: ReadonlySet<string>
   /** Team proposto all'apertura (il Director parte dal proprio); null = tutti */
   defaultTeam?: TeamId | null
+  /** Riepilogo limitato a un team (Director non abilitato a tutti i team); null = nessun team, undefined = libero */
+  lockedTeam?: TeamId | null
   /** Può consuntivare un mese intero (Space admin, Governance, Director, HR) */
   canCloseMonth?: boolean
   onCloseMonth?: (month: string) => Promise<number>
@@ -28,8 +30,29 @@ interface Props {
 
 const dur = (m: number) => (m > 0 ? fmtMinutes(m) : '–')
 const th = 'py-2 pr-3 font-medium'
-/** Tabelle lunghe: scorrono dentro il riquadro, con intestazione (e totali) sempre visibili. */
-const scrollBox = 'max-h-[calc(100vh-var(--app-header-h,57px)-2rem)] overflow-auto'
+/**
+ * Intestazione (e totali) sempre visibili: su schermi larghi restano fissi sotto la barra in alto mentre
+ * scorre la pagina; su schermi stretti la tabella scorre dentro il suo riquadro (anche in orizzontale).
+ */
+const scrollBox = 'max-h-[calc(100vh-var(--app-header-h,57px)-2rem)] overflow-auto xl:max-h-none xl:overflow-visible'
+
+const Chevron = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 20 20" className={`h-3.5 w-3.5 shrink-0 text-slate-500 ${className}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M5 8l5 5 5-5" /></svg>
+)
+
+/** Menu a tendina con la stessa altezza e la stessa freccia degli altri controlli. */
+function SelectBox({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: React.ReactNode }) {
+  return (
+    <label className="relative inline-flex">
+      <span className="sr-only">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="h-9 appearance-none rounded-lg bg-white pl-3 pr-9 text-sm text-slate-800 ring-1 ring-inset ring-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600">
+        {children}
+      </select>
+      <Chevron className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" />
+    </label>
+  )
+}
 
 /** Filtro per persona: caselle di spunta; nessuna scelta = tutte. */
 function PeopleFilter({ options, selected, onChange }: { options: Person[]; selected: string[]; onChange: (ids: string[]) => void }) {
@@ -50,9 +73,9 @@ function PeopleFilter({ options, selected, onChange }: { options: Person[]; sele
   return (
     <div ref={box} className="relative" onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}>
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog"
-        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm ring-1 ring-inset ${selected.length ? 'bg-blue-50 text-blue-900 ring-blue-300' : 'bg-white text-slate-800 ring-slate-300'}`}>
+        className={`inline-flex h-9 items-center gap-3 rounded-lg pl-3 pr-3 text-sm ring-1 ring-inset focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${selected.length ? 'bg-blue-50 text-blue-900 ring-blue-300' : 'bg-white text-slate-800 ring-slate-300'}`}>
         {label}
-        <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M5 8l5 5 5-5" /></svg>
+        <Chevron />
       </button>
       {open && (
         <div role="dialog" aria-label="Scegli le persone" className="absolute left-0 z-40 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -110,7 +133,7 @@ function Shifts({ done, planned, forecast, strong = false }: { done: number; pla
  * giorno di inizio) e gli interventi approvati in ore, per fascia. Da qui si consuntiva il mese e si
  * esporta il file per l'ufficio paghe.
  */
-export function HoursSummary({ people, assignments, params, days, interventions, noInt, defaultTeam = null, canCloseMonth = false, onCloseMonth }: Props) {
+export function HoursSummary({ people, assignments, params, days, interventions, noInt, defaultTeam = null, lockedTeam, canCloseMonth = false, onCloseMonth }: Props) {
   const teams = useTeams()
   const { months, weeks } = useMemo(() => payPeriods(), [])
   const today = romeToday()
@@ -121,7 +144,8 @@ export function HoursSummary({ people, assignments, params, days, interventions,
   const [rangeFrom, setRangeFrom] = useState(thisMonth.from)
   const [rangeTo, setRangeTo] = useState(thisMonth.to)
   const rangeError = kind === 'range' ? validateRange({ from: rangeFrom, to: rangeTo }) : undefined
-  const [team, setTeam] = useState<TeamId | null>(defaultTeam)
+  const [teamSel, setTeam] = useState<TeamId | null>(defaultTeam)
+  const team = lockedTeam !== undefined ? lockedTeam : teamSel
   /** Persone scelte con il filtro; vuoto = tutte */
   const [selected, setSelected] = useState<string[]>([])
   const [exportOpen, setExportOpen] = useState(false)
@@ -185,55 +209,54 @@ export function HoursSummary({ people, assignments, params, days, interventions,
   }
 
   const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((t, r) => t + f(r), 0)
-  const select = 'rounded-lg bg-white px-2.5 py-1.5 text-sm ring-1 ring-inset ring-slate-300'
+  if (lockedTeam === null) return <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Non hai un team assegnato: il Riepilogo mostra le persone del tuo team. Chiedi allo Space admin di assegnartelo.</p>
+  const seg = (on: boolean) => `inline-flex h-8 items-center rounded-md px-3 font-medium ${on ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`
+  const dateInput = 'h-9 rounded-lg bg-white px-2.5 text-sm text-slate-800 ring-1 ring-inset ring-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600'
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-sm" role="radiogroup" aria-label="Periodo">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex h-9 items-center rounded-lg bg-slate-100 p-0.5 text-sm" role="radiogroup" aria-label="Periodo">
           {([['month', 'Mese'], ['week', 'Settimana'], ['range', 'Intervallo']] as const).map(([k, l]) => (
-            <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)}
-              className={`rounded-md px-3 py-1.5 font-medium ${kind === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
+            <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)} className={seg(kind === k)}>{l}</button>
           ))}
         </div>
-        <label className="text-xs font-medium text-slate-600">
-          <span className="sr-only">{kind === 'month' ? 'Mese' : 'Settimana'}</span>
-          {kind === 'month' ? (
-            <select value={monthSel} onChange={(e) => setMonthSel(e.target.value)} className={select}>
-              {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-            </select>
-          ) : kind === 'week' ? (
-            <select value={weekSel} onChange={(e) => setWeekSel(e.target.value)} className={select}>
-              {weeks.map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
-            </select>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-sm font-normal text-slate-700">
-              Dal <input type="date" aria-label="Dal" value={rangeFrom} min={HORIZON_START} max={HORIZON_END} onChange={(e) => setRangeFrom(e.target.value)} className={select} />
-              al <input type="date" aria-label="Al" value={rangeTo} min={HORIZON_START} max={HORIZON_END} onChange={(e) => setRangeTo(e.target.value)} className={select} />
-            </span>
-          )}
-        </label>
-        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-sm" role="radiogroup" aria-label="Turni da mostrare">
+        {kind === 'month' ? (
+          <SelectBox label="Mese" value={monthSel} onChange={setMonthSel}>
+            {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </SelectBox>
+        ) : kind === 'week' ? (
+          <SelectBox label="Settimana" value={weekSel} onChange={setWeekSel}>
+            {weeks.map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
+          </SelectBox>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-sm text-slate-700">
+            Dal <input type="date" aria-label="Dal" value={rangeFrom} min={HORIZON_START} max={HORIZON_END} onChange={(e) => setRangeFrom(e.target.value)} className={dateInput} />
+            al <input type="date" aria-label="Al" value={rangeTo} min={HORIZON_START} max={HORIZON_END} onChange={(e) => setRangeTo(e.target.value)} className={dateInput} />
+          </span>
+        )}
+        <div className="inline-flex h-9 items-center rounded-lg bg-slate-100 p-0.5 text-sm" role="radiogroup" aria-label="Turni da mostrare">
           {([[false, 'Solo effettuati'], [true, 'Anche programmati']] as const).map(([k, l]) => (
             <button key={l} type="button" role="radio" aria-checked={forecast === k} onClick={() => setForecast(k)}
               title={k ? 'Previsionale: anche i turni di reperibilità del calendario non ancora erogati; gli interventi restano solo quelli effettuati' : 'Solo i turni di reperibilità dei giorni erogati'}
-              className={`rounded-md px-3 py-1.5 font-medium ${forecast === k ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
+              className={seg(forecast === k)}>{l}</button>
           ))}
         </div>
-        <label className="text-xs font-medium text-slate-600">
-          <span className="sr-only">Team</span>
-          <select value={team ?? ''} onChange={(e) => { setTeam(e.target.value || null); setSelected([]) }} className={select}>
+        {lockedTeam !== undefined ? (
+          <span className="inline-flex h-9 items-center rounded-lg bg-slate-100 px-3 text-sm text-slate-700" title="Nel Riepilogo vedi le persone del tuo team">Team {lockedTeam ? teamLabel(teams, lockedTeam) : '—'}</span>
+        ) : (
+          <SelectBox label="Team" value={team ?? ''} onChange={(v) => { setTeam(v || null); setSelected([]) }}>
             <option value="">Tutti i team</option>
             {teams.list.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-          </select>
-        </label>
+          </SelectBox>
+        )}
         <PeopleFilter options={options} selected={selected} onChange={setSelected} />
         <div className="ml-auto flex flex-wrap gap-2">
           {canCloseMonth && toClose > 0 && (
-            <Button disabled={busy !== null} onClick={() => void closeMonth()} title="Chiude l'inserimento degli interventi su tutti i giorni erogati del mese">
+            <Button className="h-9" disabled={busy !== null} onClick={() => void closeMonth()} title="Chiude l'inserimento degli interventi su tutti i giorni erogati del mese">
               {busy === 'close' ? 'Consuntivazione…' : `Consuntiva il mese (${toClose} ${toClose === 1 ? 'giorno erogato' : 'giorni erogati'})`}
             </Button>
           )}
-          <Button variant="primary" disabled={busy !== null || empty} onClick={() => setExportOpen(true)}>{forecast ? 'Esporta previsionale…' : 'Esporta per paghe…'}</Button>
+          <Button variant="primary" className="h-9" disabled={busy !== null || empty} onClick={() => setExportOpen(true)}>{forecast ? 'Esporta previsionale…' : 'Esporta per paghe…'}</Button>
         </div>
       </div>
 
@@ -252,8 +275,8 @@ export function HoursSummary({ people, assignments, params, days, interventions,
         <p className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">Nel periodo non ci sono ancora turni {forecast ? 'nel calendario' : 'erogati né interventi approvati'}{team ? ` per il team ${teamLabel(teams, team)}` : ''}{selected.length ? ' per le persone scelte' : ''}.</p>
       ) : (
         <div className={`${scrollBox} rounded-xl border border-slate-200 bg-white`}>
-          <table className="num w-full min-w-[1250px] text-sm">
-            <thead className="sticky top-0 z-20 bg-slate-50 shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-slate-50">
+          <table className="num w-full min-w-[1250px] text-sm xl:min-w-0">
+            <thead className="sticky top-0 z-20 bg-slate-50 xl:top-[var(--app-header-h,57px)] shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-slate-50">
               <tr className="text-left text-xs text-slate-500">
                 <th className={`${th} sticky left-0 z-30 bg-slate-50 pl-4`} rowSpan={2}>Persona</th>
                 <th className="pt-2 pr-3 text-center font-semibold text-slate-700" colSpan={SHIFT_CATS.length + 1}>{forecast ? 'Turni di reperibilità effettuati + programmati' : 'Turni di reperibilità'}</th>
@@ -299,8 +322,8 @@ export function HoursSummary({ people, assignments, params, days, interventions,
       {!empty && report.shifts.length > 0 && (
         <Collapsible title={<span className="font-medium">Dettaglio dei turni di reperibilità ({report.shifts.length}{forecast ? `, di cui ${report.shifts.filter((x) => x.state === 'programmato').length} programmati` : ''})</span>}>
           <div className={scrollBox}>
-            <table className="num w-full min-w-[900px] text-sm">
-              <thead className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-white">
+            <table className="num w-full min-w-[900px] text-sm xl:min-w-0">
+              <thead className="sticky top-0 z-10 bg-white xl:top-[var(--app-header-h,57px)] shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-white">
                 <tr className="text-left text-xs text-slate-500">
                   <th className={th}>Persona</th><th className={th}>Giorno di riferimento</th><th className={th} title="Il tipo di reperibilità decide indennità CCNL e gettone">Tipo di gettone</th>
                   <th className={th}>Orario</th><th className={th}>Stato</th><th className={`${th} text-right`}>Interventi approvati</th><th className={`${th} text-right`}>Ore riconosciute</th>
@@ -329,8 +352,8 @@ export function HoursSummary({ people, assignments, params, days, interventions,
       {!empty && report.interventions.length > 0 && (
         <Collapsible title={<span className="font-medium">Dettaglio degli interventi approvati ({report.interventions.length})</span>}>
           <div className={scrollBox}>
-            <table className="num w-full min-w-[1100px] text-sm">
-              <thead className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-white">
+            <table className="num w-full min-w-[1100px] text-sm xl:min-w-0">
+              <thead className="sticky top-0 z-10 bg-white xl:top-[var(--app-header-h,57px)] shadow-[inset_0_-1px_0_#e2e8f0] [&_th]:bg-white">
                 <tr className="text-left text-xs text-slate-500">
                   <th className={th}>Persona</th><th className={th}>Turno</th><th className={th}>Orario e durata effettiva per fascia</th><th className={`${th} text-right`}>Durata</th>
                   {RATE_KEYS.map((k) => <RateHead key={k} k={k} params={params} />)}

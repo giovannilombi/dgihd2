@@ -10,7 +10,7 @@ export type AuthState =
   | { status: 'ready'; session: Session; profile: Profile }
 
 async function fetchProfile(userId: string) {
-  const { data, error } = await supabase.from('profiles').select('id, email, display_name, role, must_change_password, team, full_view_allowed, full_view').eq('id', userId).maybeSingle()
+  const { data, error } = await supabase.from('profiles').select('id, email, display_name, role, must_change_password, team, summary_all, full_view_allowed, full_view').eq('id', userId).maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) return null
   // livello sconosciuto = nessun accesso (mai un livello più ampio per errore)

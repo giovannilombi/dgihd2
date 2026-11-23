@@ -96,11 +96,20 @@ export interface Profile {
   person_id?: string | null
   /** Visibilità del Turnista quando l'impostazione generale è "per persona". */
   turnista_view?: 'own' | 'all'
+  /** Director: riepilogo di tutti i team invece del solo proprio (deciso dallo Space admin). */
+  summary_all?: boolean
   /** Abilitato dallo Space admin alla vista completa (Governance, Director, HR). */
   full_view_allowed?: boolean
   /** Vista completa attivata dall'account stesso. */
   full_view?: boolean
 }
+
+/**
+ * Team a cui è limitato il Riepilogo: il Director vede solo il proprio, salvo abilitazione dello Space admin.
+ * undefined = nessun limite; null = Director senza team (nessuna persona).
+ */
+export const summaryTeamLock = (p: Pick<Profile, 'role' | 'team' | 'summary_all'>): TeamId | null | undefined =>
+  p.role === 'director' && !p.summary_all ? p.team : undefined
 
 /** Profili che lo Space admin può abilitare alla vista completa. */
 export const FULL_VIEW_ROLES: readonly Role[] = ['governance', 'director', 'hr']
