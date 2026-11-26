@@ -249,12 +249,31 @@ Altre regole dell'art. 7 rilevanti:
 - Implementazione: tabelle `day_status` e `day_status_log`, scritte solo dalle funzioni del database
   `mark_day_erogato`, `consuntiva_day`, `consuntiva_month`, `unlock_day`, che verificano i permessi.
 
+### 8.1 Storico delle modifiche
+
+- Chi lo vede: Space admin; Governance in sola lettura. Solo lo Space admin ripristina.
+- **Turni**: ogni assegnazione, sostituzione, puntina e "giorno non richiesto", con autore e ora. Le modifiche
+  della stessa persona a meno di 30 minuti l'una dall'altra formano una **sessione**; dopo 30 minuti senza
+  modifiche ne inizia una nuova. All'inizio di ogni sessione il database salva com'era il piano (turni,
+  puntine, giorni non richiesti). Due viste: *Per persona* (sessioni con i singoli passaggi) e *Per turno*
+  (la storia di ogni turno).
+- **Ripristino**: riporta il piano com'era prima di una sessione, annullando anche le successive. Non tocca i
+  giorni erogati e non riporta persone eliminate. Il ripristino è a sua volta una sessione, quindi si può
+  annullare.
+- **Dati e parametri**: parametri, anagrafica, team, account e impostazioni, con il valore prima e dopo. Per
+  livello e RAL si registra solo che sono cambiati, mai i valori.
+- **Attività**: erogato, consuntivato e sblocchi (da `day_status_log`), interventi inseriti, modificati,
+  eliminati, approvati e rifiutati, "Nessun intervento".
+- Implementazione: trigger del database (`plan_sessions`, `plan_changes`, `data_changes`, `activity_log`),
+  quindi ogni modifica viene registrata qualunque sia la sua origine. Funzione `restore_plan_session`, solo
+  Space admin.
+
 ## 9. Visibilità dei dati (privacy)
 
 - Profili (uno per account; il team indica solo l'appartenenza):
   - **Space admin**: uno solo (vincolo nel database), non si assegna, cambia o elimina dall'app; può essere
     a capo di un team (oggi il team PM) e in quel caso ne è il capo;
-  - **Governance**: modifica tutto il piano (anche il team delle risorse);
+  - **Governance**: modifica tutto il piano (anche il team delle risorse); vede lo Storico in sola lettura;
   - **Director**: modifica il piano, approva gli interventi del team e sblocca i giorni dei turni del team;
     **un solo capo per team** (Director, oppure lo Space admin assegnato al team), vincolo nel database;
   - **HR** (anche più di uno): sola lettura, consuntiva ed esporta il riepilogo per le paghe;

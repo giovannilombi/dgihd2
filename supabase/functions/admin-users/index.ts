@@ -122,6 +122,8 @@ Deno.serve(async (req) => {
   const { data: who, error: whoErr } = await admin.auth.getUser(token)
   if (whoErr || !who?.user) return fail('Sessione non valida: accedi di nuovo.', 401)
   const caller = who.user
+  // Scritture sui profili a nome dello Space admin che chiama: lo storico registra chi ha fatto la modifica
+  const db = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false }, global: { headers: { 'x-actor-id': caller.id } } })
 
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return fail('Richiesta non valida') }
@@ -138,7 +140,7 @@ Deno.serve(async (req) => {
     if (await isPwned(password)) return fail('Questa password compare in elenchi di password rubate in altri siti: scegline un\'altra.')
     const { error } = await admin.auth.admin.updateUserById(caller.id, { password })
     if (error) return fail(`Cambio password non riuscito: ${error.message}`)
-    await admin.from('profiles').update({ must_change_password: false }).eq('id', caller.id)
+    await db.from('profiles').update({ must_change_password: false }).eq('id', caller.id)
     await admin.from('temp_credentials').delete().eq('user_id', caller.id)
     return json({ ok: true })
   }
@@ -177,7 +179,7 @@ Deno.serve(async (req) => {
     const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
     await clearSignup(admin, email)
     if (error || !data.user) return fail(error?.message?.includes('already') ? 'Esiste già un account con questa email.' : `Creazione non riuscita: ${error?.message}`)
-    const { error: pErr } = await admin.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, team, person_id: personId, turnista_view: view, must_change_password: true })
+    const { error: pErr } = await db.from('profiles').insert({ id: data.user.id, email, display_name: displayName, role: body.role, team, person_id: personId, turnista_view: view, must_change_password: true })
     if (pErr) {
       await admin.auth.admin.deleteUser(data.user.id)
       return fail(`Creazione non riuscita: ${personError(pErr.message)}`, 500)
@@ -195,7 +197,7 @@ Deno.serve(async (req) => {
     const { error } = await admin.auth.admin.updateUserById(userId, { password })
     if (error) return fail(`Reset non riuscito: ${error.message}`)
     // con must_change_password=true il database non restituisce più dati finché la password non viene cambiata
-    await admin.from('profiles').update({ must_change_password: true }).eq('id', userId)
+    await db.from('profiles').update({ must_change_password: true }).eq('id', userId)
     await storeTemp(admin, userId, password)
     return json({ ok: true, temp_password: password })
   }
@@ -203,7 +205,7 @@ Deno.serve(async (req) => {
   if (action === 'set_role') {
     if (target.role === 'super_admin') return fail('Lo Space admin è uno solo e non si cambia da qui.')
     if (!validRole(body.role)) return fail('Profilo non valido.')
-    const { error } = await admin.from('profiles').update({ role: body.role }).eq('id', userId)
+    const { error } = await db.from('profiles').update({ role: body.role }).eq('id', userId)
     if (error) return fail(error.message, 500)
     return json({ ok: true })
   }
@@ -211,7 +213,7 @@ Deno.serve(async (req) => {
   if (action === 'set_team') {
     const team = await parseTeam(admin, body.team)
     if (team === undefined) return fail('Team non valido.')
-    const { error } = await admin.from('profiles').update({ team }).eq('id', userId)
+    const { error } = await db.from('profiles').update({ team }).eq('id', userId)
     if (error) return fail(error.message, 500)
     return json({ ok: true })
   }
@@ -219,7 +221,7 @@ Deno.serve(async (req) => {
   if (action === 'set_person') {
     const personId = await parsePerson(admin, body.person_id)
     if (personId === undefined) return fail('Risorsa non trovata.')
-    const { error } = await admin.from('profiles').update({ person_id: personId }).eq('id', userId)
+    const { error } = await db.from('profiles').update({ person_id: personId }).eq('id', userId)
     if (error) return fail(personError(error.message), 400)
     return json({ ok: true })
   }
@@ -227,7 +229,7 @@ Deno.serve(async (req) => {
   if (action === 'set_view') {
     const view = parseView(body.turnista_view)
     if (view === undefined || body.turnista_view === undefined) return fail('Visibilità non valida.')
-    const { error } = await admin.from('profiles').update({ turnista_view: view }).eq('id', userId)
+    const { error } = await db.from('profiles').update({ turnista_view: view }).eq('id', userId)
     if (error) return fail(error.message, 500)
     return json({ ok: true })
   }
@@ -235,7 +237,7 @@ Deno.serve(async (req) => {
   if (action === 'set_summary_all') {
     if (target.role !== 'director') return fail('Vale solo per i Director.')
     if (typeof body.allowed !== 'boolean') return fail('Valore non valido.')
-    const { error } = await admin.from('profiles').update({ summary_all: body.allowed }).eq('id', userId)
+    const { error } = await db.from('profiles').update({ summary_all: body.allowed }).eq('id', userId)
     if (error) return fail(error.message, 500)
     return json({ ok: true })
   }
@@ -244,7 +246,7 @@ Deno.serve(async (req) => {
     if (!me.full_view) return fail('Operazione non consentita.', 403)
     if (!['governance', 'director', 'hr'].includes(target.role)) return fail('Abilitazione possibile solo per Governance, Director e HR.')
     if (typeof body.allowed !== 'boolean') return fail('Valore non valido.')
-    const { error } = await admin.from('profiles').update({ full_view_allowed: body.allowed }).eq('id', userId)
+    const { error } = await db.from('profiles').update({ full_view_allowed: body.allowed }).eq('id', userId)
     if (error) return fail(error.message, 500)
     return json({ ok: true })
   }
@@ -252,6 +254,9 @@ Deno.serve(async (req) => {
   if (action === 'delete') {
     if (target.role === 'super_admin') return fail('Lo Space admin non si elimina.')
     if (userId === caller.id && target.role !== 'super_admin') return fail('Non puoi eliminare il tuo account.')
+    // prima il profilo (lo storico registra chi elimina), poi l'accesso
+    const { error: pErr } = await db.from('profiles').delete().eq('id', userId)
+    if (pErr) return fail(`Eliminazione non riuscita: ${pErr.message}`, 500)
     const { error } = await admin.auth.admin.deleteUser(userId)
     if (error) return fail(`Eliminazione non riuscita: ${error.message}`, 500)
     return json({ ok: true })

@@ -261,10 +261,10 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
       body: gov ? <>
         <P>Governi il piano di <strong>tutti i team</strong>: calendario, anagrafica e parametri.</P>
         <Cards items={c.full ? [
-          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi, Riepilogo, Consuntivo e Conto economico.'],
+          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi, Riepilogo, Consuntivo, Conto economico e Storico (in lettura).'],
           ['RAL e importi', 'Di tutte le persone di tutti i team.'],
         ] : [
-          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi e Riepilogo.'],
+          ['Cosa vedi', 'Tutte le pagine: Approccio, Parametri, Team, Calendario, Interventi, Riepilogo e Storico (in lettura).'],
           ['Cosa fai', 'Modifichi calendario, anagrafica (team delle persone compreso) e parametri; segni gli erogati.'],
         ]} />
         {fullNote(c)}
@@ -381,6 +381,7 @@ function planner(c: GuideCtx, gov: boolean): Sec[] {
         {c.exact && <P>Ore riconosciute: minimo {ore(c.p.otMinHours)} per intervento, oltre l'ora contano i minuti sopra i {c.p.otToleranceMin}′; più l'{callFeeText(c.p.callFee)}.</P>}
       </>,
     },
+    ...(gov ? [historySection(c, false)] : []),
     mineSection(),
   ]
 }
@@ -587,6 +588,27 @@ function viewer(c: GuideCtx): Sec[] {
 
 /* ---------- Space admin ---------- */
 
+/* ---------- Storico (Space admin e Governance) ---------- */
+
+function historySection(c: GuideCtx, admin: boolean): Sec {
+  return {
+    key: 'storico', title: 'Storico',
+    body: <>
+      <P>La scheda <Ui>Storico</Ui>, in alto a destra, dice chi ha cambiato cosa e quando. {admin ? 'La vedi tu e, in sola lettura, Governance.' : 'La vedi in sola lettura; lo Space admin può anche riportare il piano com\'era prima di una modifica.'}</P>
+      <Table head={['Pagina', 'Cosa trovi']} rows={[
+        [<Ui key="t">Turni</Ui>, <>Ogni assegnazione, sostituzione, puntina e giorno non richiesto. Due viste: <Ui>Per persona</Ui> (le sessioni di modifica, una dopo l'altra) e <Ui>Per turno</Ui> (la storia di ogni singolo turno).</>],
+        [<Ui key="d">Dati e parametri</Ui>, 'Parametri, persone aggiunte, modificate o eliminate, team, account e impostazioni: il valore prima e dopo.'],
+        [<Ui key="a">Attività</Ui>, 'Giorni segnati erogati, consuntivati e sbloccati (con il motivo); interventi inseriti, modificati, eliminati, approvati e rifiutati; "Nessun intervento".'],
+      ]} />
+      <P>Le modifiche ai turni della stessa persona a meno di 30 minuti l'una dall'altra formano una <strong>sessione</strong>: dentro si vede ogni passaggio, con l'ora. Dopo 30 minuti senza modifiche ne inizia una nuova.</P>
+      {admin && <Note warn>
+        <Ui>Ripristina com'era prima</Ui> riporta turni, puntine e giorni non richiesti com'erano prima di quella sessione, annullando anche le sessioni successive: l'anteprima mostra cosa cambia prima di confermare. I giorni già erogati non si toccano e le persone eliminate non tornano. Anche il ripristino resta nello Storico e si può annullare allo stesso modo.
+      </Note>}
+      {admin && c.full && <P>Per livello e RAL lo Storico dice solo che sono cambiati, mai i valori; quelle righe le vedi solo tu.</P>}
+    </>,
+  }
+}
+
 function spaceAdmin(c: GuideCtx): Sec[] {
   const base = `${location.origin}${location.pathname}`
   return [
@@ -617,8 +639,8 @@ function spaceAdmin(c: GuideCtx): Sec[] {
       key: 'profili', title: 'Profili e RAL',
       body: <>
         <Table head={['Profilo', 'Pagine', 'RAL e importi', 'Può fare']} rows={[
-          ['Space admin', 'Tutte, più Utenti', 'Tutti', 'Tutto: account, profili e team'],
-          ['Governance', 'Tutte', 'Tutti', 'Modifica piano, anagrafica (anche il team delle persone) e parametri; segna erogato'],
+          ['Space admin', 'Tutte, più Utenti e Storico', 'Tutti', 'Tutto: account, profili e team; ripristina il piano dallo Storico'],
+          ['Governance', 'Tutte, più Storico in lettura', 'Tutti', 'Modifica piano, anagrafica (anche il team delle persone) e parametri; segna erogato'],
           ['Director', 'Tutte', 'Solo il suo team', 'Modifica il piano; segna erogato; approva gli interventi e sblocca i giorni del suo team'],
           ['HR', 'Tutte, in lettura', 'Tutti', 'Consuntiva; esporta paghe e report'],
           ['PM', 'Approccio, Calendario, Interventi', 'Nessuno', 'Approva gli interventi di tutti i team'],
@@ -632,9 +654,9 @@ function spaceAdmin(c: GuideCtx): Sec[] {
       key: 'profili', title: 'Profili',
       body: <>
         <Table head={['Profilo', 'Pagine', 'Può fare']} rows={[
-          ['Space admin', 'Tutte, più Utenti', 'Tutto: account, profili e team'],
-          ['Governance', 'Approccio, Parametri, Team, Calendario, Interventi, Riepilogo', 'Modifica piano, anagrafica (anche il team delle persone) e parametri; segna erogato'],
-          ['Director', 'Le stesse di Governance', 'Modifica il piano; segna erogato; approva gli interventi e sblocca i giorni del suo team'],
+          ['Space admin', 'Tutte, più Utenti e Storico', 'Tutto: account, profili e team; ripristina il piano dallo Storico'],
+          ['Governance', 'Approccio, Parametri, Team, Calendario, Interventi, Riepilogo, Storico in lettura', 'Modifica piano, anagrafica (anche il team delle persone) e parametri; segna erogato'],
+          ['Director', 'Approccio, Parametri, Team, Calendario, Interventi, Riepilogo', 'Modifica il piano; segna erogato; approva gli interventi e sblocca i giorni del suo team'],
           ['HR', 'Le stesse, in lettura', 'Consuntiva; esporta il riepilogo per le paghe'],
           ['PM', 'Approccio, Calendario, Interventi', 'Approva gli interventi di tutti i team'],
           ['Viewer', 'Calendario', 'Solo lettura'],
@@ -661,6 +683,7 @@ function spaceAdmin(c: GuideCtx): Sec[] {
         ...(c.full ? [['Dati ▾', 'Esporta o importa la configurazione JSON. L\'import sostituisce i dati per tutti; il file contiene anagrafica e RAL: non condividerlo.'] as [string, string]] : []),
       ]} />,
     },
+    historySection(c, true),
     {
       key: 'guide', title: 'Le guide',
       body: <>

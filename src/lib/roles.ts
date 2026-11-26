@@ -65,6 +65,8 @@ export const canReadFull = (r: Role) => canEdit(r) || r === 'hr'
 /** Legge Approccio (parametri applicati) e interventi di tutti */
 export const canReadPlan = (r: Role) => canReadFull(r) || r === 'pm'
 export const canManageUsers = (r: Role) => r === 'super_admin'
+/** Storico delle modifiche e delle attività (in sola lettura per Governance; il ripristino è dello Space admin) */
+export const canReadHistory = (r: Role) => r === 'super_admin' || r === 'governance'
 /** Vede RAL, livello e importi di tutti i team */
 export const seesAllSalaries = (r: Role) => r === 'super_admin' || r === 'governance' || r === 'hr'
 

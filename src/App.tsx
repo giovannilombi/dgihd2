@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Dashboard } from './components/Dashboard'
 import { Approach } from './components/Approach'
@@ -20,7 +20,7 @@ import { Button, Section } from './components/ui'
 import { useAuth, verifyOwnPassword } from './lib/useAuth'
 import { useRemoteData, type SyncStatus } from './lib/useRemoteData'
 import { useHeightVar } from './lib/useStickyBar'
-import { canEdit, canManageUsers, canReadFull, canReadPlan, fullViewEligible, fullViewOn, seesAllSalaries, summaryTeamLock, type Profile, type Role } from './lib/roles'
+import { canEdit, canManageUsers, canReadFull, canReadHistory, canReadPlan, fullViewEligible, fullViewOn, seesAllSalaries, summaryTeamLock, type Profile, type Role } from './lib/roles'
 import { download, fullReportCsv } from './lib/reports'
 import { buildShiftsPdf, buildShiftsXlsx } from './lib/shiftsExport'
 import type { ExportRange } from './lib/exportRange'
@@ -42,6 +42,7 @@ import { MyInterventions } from './components/MyInterventions'
 import { PayrollExportDialog } from './components/PayrollExportDialog'
 import { HoursSummary } from './components/HoursSummary'
 import { SettingsDialog } from './components/SettingsDialog'
+import { ActivityHistory, DataHistory, HistoryNav, PlanHistory } from './components/HistoryPages'
 import { GuideButton, GuideDrawer } from './components/guide/GuideDrawer'
 import { isGuideHash } from './lib/guides'
 import { useGuide } from './lib/useGuide'
@@ -60,8 +61,13 @@ const NAV = [
   ['payroll', 'Consuntivo'],
   ['pnl', 'Conto economico'],
   ['miei', 'I miei interventi'],
+  ['storico', 'Storico'],
+  ['storico-dati', 'Storico dati'],
+  ['attivita', 'Attività'],
   ['users', 'Utenti'],
 ] as const
+/** Pagine dello Storico: una sola scheda nella barra, con le sottopagine dentro. */
+const HISTORY: readonly string[] = ['storico', 'storico-dati', 'attivita']
 type PageId = (typeof NAV)[number][0]
 
 /**
@@ -74,7 +80,8 @@ const pagesFor = (role: Role, linked: boolean, full: boolean): PageId[] => {
   if (role === 'viewer') return ['planner', ...mine]
   // PM: approccio, calendario e interventi (solo ore), senza parametri, anagrafica e importi
   if (role === 'pm') return ['doc', 'planner', 'interventi', ...mine]
-  return NAV.map(([id]) => id).filter((id) => (id !== 'users' || canManageUsers(role)) && (id !== 'miei' || linked) && ((id !== 'payroll' && id !== 'pnl') || full))
+  return NAV.map(([id]) => id).filter((id) => (id !== 'users' || canManageUsers(role)) && (id !== 'miei' || linked) && ((id !== 'payroll' && id !== 'pnl') || full)
+    && (!HISTORY.includes(id) || canReadHistory(role)))
 }
 
 const readPage = (allowed: PageId[]): PageId => {
@@ -134,6 +141,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
   // Giorni erogati (turni definitivi) e consuntivati; le azioni passano dalle funzioni del database
   const { days, reload: reloadDays } = useDayStatus(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const historyCurrent = useMemo(() => ({ assignments: data.assignments, pinned: data.pinned, excludedDays: data.excludedDays }), [data.assignments, data.pinned, data.excludedDays])
   const dayAction = (fn: (day: string) => Promise<unknown>) => async (day: string) => { await flush(); await fn(day); await reloadDays() }
   const dayActions: DayActions = {
     perms: (day) => dayPerms(day, me, data.people, data.assignments),
@@ -333,6 +341,24 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         <MyInterventions data={mine.data} error={mine.error} reload={mine.reload} rules={canReadPlan(role) ? data.params : undefined} />
       </Section>
     ) : null,
+    storico: canReadHistory(role) ? (
+      <Section id="storico" title="Storico" subtitle={role === 'super_admin' ? 'Chi ha cambiato cosa, e quando. Solo tu e Governance (in lettura) vedete questa pagina.' : 'Chi ha cambiato cosa, e quando. In sola lettura.'}>
+        <HistoryNav page="storico" />
+        <PlanHistory canRestore={role === 'super_admin'} current={historyCurrent} people={data.people} days={days} />
+      </Section>
+    ) : null,
+    'storico-dati': canReadHistory(role) ? (
+      <Section id="storico-dati" title="Storico" subtitle="Chi ha cambiato cosa, e quando.">
+        <HistoryNav page="storico-dati" />
+        <DataHistory full={full} people={data.people} />
+      </Section>
+    ) : null,
+    attivita: canReadHistory(role) ? (
+      <Section id="attivita" title="Storico" subtitle="Chi ha cambiato cosa, e quando.">
+        <HistoryNav page="attivita" />
+        <ActivityHistory />
+      </Section>
+    ) : null,
     users: canManageUsers(role) ? (
       <Section id="users" title="Utenti e livelli di accesso" subtitle="Solo lo space admin vede questa pagina.">
         <UsersPage me={profile} full={full} people={data.people} flush={flush} />
@@ -359,7 +385,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
         {/* Riga 2: schede nell'ordine del lavoro; a destra Dati e Utenti. Su schermi stretti scorre in orizzontale. */}
         <div className="relative mx-auto max-w-[1500px]">
           <nav aria-label="Sezioni" className="flex items-stretch gap-5 overflow-x-auto px-4 text-sm">
-            {NAV.filter(([id]) => allowed.includes(id) && id !== 'miei' && id !== 'users').map(([id, label]) => (
+            {NAV.filter(([id]) => allowed.includes(id) && id !== 'miei' && id !== 'users' && !HISTORY.includes(id)).map(([id, label]) => (
               <NavTab key={id} id={id} active={page === id}>
                 {label}
                 {id === 'interventi' && pendingCount > 0 && <span className="rounded-full bg-yellow-100 px-1.5 text-xs font-semibold text-yellow-900 ring-1 ring-yellow-300" title="Interventi in approvazione">{pendingCount}</span>}
@@ -382,6 +408,7 @@ function Main({ profile, onLogout, onChangePassword }: { profile: Profile; onLog
                   <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M5 8l5 5 5-5" /></svg>
                 </button>
               )}
+              {allowed.includes('storico') && <NavTab id="storico" active={HISTORY.includes(page)}>Storico</NavTab>}
               {allowed.includes('users') && <NavTab id="users" active={page === 'users'}>Utenti</NavTab>}
             </span>
           </nav>
